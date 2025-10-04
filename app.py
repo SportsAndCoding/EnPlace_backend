@@ -81,8 +81,11 @@ async def authenticate_staff_db(email: str) -> Optional[Dict[str, Any]]:
     try:
         result = supabase.rpc('authenticate_staff', {'p_email': email}).execute()
         
-        if result.data and result.data.get('success'):
-            return result.data['staff']
+        # The function returns a list with one item, not a dict
+        if result.data and len(result.data) > 0:
+            row = result.data[0]  # Get first row from list
+            if row.get('success'):
+                return row['staff']
         return None
     except Exception as e:
         logger.error(f"Database authentication error: {e}")
