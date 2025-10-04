@@ -1,151 +1,33 @@
-# En Place FastAPI Backend
-# Core staffing focus with authentication
-
 import os
-import bcrypt
-import jwt
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr
-from supabase import create_client, Client
-import logging
+from config.settings import ALLOWED_ORIGINS
+from routes import staff
+# Import your existing auth route or keep it in app.py for now
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Environment variables
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # Use service key for server-side
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-this")
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
-
-# Initialize Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Initialize FastAPI
 app = FastAPI(
     title="En Place API",
-    description="Restaurant staff management and scheduling platform",
-    version="2.0.0"
+    description="Restaurant staff management platform",
+    version="3.0.0"
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://app.en-place.ai",
-        "https://enplaceappv2.vercel.app", 
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Security
-security = HTTPBearer()
+# Include routers
+app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
 
-# Pydantic models
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-class LoginResponse(BaseModel):
-    success: bool
-    token: Optional[str] = None
-    staff: Optional[Dict[str, Any]] = None
-    portal_access: Optional[str] = None
-    redirect_url: Optional[str] = None
-    error: Optional[str] = None
-
-class StaffCreate(BaseModel):
-    staff_id: str
-    email: EmailStr
-    password: str
-    full_name: str
-    position: str
-    restaurant_id: int
-    portal_access: str = "staff"
-    hourly_rate: Optional[float] = None
-
-# Utility functions
-def hash_password(password: str) -> str:
-    """Hash password using bcrypt"""
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
-
-def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against hash"""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-
-def create_jwt_token(staff_data: Dict[str, Any]) -> str:
-    """Create JWT token for authenticated staff"""
-    payload = {
-        "staff_id": staff_data["staff_id"],
-        "email": staff_data["email"],
-        "full_name": staff_data["full_name"],
-        "position": staff_data["position"],
-        "portal_access": staff_data["portal_access"],
-        "restaurant_id": staff_data["restaurant_id"],
-        "restaurant_name": staff_data["restaurant_name"],
-        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
-        "iat": datetime.utcnow()
+@app.get("/")
+async def root():
+    return {
+        "message": "En Place API v3.0",
+        "status": "running"
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-def verify_jwt_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    """Verify JWT token and return payload"""
-    try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired"
-        )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials"
-        )
-
-def get_portal_redirect_url(portal_access: str) -> str:
-    """Get redirect URL based on portal access level"""
-    if portal_access == "manager":
-        return "/manager-dashboard"
-    elif portal_access == "staff":
-        return "/staff-portal"
-    else:
-        return "/error"
-
-# Database functions
-async def authenticate_staff_db(email: str) -> Optional[Dict[str, Any]]:
-    """Authenticate staff using Supabase function"""
-    try:
-        result = supabase.rpc('authenticate_staff', {'p_email': email}).execute()
-        
-        if result.data and result.data.get('success'):
-            return result.data['staff']
-        return None
-    except Exception as e:
-        logger.error(f"Database authentication error: {e}")
-        return None
-
-async def update_last_login_db(staff_id: str) -> bool:
-    """Update staff last login timestamp"""
-    try:
-        result = supabase.rpc('update_staff_last_login', {'p_staff_id': staff_id}).execute()
-        return result.data if result.data else False
-    except Exception as e:
-        logger.error(f"Update last login error: {e}")
-        return False
 
 # API Endpoints
 
