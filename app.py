@@ -137,6 +137,50 @@ async def login(request: LoginRequest):
         staff_data = await authenticate_staff_db(request.email)
         
         if not staff_data:
+            logger.error(f"No staff found for email: {request.email}")
+            return {
+                "success": False,
+                "error": "Invalid email or password"
+            }
+        
+        # Debug logging
+        logger.info(f"Attempting password verification for: {request.email}")
+        logger.info(f"Input password length: {len(request.password)}")
+        logger.info(f"Stored hash: {staff_data['password_hash'][:20]}...")
+        
+        password_valid = verify_password(request.password, staff_data['password_hash'])
+        logger.info(f"Password verification result: {password_valid}")
+        
+        if not password_valid:
+            return {
+                "success": False, 
+                "error": "Invalid email or password"
+            }
+        
+        await update_last_login_db(staff_data['staff_id'])
+        token = create_jwt_token(staff_data)
+        redirect_url = get_portal_redirect_url(staff_data['portal_access'])
+        safe_staff_data = {k: v for k, v in staff_data.items() if k != 'password_hash'}
+        
+        return {
+            "success": True,
+            "token": token,
+            "staff": safe_staff_data,
+            "portal_access": staff_data['portal_access'],
+            "redirect_url": redirect_url
+        }
+        
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return {
+            "success": False,
+            "error": "An error occurred during login"
+        }
+    """Staff login endpoint"""
+    try:
+        staff_data = await authenticate_staff_db(request.email)
+        
+        if not staff_data:
             return {
                 "success": False,
                 "error": "Invalid email or password"
