@@ -81,24 +81,27 @@ async def authenticate_staff_db(email: str) -> Optional[Dict[str, Any]]:
     try:
         result = supabase.rpc('authenticate_staff', {'p_email': email}).execute()
         
-        # The function returns a list with one item, not a dict
         if result.data and len(result.data) > 0:
-            row = result.data[0]  # Get first row from list
-            if row.get('success'):
-                return row['staff']
+            row = result.data[0]  # First row: {success: bool, staff: jsonb}
+            
+            # Check if success is true
+            if row.get('success') is True:
+                # staff is a JSON object, might need to parse it
+                staff_obj = row.get('staff')
+                
+                # If it's a string, parse it; if it's already a dict, use it
+                if isinstance(staff_obj, str):
+                    import json
+                    return json.loads(staff_obj)
+                else:
+                    return staff_obj
+        
         return None
     except Exception as e:
         logger.error(f"Database authentication error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
-
-async def update_last_login_db(staff_id: str) -> bool:
-    """Update staff last login timestamp"""
-    try:
-        result = supabase.rpc('update_staff_last_login', {'p_staff_id': staff_id}).execute()
-        return result.data if result.data else False
-    except Exception as e:
-        logger.error(f"Update last login error: {e}")
-        return False
 
 # Include routers
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
