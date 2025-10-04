@@ -51,20 +51,36 @@ async def update_staff(
     current_staff: Dict[str, Any] = Depends(require_edit_permission)
 ):
     """Update existing staff member"""
-    staff = await update_staff_member(
-        staff_id=staff_id,
-        staff_data=staff_data,
-        changed_by=current_staff["staff_id"],
-        restaurant_id=current_staff["restaurant_id"],
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent")
-    )
+    import logging
+    logger = logging.getLogger(__name__)
     
-    return {
-        "success": True,
-        "message": f"{staff_data.name}'s information has been updated",
-        "staff": staff
-    }
+    logger.info(f"===== UPDATE REQUEST =====")
+    logger.info(f"Staff ID: {staff_id}")
+    logger.info(f"Request body: {staff_data.dict()}")
+    logger.info(f"Changed by: {current_staff['staff_id']}")
+    
+    try:
+        staff = await update_staff_member(
+            staff_id=staff_id,
+            staff_data=staff_data,
+            changed_by=current_staff["staff_id"],
+            restaurant_id=current_staff["restaurant_id"],
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        
+        logger.info(f"Update successful for {staff_id}")
+        
+        return {
+            "success": True,
+            "message": f"{staff_data.name}'s information has been updated",
+            "staff": staff
+        }
+    except Exception as e:
+        logger.error(f"Update failed: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{staff_id}/deactivate")
 async def deactivate_staff(
