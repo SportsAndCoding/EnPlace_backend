@@ -64,8 +64,53 @@ async def health_check():
             "error": str(e)
         }
 
-@app.post("/auth/login", response_model=LoginResponse)
+@app.post("/auth/login")
 async def login(request: LoginRequest):
+    """Staff login endpoint"""
+    try:
+        # Get staff data from database
+        staff_data = await authenticate_staff_db(request.email)
+        
+        if not staff_data:
+            return {
+                "success": False,
+                "error": "Invalid email or password"
+            }
+        
+        # Verify password
+        if not verify_password(request.password, staff_data['password_hash']):
+            return {
+                "success": False, 
+                "error": "Invalid email or password"
+            }
+        
+        # Update last login
+        await update_last_login_db(staff_data['staff_id'])
+        
+        # Create JWT token
+        token = create_jwt_token(staff_data)
+        
+        # Get redirect URL
+        redirect_url = get_portal_redirect_url(staff_data['portal_access'])
+        
+        # Remove sensitive data from response
+        safe_staff_data = {k: v for k, v in staff_data.items() if k != 'password_hash'}
+        
+        return {
+            "success": True,
+            "token": token,
+            "staff": safe_staff_data,
+            "portal_access": staff_data['portal_access'],
+            "redirect_url": redirect_url
+        }
+        
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        return {
+            "success": False,
+            "error": "An error occurred during login"
+        }
+
     """Staff login endpoint"""
     try:
         # Get staff data from database
