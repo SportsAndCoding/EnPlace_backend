@@ -28,8 +28,14 @@ async def create_staff_member(
     """Create new staff member"""
     supabase = get_supabase()
     
-    # Generate staff_id (you may have your own logic)
+    # Generate staff_id
     staff_id = f"STAFF{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    # Generate a default password hash (they'll need to reset it)
+    import bcrypt
+    default_password = "ChangeMe123!"  # Temporary password
+    salt = bcrypt.gensalt()
+    password_hash = bcrypt.hashpw(default_password.encode('utf-8'), salt).decode('utf-8')
     
     new_staff = {
         "staff_id": staff_id,
@@ -43,7 +49,8 @@ async def create_staff_member(
         "portal_access": staff_data.portal_access,
         "can_edit_staff": staff_data.can_edit_staff,
         "status": "Active",
-        "restaurant_id": restaurant_id
+        "restaurant_id": restaurant_id,
+        "password_hash": password_hash  # ADD THIS LINE
     }
     
     result = supabase.table('staff').insert(new_staff).execute()
