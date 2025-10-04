@@ -41,7 +41,8 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
-# Utility functions
+# ===== UTILITY FUNCTIONS (MUST BE BEFORE ENDPOINTS) =====
+
 def hash_password(password: str) -> str:
     """Hash password using bcrypt"""
     salt = bcrypt.gensalt()
@@ -82,14 +83,11 @@ async def authenticate_staff_db(email: str) -> Optional[Dict[str, Any]]:
         result = supabase.rpc('authenticate_staff', {'p_email': email}).execute()
         
         if result.data and len(result.data) > 0:
-            row = result.data[0]  # First row: {success: bool, staff: jsonb}
+            row = result.data[0]
             
-            # Check if success is true
             if row.get('success') is True:
-                # staff is a JSON object, might need to parse it
                 staff_obj = row.get('staff')
                 
-                # If it's a string, parse it; if it's already a dict, use it
                 if isinstance(staff_obj, str):
                     import json
                     return json.loads(staff_obj)
@@ -99,11 +97,19 @@ async def authenticate_staff_db(email: str) -> Optional[Dict[str, Any]]:
         return None
     except Exception as e:
         logger.error(f"Database authentication error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
         return None
 
-# Include routers
+async def update_last_login_db(staff_id: str) -> bool:
+    """Update staff last login timestamp"""
+    try:
+        result = supabase.rpc('update_staff_last_login', {'p_staff_id': staff_id}).execute()
+        return result.data if result.data else False
+    except Exception as e:
+        logger.error(f"Update last login error: {e}")
+        return False
+
+# ===== ROUTES =====
+
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
 
 @app.get("/")
@@ -135,50 +141,6 @@ async def health_check():
 
 @app.post("/auth/login")
 async def login(request: LoginRequest):
-    """Staff login endpoint"""
-    try:
-        staff_data = await authenticate_staff_db(request.email)
-        
-        if not staff_data:
-            logger.error(f"No staff found for email: {request.email}")
-            return {
-                "success": False,
-                "error": "Invalid email or password"
-            }
-        
-        # Debug logging
-        logger.info(f"Attempting password verification for: {request.email}")
-        logger.info(f"Input password length: {len(request.password)}")
-        logger.info(f"Stored hash: {staff_data['password_hash'][:20]}...")
-        
-        password_valid = verify_password(request.password, staff_data['password_hash'])
-        logger.info(f"Password verification result: {password_valid}")
-        
-        if not password_valid:
-            return {
-                "success": False, 
-                "error": "Invalid email or password"
-            }
-        
-        await update_last_login_db(staff_data['staff_id'])
-        token = create_jwt_token(staff_data)
-        redirect_url = get_portal_redirect_url(staff_data['portal_access'])
-        safe_staff_data = {k: v for k, v in staff_data.items() if k != 'password_hash'}
-        
-        return {
-            "success": True,
-            "token": token,
-            "staff": safe_staff_data,
-            "portal_access": staff_data['portal_access'],
-            "redirect_url": redirect_url
-        }
-        
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        return {
-            "success": False,
-            "error": "An error occurred during login"
-        }
     """Staff login endpoint"""
     try:
         staff_data = await authenticate_staff_db(request.email)
