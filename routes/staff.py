@@ -110,6 +110,53 @@ async def deactivate_staff(
         "staff": staff
     }
 
+@router.put("/{staff_id}/reactivate")
+async def reactivate_staff(
+    staff_id: str,
+    request: Request,
+    current_staff: Dict[str, Any] = Depends(require_edit_permission)
+):
+    """Reactivate an inactive staff member"""
+    try:
+        # Import the audit service
+        from services.audit_service import log_staff_change
+        from database.supabase_client import get_supabase
+        
+        supabase = get_supabase()
+        
+        # Update status to Active
+        response = supabase.table('staff') \
+            .update({'status': 'Active'}) \
+            .eq('staff_id', staff_id) \
+            .eq('restaurant_id', current_staff["restaurant_id"]) \
+            .execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        
+        # Log the reactivation
+        await log_staff_change(
+            staff_id=staff_id,
+            action='REACTIVATE',
+            changed_by=current_staff["staff_id"],
+            restaurant_id=current_staff["restaurant_id"],
+            changed_fields={'status': {'old': 'Inactive', 'new': 'Active'}},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        
+        return {
+            "success": True,
+            "message": "Staff member has been reactivated",
+            "staff": response.data[0]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error reactivating staff: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/metrics")
 async def get_staff_metrics(current_user: dict = Depends(verify_jwt_token)):
     """
