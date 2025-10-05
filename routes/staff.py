@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException  # Add HTTPException
 from typing import Dict, Any
 from models.staff import StaffCreate, StaffUpdate
 from services.auth_service import verify_jwt_token, require_edit_permission
@@ -110,8 +110,8 @@ async def deactivate_staff(
         "staff": staff
     }
 
-@router.get("/api/staff/metrics")
-async def get_staff_metrics(current_user: dict = Depends(require_manager)):
+@router.get("/metrics")
+async def get_staff_metrics(current_user: dict = Depends(verify_jwt_token)):
     """
     Get staff roster metrics for the current user's restaurant.
     
