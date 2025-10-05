@@ -27,13 +27,8 @@ async def create_recurring_constraint(
     if current_user['restaurant_id'] != constraint.restaurant_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Add created_by from token
-    constraint_dict = constraint.dict()
-    constraint_dict['created_by'] = current_user['staff_id']
-    constraint = RecurringConstraintCreate(**constraint_dict)
-    
     service = ConstraintsService()
-    return await service.create_recurring_constraint(constraint)
+    return await service.create_recurring_constraint(constraint, current_user['staff_id'])
 
 @router.post("/pto", response_model=ConstraintResponse, status_code=status.HTTP_201_CREATED)
 async def create_pto_constraint(

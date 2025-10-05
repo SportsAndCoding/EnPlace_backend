@@ -24,7 +24,7 @@ class ConstraintsService:
         
         return constraints
     
-    async def create_recurring_constraint(self, constraint: RecurringConstraintCreate) -> Dict:
+    async def create_recurring_constraint(self, constraint: RecurringConstraintCreate, created_by: str) -> Dict:
         """Create a recurring constraint"""
         data = {
             'restaurant_id': constraint.restaurant_id,
@@ -33,7 +33,7 @@ class ConstraintsService:
             'description': constraint.description,
             'recurrence_type': constraint.recurrence_type,
             'recurrence_end_date': str(constraint.recurrence_end_date) if constraint.recurrence_end_date else None,
-            'created_by': constraint.created_by
+            'created_by': created_by
         }
         
         response = self.supabase.from_('staff_scheduling_rules') \
@@ -45,7 +45,7 @@ class ConstraintsService:
         
         return await self.get_constraint_by_id(response.data[0]['id'])
     
-    async def create_pto_constraint(self, constraint: PTOConstraintCreate) -> Dict:
+    async def create_pto_constraint(self, constraint: PTOConstraintCreate, created_by: str) -> Dict:
         """Create a PTO constraint"""
         data = {
             'restaurant_id': constraint.restaurant_id,
@@ -55,7 +55,7 @@ class ConstraintsService:
             'pto_start_date': str(constraint.pto_start_date),
             'pto_end_date': str(constraint.pto_end_date),
             'pto_reason': constraint.pto_reason,
-            'created_by': constraint.created_by
+            'created_by': created_by
         }
         
         response = self.supabase.from_('staff_scheduling_rules') \
