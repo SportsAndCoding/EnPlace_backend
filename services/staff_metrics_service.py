@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from typing import Dict, Any
-from database.supabase_client import get_supabase_client
+from database.supabase_client import get_supabase
 
 class StaffMetricsService:
     """
@@ -9,7 +9,7 @@ class StaffMetricsService:
     """
     
     def __init__(self):
-        self.supabase = get_supabase_client()
+        self.supabase = get_supabase()
     
     async def get_staff_metrics(self, restaurant_id: int) -> Dict[str, Any]:
         """
