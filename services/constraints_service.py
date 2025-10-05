@@ -1,10 +1,10 @@
-from database.supabase_client import get_supabase_client
+from database.supabase_client import get_supabase
 from models.constraints import RecurringConstraintCreate, PTOConstraintCreate
 from typing import List, Dict, Optional
 
 class ConstraintsService:
     def __init__(self):
-        self.supabase = get_supabase_client()
+        self.supabase = get_supabase()
     
     async def get_constraints(self, restaurant_id: int) -> List[Dict]:
         """Get all active constraints with staff names"""
