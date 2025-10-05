@@ -13,6 +13,7 @@ from supabase import create_client, Client
 from config.settings import ALLOWED_ORIGINS, SUPABASE_URL, SUPABASE_KEY, JWT_SECRET, JWT_ALGORITHM
 from routes import staff
 from services.auth_service import verify_jwt_token
+from routes.staff import router as staff_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -111,6 +112,7 @@ async def update_last_login_db(staff_id: str) -> bool:
 # ===== ROUTES =====
 
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
+
 
 @app.get("/")
 async def root():

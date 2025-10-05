@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from typing import Dict, Any
 from models.staff import StaffCreate, StaffUpdate
 from services.auth_service import verify_jwt_token, require_edit_permission
+from services.staff_metrics_service import StaffMetricsService
 from services.staff_service import (
     get_staff_list,
     create_staff_member,
@@ -108,3 +109,36 @@ async def deactivate_staff(
         "message": "Staff member has been deactivated",
         "staff": staff
     }
+
+@router.get("/api/staff/metrics")
+async def get_staff_metrics(current_user: dict = Depends(require_manager)):
+    """
+    Get staff roster metrics for the current user's restaurant.
+    
+    Returns summary statistics:
+    - Total staff count
+    - Active staff count
+    - Average pay rate
+    - New hires this month
+    
+    Requires: Manager portal access
+    """
+    try:
+        restaurant_id = current_user['restaurant_id']
+        
+        # Initialize metrics service
+        metrics_service = StaffMetricsService()
+        
+        # Calculate metrics
+        result = await metrics_service.get_staff_metrics(restaurant_id)
+        
+        if not result['success']:
+            raise HTTPException(status_code=500, detail=result.get('error', 'Failed to calculate metrics'))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_staff_metrics endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
