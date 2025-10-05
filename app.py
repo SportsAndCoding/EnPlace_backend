@@ -113,6 +113,9 @@ async def update_last_login_db(staff_id: str) -> bool:
 
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
 
+from routes.constraints import router as constraints_router
+app.include_router(constraints_router)
+
 
 @app.get("/")
 async def root():
