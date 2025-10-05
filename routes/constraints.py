@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
-from services.auth_service import get_current_user
+from services.auth_service import verify_jwt_token as get_current_user
 from services.constraints_service import ConstraintsService
 from models.constraints import RecurringConstraintCreate, PTOConstraintCreate, ConstraintResponse
 
