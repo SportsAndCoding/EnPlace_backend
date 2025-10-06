@@ -118,6 +118,8 @@ from routes.schedules import router as schedules_router
 app.include_router(schedules_router)
 from routes.demand import router as demand_router
 app.include_router(demand_router)
+from routes.schedule_review import router as review_router
+app.include_router(review_router)
 
 
 @app.get("/")
