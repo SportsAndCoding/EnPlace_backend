@@ -228,7 +228,7 @@ class ScheduleOptimizer:
         return shifts_needed
     
     def _schedule_shifts_for_role(self, role: str, count_needed: int, current_date: date, shift_name: str):
-        """Schedule staff for a specific shift"""
+        """Schedule staff for a specific shift with balanced utilization"""
         shift_template = self.SHIFT_TEMPLATES[shift_name]
         start_hour = shift_template['start']
         end_hour = shift_template['end']
@@ -242,33 +242,35 @@ class ScheduleOptimizer:
         # Filter available staff
         available = []
         for s in role_staff:
-            # Check if they can work this shift
             if self._can_work_shift(s, current_date, start_hour, end_hour):
-                available.append(s)
+                # Calculate utilization percentage
+                pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
+                pay_period_weeks = pay_period_days / 7
+                max_hours = s['max_hours_per_week'] * pay_period_weeks
+                current_hours = self.staff_hours[s['staff_id']]
+                utilization = current_hours / max_hours if max_hours > 0 else 0
                 
-                # Bonus: Check if they can work a split shift (already working lunch, can add dinner)
-                if shift_name == 'split_dinner' and s['staff_id'] in self.staff_shifts_today:
-                    # Prioritize people already here for lunch
-                    available.insert(0, s)
+                available.append({
+                    'staff': s,
+                    'utilization': utilization
+                })
         
-        # Sort by cost-effectiveness
-        available.sort(key=lambda s: self._cost_effectiveness(s))
+        # Sort by LOWEST utilization first (balance workload)
+        available.sort(key=lambda x: (x['utilization'], self._cost_effectiveness(x['staff'])))
         
         # Assign staff
         assigned_count = min(len(available), count_needed)
         
         for i in range(assigned_count):
-            staff_member = available[i]
+            staff_member = available[i]['staff']
             
-            # Stagger start times slightly for realism (±15 min)
+            # Stagger start times
             stagger = random.choice([-15, 0, 15]) if i > 0 else 0
             actual_start = start_hour + (stagger / 60)
             actual_end = end_hour + (stagger / 60)
             
             self._assign_shift(staff_member, current_date, actual_start, actual_end)
             self.filled_slots += 1
-            
-            # Track who's working today (for split shifts)
             self.staff_shifts_today[staff_member['staff_id']] = True
         
         # Track unfilled demand
