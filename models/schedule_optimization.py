@@ -173,14 +173,6 @@ class ScheduleOptimizer:
         return self._build_result()
     
     def _determine_shifts_for_day(self, staff_demand: Dict, current_date: date) -> Dict:
-        """
-        Analyze demand and decide which shift types to create for this day
-        
-        Returns: {
-            'lunch': {'Server': 3, 'Cook': 2},
-            'dinner': {'Server': 5, 'Cook': 3}
-        }
-        """
         day_type = 'weekend' if current_date.weekday() >= 5 else 'weekday'
         hourly_demand = {}
         
@@ -194,39 +186,35 @@ class ScheduleOptimizer:
         
         shifts_needed = {}
         
-        # Analyze demand patterns and assign appropriate shift types
+        # Use PEAK demand during each shift window
         for role in hourly_demand:
-            # Breakfast/Opening (9-13)
-            breakfast_demand = sum(hourly_demand[role].get(h, 0) for h in range(9, 13))
-            if breakfast_demand > 0:
-                avg_breakfast = breakfast_demand / 4
+            # Breakfast (9-13) - use PEAK hour
+            breakfast_peak = max((hourly_demand[role].get(h, 0) for h in range(9, 13)), default=0)
+            if breakfast_peak > 0:
                 if 'breakfast' not in shifts_needed:
                     shifts_needed['breakfast'] = {}
-                shifts_needed['breakfast'][role] = max(1, round(avg_breakfast))
+                shifts_needed['breakfast'][role] = breakfast_peak
             
-            # Lunch (11-15)
-            lunch_demand = sum(hourly_demand[role].get(h, 0) for h in range(11, 15))
-            if lunch_demand > 0:
-                avg_lunch = lunch_demand / 4
+            # Lunch (11-15) - use PEAK hour
+            lunch_peak = max((hourly_demand[role].get(h, 0) for h in range(11, 15)), default=0)
+            if lunch_peak > 0:
                 if 'lunch' not in shifts_needed:
                     shifts_needed['lunch'] = {}
-                shifts_needed['lunch'][role] = max(1, round(avg_lunch))
+                shifts_needed['lunch'][role] = lunch_peak
             
-            # Dinner (17-21)
-            dinner_demand = sum(hourly_demand[role].get(h, 0) for h in range(17, 21))
-            if dinner_demand > 0:
-                avg_dinner = dinner_demand / 4
+            # Dinner (17-21) - use PEAK hour
+            dinner_peak = max((hourly_demand[role].get(h, 0) for h in range(17, 21)), default=0)
+            if dinner_peak > 0:
                 if 'dinner' not in shifts_needed:
                     shifts_needed['dinner'] = {}
-                shifts_needed['dinner'][role] = max(1, round(avg_dinner))
+                shifts_needed['dinner'][role] = dinner_peak
             
-            # Late dinner/closing (18-23)
-            late_demand = sum(hourly_demand[role].get(h, 0) for h in range(18, 23))
-            if late_demand > 0:
-                avg_late = late_demand / 5
+            # Late dinner (18-23) - use PEAK hour
+            late_peak = max((hourly_demand[role].get(h, 0) for h in range(18, 23)), default=0)
+            if late_peak > 0:
                 if 'late_dinner' not in shifts_needed:
                     shifts_needed['late_dinner'] = {}
-                shifts_needed['late_dinner'][role] = max(1, round(avg_late))
+                shifts_needed['late_dinner'][role] = late_peak
         
         return shifts_needed
     
