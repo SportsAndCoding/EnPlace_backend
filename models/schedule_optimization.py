@@ -94,9 +94,14 @@ class ScheduleOptimizer:
     def _is_available(self, staff_member: Dict, current_date: date, hour: int) -> bool:
         """Check if staff can work this slot"""
         staff_id = staff_member['staff_id']
+
+        # Calculate max hours for the entire pay period
+        pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1  # +1 because inclusive
+        pay_period_weeks = pay_period_days / 7
+        max_hours_for_period = staff_member['max_hours_per_week'] * pay_period_weeks
         
         # Max hours check
-        if self.staff_hours[staff_id] >= staff_member['max_hours_per_week']:
+        if self.staff_hours[staff_id] >= max_hours_for_period:
             return False
         
         # Constraints check
