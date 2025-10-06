@@ -69,7 +69,7 @@ class SchedulingService:
         return {
             "schedule_id": schedule_id,
             "coverage_percent": result['coverage_percent'],
-            "efficiency_percent": result['efficiency_percent'],
+            "avg_cost_per_shift": result['avg_cost_per_shift'],
             "estimated_cost": result['estimated_cost'],
             "total_hours": result['total_hours'],
             "constraint_violations": result['constraint_violations'],
