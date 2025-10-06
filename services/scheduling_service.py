@@ -32,7 +32,7 @@ class SchedulingService:
         # 1. Load all data
         staff = await self._load_staff(restaurant_id)
         constraints = await self._load_constraints(restaurant_id)
-        demand = await self._load_demand_curve(restaurant_id)
+        demand = await self._load_demand_curve(restaurant_id, pay_period_start, pay_period_end)
         
         # 2. Initialize tracking
         staff_hours = {s['staff_id']: 0 for s in staff}
@@ -138,24 +138,35 @@ class SchedulingService:
         
         return response.data
     
-    async def _load_demand_curve(self, restaurant_id: int) -> Dict:
-        """Load demand curve - for now returns mock data until table exists"""
-        # TODO: Once demand_curves table exists, load from DB
-        # For now, return realistic mock data
-        weekday_demand = {
-            9: 2, 10: 2, 11: 3, 12: 7, 13: 7, 14: 5,
-            15: 3, 16: 3, 17: 4, 18: 9, 19: 9, 20: 8,
-            21: 6, 22: 3, 23: 2
-        }
-        weekend_demand = {
-            9: 3, 10: 4, 11: 5, 12: 8, 13: 8, 14: 6,
-            15: 4, 16: 4, 17: 6, 18: 10, 19: 10, 20: 9,
-            21: 7, 22: 4, 23: 2
-        }
-        return {
-            'weekday': weekday_demand,
-            'weekend': weekend_demand
-        }
+    async def _load_demand_curve(self, restaurant_id: int, pay_period_start: str, pay_period_end: str) -> Dict:
+        """Load demand curve from database with pay period overrides"""
+        
+        # Load default patterns
+        default_response = self.supabase.from_('restaurant_demand_patterns') \
+            .select('day_type, hour, staff_needed') \
+            .eq('restaurant_id', restaurant_id) \
+            .execute()
+        
+        # Build demand dictionary from defaults
+        demand = {'weekday': {}, 'weekend': {}}
+        for row in default_response.data:
+            demand[row['day_type']][row['hour']] = row['staff_needed']
+        
+        # Load pay period overrides
+        override_response = self.supabase.from_('pay_period_demand_overrides') \
+            .select('*') \
+            .eq('restaurant_id', restaurant_id) \
+            .eq('pay_period_start', pay_period_start) \
+            .eq('pay_period_end', pay_period_end) \
+            .execute()
+        
+        # Apply overrides
+        for override in override_response.data:
+            if override.get('day_type'):  # General weekday/weekend override
+                demand[override['day_type']][override['hour']] = override['staff_needed']
+            # TODO: Handle specific_date overrides when needed
+        
+        return demand
     
     def _get_demand(self, demand: Dict, day_type: str, hour: int) -> int:
         """Get staff needed for specific day type and hour"""
