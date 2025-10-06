@@ -105,6 +105,9 @@ class ScheduleOptimizer:
         print(f"\n1. COVERS → STAFF CONVERSION")
         print(f"Sample weekday demand at 12 PM: {staff_demand.get('weekday', {}).get(12, {})}")
         print(f"Sample weekday demand at 6 PM: {staff_demand.get('weekday', {}).get(18, {})}")
+        print(f"\nDEBUG CONVERSION at 6 PM weekday:")
+        print(f"  Covers: {self.covers_demand.get('weekday', {}).get(18, 'N/A')}")
+        print(f"  Staff demand: {staff_demand.get('weekday', {}).get(18, {})}")
         
         # Schedule each day
         days = (self.pay_period_end - self.pay_period_start).days + 1
@@ -399,9 +402,13 @@ class ScheduleOptimizer:
                 for role, covers_per_staff in coverage_ratios.items():
                     staff_needed = max(1, round(covers / covers_per_staff))
                     staff_demand[day_type][hour][role] = staff_needed
+
+        
         
         return staff_demand
     
+    
+
     def _cost_effectiveness(self, staff_member: Dict) -> float:
         """Calculate cost per efficiency unit"""
         rate = float(staff_member['hourly_rate'])
