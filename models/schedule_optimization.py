@@ -394,27 +394,25 @@ class ScheduleOptimizer:
         return rate / eff if eff > 0 else 999999.0
     
     def _group_by_position(self, staff: List[Dict]) -> Dict[str, List[Dict]]:
-        """Group staff by position"""
-
+        """Group staff by role category using position aliases"""
         by_position = {}
-
+        
         for s in staff:
             actual_position = s['position']
+            
             # Find which role category this position belongs to
-            matched = False
             for role, aliases in self.POSITION_ALIASES.items():
                 if actual_position in aliases:
                     if role not in by_position:
                         by_position[role] = []
                     by_position[role].append(s)
-                    matched = True
-                    break
-                # If position doesn't match any alias, use exact position name
-                if not matched:
-                    if actual_position not in by_position:
-                        by_position[actual_position] = []
-                    by_position[actual_position].append(s)
-
+                    break  # CRITICAL: Stop after first match to avoid duplicates
+            else:
+                # Only reaches here if no alias matched
+                if actual_position not in by_position:
+                    by_position[actual_position] = []
+                by_position[actual_position].append(s)
+        
         return by_position
     
     def _default_ratios(self) -> Dict[str, float]:
