@@ -9,7 +9,7 @@ class DemandService:
     async def get_patterns(self, restaurant_id: int) -> List[Dict]:
         """Get demand patterns for a restaurant"""
         response = self.supabase.from_('restaurant_demand_patterns') \
-            .select('day_type, hour, staff_needed') \
+            .select('day_type, hour, covers_per_hour') \
             .eq('restaurant_id', restaurant_id) \
             .order('day_type, hour') \
             .execute()
@@ -42,7 +42,7 @@ class DemandService:
                 'restaurant_id': restaurant_id,
                 'day_type': day_type,
                 'hour': hour,
-                'staff_needed': staff_needed
+                'covers_per_hour': staff_needed
             })
         
         # Delete old pattern
