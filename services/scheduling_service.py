@@ -277,23 +277,30 @@ class SchedulingService:
     
     def _calculate_efficiency(self, shifts: List[Dict], demand: Dict) -> float:
         """Calculate efficiency percentage"""
-        # Simple efficiency: compare actual cost vs ideal cost
-        # Higher capacity staff used efficiently = higher efficiency
         if not shifts:
             return 0.0
         
-        total_capacity = sum(
-            s['capacity_rating'] * s['productivity_multiplier'] 
-            for s in shifts
-        )
-        total_hours = len(shifts)
+        # Calculate total hours scheduled
+        hours_scheduled = len(shifts)
+
+        # Calculate total hours needed from demand curve
+        hours_needed = 0
+        for day_type in ['weekday', 'weekend']:
+            if day_type in demand:
+                for hour, staff_count in demand[day_type].items():
+                    # Weekdays: 10 days (Mon-Fri × 2 weeks)
+                    # Weekends: 4 days (Sat-Sun × 2 weeks)
+                    days = 10 if day_type == 'weekday' else 4
+                    hours_needed += staff_count * days
         
-        avg_capacity = total_capacity / total_hours if total_hours > 0 else 0
+        if hours_needed == 0:
+            return 0.0
         
-        # Efficiency = how close to max capacity (5.0) we're using
-        efficiency = (avg_capacity / 5.0) * 100
+        # Efficiency = actual hours / needed hours × 100
+        # 100% = perfectly matched, >100% = overstaffed, <100% = understaffed
+        efficiency = (hours_scheduled / hours_needed) * 100
         
-        return min(efficiency, 100.0)
+        return round(efficiency, 1)
     
     async def _save_schedule(
         self,
