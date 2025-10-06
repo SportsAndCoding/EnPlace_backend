@@ -287,11 +287,13 @@ class ScheduleOptimizer:
         
         # Check max hours
         if self.staff_hours[staff_id] + shift_length > max_hours_for_period:
+            print(f"      REJECTED {staff_id}: would exceed max hours ({self.staff_hours[staff_id]} + {shift_length} > {max_hours_for_period})")
             return False
         
         # Check all constraints for every hour in shift
         for hour in range(int(start_hour), int(end_hour)):
             if self._violates_constraints(staff_id, current_date, hour):
+                print(f"      REJECTED {staff_id}: constraint violation at hour {hour}")
                 return False
         
         return True
