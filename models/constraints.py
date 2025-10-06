@@ -13,6 +13,7 @@ class RecurringConstraintCreate(ConstraintBase):
     description: str
     recurrence_type: str
     recurrence_end_date: Optional[date] = None
+    blocked_days: Optional[List[int]] = None
 
 class PTOConstraintCreate(ConstraintBase):
     rule_type: str = 'pto'

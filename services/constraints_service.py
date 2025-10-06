@@ -33,6 +33,7 @@ class ConstraintsService:
             'description': constraint.description,
             'recurrence_type': constraint.recurrence_type,
             'recurrence_end_date': str(constraint.recurrence_end_date) if constraint.recurrence_end_date else None,
+            'blocked_days': constraint.blocked_days,
             'created_by': created_by
         }
         

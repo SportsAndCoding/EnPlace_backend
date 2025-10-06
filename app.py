@@ -15,6 +15,7 @@ from routes import staff
 from services.auth_service import verify_jwt_token
 from routes.staff import router as staff_router
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -110,11 +111,11 @@ async def update_last_login_db(staff_id: str) -> bool:
         return False
 
 # ===== ROUTES =====
-
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
-
 from routes.constraints import router as constraints_router
 app.include_router(constraints_router)
+from routes.schedules import router as schedules_router
+app.include_router(schedules_router)
 
 
 @app.get("/")
