@@ -36,6 +36,16 @@ class ScheduleOptimizer:
         'manager_close': {'start': 14, 'end': 23, 'length': 9, 'type': 'management'},
         'manager_mid': {'start': 11, 'end': 21, 'length': 10, 'type': 'management'},
     }
+
+    # Map generic role categories to actual position titles
+    POSITION_ALIASES = {
+        'Cook': ['Line Cook', 'Prep Cook', 'Sous Chef', 'Executive Chef'],
+        'Server': ['Server'],
+        'Host': ['Host'],
+        'Busser': ['Busser'],
+        'Bartender': ['Bartender'],
+        'Manager': ['Manager', 'General Manager', 'Assistant Manager']
+    }
     
     # Position preferences for shift types
     POSITION_SHIFT_PREFERENCES = {
@@ -383,12 +393,26 @@ class ScheduleOptimizer:
     
     def _group_by_position(self, staff: List[Dict]) -> Dict[str, List[Dict]]:
         """Group staff by position"""
+
         by_position = {}
+
         for s in staff:
-            position = s['position']
-            if position not in by_position:
-                by_position[position] = []
-            by_position[position].append(s)
+            actual_position = s['position']
+            # Find which role category this position belongs to
+            matched = False
+            for role, aliases in self.POSITION_ALIASES.items():
+                if actual_position in aliases:
+                    if role not in by_position:
+                        by_position[role] = []
+                    by_position[role].append(s)
+                    matched = True
+                    break
+                # If position doesn't match any alias, use exact position name
+                if not matched:
+                    if actual_position not in by_position:
+                        by_position[actual_position] = []
+                    by_position[actual_position].append(s)
+
         return by_position
     
     def _default_ratios(self) -> Dict[str, float]:
