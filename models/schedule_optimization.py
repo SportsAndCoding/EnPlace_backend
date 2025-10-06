@@ -238,13 +238,33 @@ class ScheduleOptimizer:
     def _build_result(self) -> Dict:
         """Package results"""
         coverage = (self.filled_slots / self.total_demand_slots * 100) if self.total_demand_slots > 0 else 0
+
+        # Calculate true efficiency: weighted by staff efficiency multipliers
+        efficiency = self._calculate_staff_efficiency()
         
         return {
-            "shifts": self.all_shifts,
-            "coverage_percent": round(coverage, 1),
-            "efficiency_percent": round(coverage, 1),
-            "estimated_cost": round(self.total_cost, 2),
-            "total_hours": round(sum(self.staff_hours.values()), 1),
-            "constraint_violations": self.violations,
-            "has_coverage_gaps": self.violations > 0
-        }
+        "shifts": self.all_shifts,
+        "coverage_percent": round(coverage, 1),
+        "efficiency_percent": round(efficiency, 1),
+        "estimated_cost": round(self.total_cost, 2),
+        "total_hours": round(sum(self.staff_hours.values()), 1),
+        "constraint_violations": self.violations,
+        "has_coverage_gaps": self.violations > 0
+    }
+
+    def _calculate_staff_efficiency(self) -> float:
+        """
+        Calculate how efficiently we used staff
+        
+        Efficiency = average efficiency multiplier of assigned staff
+        Higher = better (we're using top performers)
+        """
+        if not self.all_shifts:
+            return 0.0
+        
+        total_efficiency = sum(shift['efficiency_multiplier'] for shift in self.all_shifts)
+        avg_efficiency = total_efficiency / len(self.all_shifts)
+        
+        # Convert to percentage (1.0 = 100%, 1.2 = 120%)
+        return avg_efficiency * 100
+    
