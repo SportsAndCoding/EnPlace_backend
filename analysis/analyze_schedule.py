@@ -9,6 +9,15 @@ with open('generated_shifts.json', 'r') as f:
 
 # Convert to DataFrame
 df = pd.DataFrame(shifts)
+
+# Filter to most recent schedule only
+if 'created_at' in df.columns:
+    df['created_at'] = pd.to_datetime(df['created_at'])
+    latest_schedule_id = df.loc[df['created_at'].idxmax(), 'generated_schedule_id']
+    print(f"Filtering to most recent schedule: {latest_schedule_id}")
+    df = df[df['generated_schedule_id'] == latest_schedule_id]
+    print(f"Analyzing {len(df)} shifts from latest optimization run\n")
+
 df['date'] = pd.to_datetime(df['date'])
 df['hour'] = df['start_time'].str.split(':').str[0].astype(int)
 df['day_of_week'] = df['date'].dt.day_name()

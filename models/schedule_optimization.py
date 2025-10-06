@@ -86,23 +86,76 @@ class ScheduleOptimizer:
     def run(self) -> Dict:
         """Execute shift-based optimization"""
         
+        print("\n" + "="*80)
+        print("OPTIMIZATION DEBUG LOG")
+        print("="*80)
+        
         # Convert covers to staff demand by role
         staff_demand = self._convert_covers_to_staff_by_role()
+        print(f"\n1. COVERS → STAFF CONVERSION")
+        print(f"Sample weekday demand at 12 PM: {staff_demand.get('weekday', {}).get(12, {})}")
+        print(f"Sample weekday demand at 6 PM: {staff_demand.get('weekday', {}).get(18, {})}")
         
         # Schedule each day
         days = (self.pay_period_end - self.pay_period_start).days + 1
+        print(f"\n2. PAY PERIOD: {self.pay_period_start} to {self.pay_period_end} ({days} days)")
+        
+        total_shifts_attempted = 0
+        total_shifts_created = 0
         
         for day_offset in range(days):
             current_date = self.pay_period_start + timedelta(days=day_offset)
-            self.staff_shifts_today = {}  # Reset daily tracker
+            self.staff_shifts_today = {}
+            
+            print(f"\n--- DAY {day_offset + 1}: {current_date} ({current_date.strftime('%A')}) ---")
             
             # Determine shifts needed for this day
             shifts_needed = self._determine_shifts_for_day(staff_demand, current_date)
+            print(f"Shifts needed: {shifts_needed}")
+            
+            if not shifts_needed:
+                print("  WARNING: No shifts determined for this day!")
+                continue
             
             # Schedule each shift type
             for shift_name, roles_needed in shifts_needed.items():
+                print(f"\n  Shift: {shift_name}")
                 for role, count in roles_needed.items():
+                    print(f"    {role}: need {count}")
+                    
+                    # Count available staff before scheduling
+                    role_staff = self.staff_by_position.get(role, [])
+                    available_before = len([
+                        s for s in role_staff 
+                        if self._can_work_shift(s, current_date, 
+                            self.SHIFT_TEMPLATES[shift_name]['start'],
+                            self.SHIFT_TEMPLATES[shift_name]['end'])
+                    ])
+                    
+                    print(f"      Available staff: {available_before} / {len(role_staff)} total")
+                    
+                    total_shifts_attempted += count
+                    shifts_before = len(self.all_shifts)
+                    
                     self._schedule_shifts_for_role(role, count, current_date, shift_name)
+                    
+                    shifts_after = len(self.all_shifts)
+                    shifts_created_this_call = shifts_after - shifts_before
+                    total_shifts_created += shifts_created_this_call
+                    
+                    print(f"      Scheduled: {shifts_created_this_call} / {count} needed")
+                    
+                    if shifts_created_this_call < count:
+                        print(f"      GAP: {count - shifts_created_this_call} unfilled")
+        
+        print(f"\n" + "="*80)
+        print(f"SUMMARY")
+        print(f"="*80)
+        print(f"Total shifts attempted: {total_shifts_attempted}")
+        print(f"Total shifts created: {total_shifts_created}")
+        print(f"Gap: {total_shifts_attempted - total_shifts_created}")
+        print(f"Unique staff used: {len([k for k, v in self.staff_hours.items() if v > 0])}")
+        print("="*80 + "\n")
         
         return self._build_result()
     
