@@ -373,19 +373,32 @@ class ScheduleOptimizer:
         return False
     
     def _convert_covers_to_staff_by_role(self) -> Dict:
-        """Convert covers per hour to staff needed per role"""
         staff_demand = {}
+        
+        # Industry standards for casual dining
+        COVERS_PER_SERVER = 12  # Conservative (can handle 12-15)
+        COVERS_PER_COOK = 25    # Based on "4 cooks per 50 covers"
+        COVERS_PER_HOST = 30     # 1 host can seat/manage high volume
+        COVERS_PER_BUSSER = 25   # Support multiple servers
+        COVERS_PER_BARTENDER = 15  # Bar service + drinks
+        
+        coverage_ratios = {
+            'Server': COVERS_PER_SERVER,
+            'Cook': COVERS_PER_COOK,
+            'Host': COVERS_PER_HOST,
+            'Busser': COVERS_PER_BUSSER,
+            'Bartender': COVERS_PER_BARTENDER
+        }
         
         for day_type in self.covers_demand:
             staff_demand[day_type] = {}
             
             for hour, covers in self.covers_demand[day_type].items():
-                total_staff = max(1, round(covers / 4))
-                
                 staff_demand[day_type][hour] = {}
-                for role, ratio in self.role_ratios.items():
-                    count = max(1, round(total_staff * ratio))
-                    staff_demand[day_type][hour][role] = count
+                
+                for role, covers_per_staff in coverage_ratios.items():
+                    staff_needed = max(1, round(covers / covers_per_staff))
+                    staff_demand[day_type][hour][role] = staff_needed
         
         return staff_demand
     
