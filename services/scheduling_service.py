@@ -494,3 +494,295 @@ class SchedulingService:
             'gaps': gaps,
             'total_shifts': len(shifts)
         }
+    
+    async def approve_schedule(
+        self,
+        schedule_id: str,
+        approved_by: str,
+        restaurant_id: int
+    ) -> dict:
+        """
+        Approve a generated schedule and calculate coverage gaps
+        
+        Flow:
+        1. Validate schedule exists and belongs to restaurant
+        2. Get all current shifts (after manager edits)
+        3. Create approved_schedule record
+        4. Copy shifts to approved_shifts
+        5. Calculate coverage gaps with priority
+        6. Insert gaps into coverage_gaps table
+        7. Return summary for Step 5
+        """
+        
+        # 1. Get the generated schedule
+        schedule_response = self.supabase.from_('generated_schedules') \
+            .select('*') \
+            .eq('id', schedule_id) \
+            .single() \
+            .execute()
+        
+        if not schedule_response.data:
+            raise Exception("Schedule not found")
+        
+        schedule = schedule_response.data
+        
+        # Verify ownership
+        if schedule['restaurant_id'] != restaurant_id:
+            raise Exception("Access denied")
+        
+        # 2. Get all shifts (includes manager edits)
+        shifts_response = self.supabase.from_('generated_shifts') \
+            .select('*') \
+            .eq('generated_schedule_id', schedule_id) \
+            .execute()
+        
+        shifts = shifts_response.data or []
+        
+        # Calculate final metrics
+        total_cost = sum(
+            self._calculate_shift_cost(shift) 
+            for shift in shifts
+        )
+        
+        total_hours = sum(
+            self._calculate_shift_hours(shift)
+            for shift in shifts
+        )
+        
+        # 3. Create approved_schedule
+        approved_schedule = {
+            'generated_schedule_id': schedule_id,
+            'restaurant_id': restaurant_id,
+            'scenario_name': schedule.get('scenario_name', 'Generated Schedule'),
+            'pay_period_start': schedule['pay_period_start'],
+            'pay_period_end': schedule['pay_period_end'],
+            'approved_by': approved_by,
+            'total_labor_cost': round(total_cost, 2),
+            'total_hours': round(total_hours, 2),
+            'coverage_score': schedule.get('coverage_score', 0),
+            'constraint_violations': schedule.get('constraint_violations', 0)
+        }
+        
+        approved_response = self.supabase.from_('approved_schedules') \
+            .insert(approved_schedule) \
+            .execute()
+        
+        if not approved_response.data:
+            raise Exception("Failed to create approved schedule")
+        
+        approved_schedule_id = approved_response.data[0]['id']
+        
+        # 4. Copy shifts to approved_shifts
+        approved_shifts = []
+        for shift in shifts:
+            approved_shifts.append({
+                'approved_schedule_id': approved_schedule_id,
+                'restaurant_id': restaurant_id,
+                'staff_id': shift['staff_id'],
+                'date': shift['date'],
+                'start_time': shift['start_time'],
+                'end_time': shift['end_time'],
+                'position': shift['position']
+            })
+        
+        if approved_shifts:
+            self.supabase.from_('approved_shifts').insert(approved_shifts).execute()
+        
+        # 5. Calculate coverage gaps
+        gaps_summary = await self._calculate_coverage_gaps(
+            approved_schedule_id=approved_schedule_id,
+            restaurant_id=restaurant_id,
+            shifts=shifts,
+            pay_period_start=schedule['pay_period_start'],
+            pay_period_end=schedule['pay_period_end']
+        )
+        
+        return {
+            'approved_schedule_id': approved_schedule_id,
+            'shifts_count': len(approved_shifts),
+            'total_cost': round(total_cost, 2),
+            'total_hours': round(total_hours, 2),
+            'coverage_score': schedule.get('coverage_score', 0),
+            'gaps': gaps_summary
+        }
+
+
+    def _calculate_shift_cost(self, shift: dict) -> float:
+        """Calculate cost for a single shift"""
+        # Get staff hourly rate
+        staff_response = self.supabase.from_('staff') \
+            .select('hourly_rate') \
+            .eq('staff_id', shift['staff_id']) \
+            .single() \
+            .execute()
+        
+        if not staff_response.data:
+            return 0
+        
+        hourly_rate = staff_response.data['hourly_rate']
+        
+        # Calculate hours
+        start_hour = int(shift['start_time'].split(':')[0])
+        end_hour = int(shift['end_time'].split(':')[0])
+        hours = end_hour - start_hour
+        
+        return hourly_rate * hours
+
+
+    def _calculate_shift_hours(self, shift: dict) -> float:
+        """Calculate hours for a single shift"""
+        start_hour = int(shift['start_time'].split(':')[0])
+        end_hour = int(shift['end_time'].split(':')[0])
+        return end_hour - start_hour
+
+
+    async def _calculate_coverage_gaps(
+        self,
+        approved_schedule_id: str,
+        restaurant_id: int,
+        shifts: list,
+        pay_period_start: str,
+        pay_period_end: str
+    ) -> dict:
+        """
+        Calculate coverage gaps with intelligent prioritization
+        
+        Returns organized summary for Step 5 UI
+        """
+        from datetime import datetime, timedelta
+        
+        # Load demand patterns
+        demand_response = self.supabase.from_('restaurant_demand_patterns') \
+            .select('day_type, hour, covers_per_hour') \
+            .eq('restaurant_id', restaurant_id) \
+            .execute()
+        
+        demand_data = {}
+        for row in demand_response.data or []:
+            if row['day_type'] not in demand_data:
+                demand_data[row['day_type']] = {}
+            demand_data[row['day_type']][row['hour']] = row['covers_per_hour']
+        
+        # Load role ratios
+        restaurant_response = self.supabase.from_('restaurants') \
+            .select('role_ratios') \
+            .eq('id', restaurant_id) \
+            .single() \
+            .execute()
+        
+        role_ratios = restaurant_response.data.get('role_ratios', {}) if restaurant_response.data else {}
+        
+        # Organize shifts by day/hour/position
+        scheduled = {}  # {date: {position: {hour: count}}}
+        for shift in shifts:
+            date = shift['date']
+            position = shift['position']
+            start = int(shift['start_time'].split(':')[0])
+            end = int(shift['end_time'].split(':')[0])
+            
+            if date not in scheduled:
+                scheduled[date] = {}
+            if position not in scheduled[date]:
+                scheduled[date][position] = {}
+            
+            for hour in range(start, end):
+                scheduled[date][position][hour] = scheduled[date][position].get(hour, 0) + 1
+        
+        # Calculate gaps
+        gaps_to_insert = []
+        gap_summary = {
+            'mission_critical': [],
+            'emergency': [],
+            'standard': [],
+            'total_gaps': 0,
+            'total_gap_size': 0
+        }
+        
+        start = datetime.fromisoformat(pay_period_start).date()
+        end = datetime.fromisoformat(pay_period_end).date()
+        days = (end - start).days + 1
+        
+        # Peak hours for time criticality
+        PEAK_HOURS = [12, 13, 18, 19, 20]
+        
+        for day_offset in range(days):
+            current_date = start + timedelta(days=day_offset)
+            date_str = current_date.isoformat()
+            day_type = 'weekend' if current_date.weekday() >= 5 else 'weekday'
+            day_name = current_date.strftime('%A')
+            
+            for hour in range(9, 24):
+                # Get covers demand
+                covers = demand_data.get(day_type, {}).get(hour, 0)
+                if covers == 0:
+                    continue
+                
+                # Convert to staff by role
+                total_staff = max(1, round(covers / 4))
+                
+                for position, ratio in role_ratios.items():
+                    needed = max(1, round(total_staff * ratio))
+                    current = scheduled.get(date_str, {}).get(position, {}).get(hour, 0)
+                    gap_size = needed - current
+                    
+                    if gap_size <= 0:
+                        continue
+                    
+                    # === PRIORITY CALCULATION ===
+                    
+                    # Determine priority level
+                    if gap_size >= 3:
+                        priority = 'mission_critical'
+                    elif gap_size == 2:
+                        priority = 'emergency'
+                    else:
+                        priority = 'standard'
+                    
+                    # Calculate time criticality (peak hours)
+                    time_criticality = 10 if hour in PEAK_HOURS else 5
+                    
+                    # Weekend adds criticality
+                    if day_type == 'weekend':
+                        time_criticality += 3
+                    
+                    # Friday bonus (weekend prep)
+                    if current_date.weekday() == 4:
+                        time_criticality += 2
+                    
+                    gap = {
+                        'approved_schedule_id': approved_schedule_id,
+                        'restaurant_id': restaurant_id,
+                        'date': date_str,
+                        'start_time': f'{hour:02d}:00:00',
+                        'end_time': f'{hour+1:02d}:00:00',
+                        'position': position,
+                        'needed_staff': needed,
+                        'scheduled_staff': current,
+                        'gap_size': gap_size,
+                        'priority_level': priority,
+                        'demand_score': covers,
+                        'time_criticality': time_criticality
+                    }
+                    
+                    gaps_to_insert.append(gap)
+                    gap_summary[priority].append({
+                        'date': date_str,
+                        'day_name': day_name,
+                        'hour': hour,
+                        'position': position,
+                        'gap_size': gap_size,
+                        'covers': covers
+                    })
+                    gap_summary['total_gaps'] += 1
+                    gap_summary['total_gap_size'] += gap_size
+        
+        # Insert gaps into database
+        if gaps_to_insert:
+            self.supabase.from_('coverage_gaps').insert(gaps_to_insert).execute()
+        
+        # Add counts to summary
+        gap_summary['mission_critical_count'] = len(gap_summary['mission_critical'])
+        gap_summary['emergency_count'] = len(gap_summary['emergency'])
+        gap_summary['standard_count'] = len(gap_summary['standard'])
+        
+        return gap_summary

@@ -164,3 +164,45 @@ async def update_schedule_shifts(
             status_code=500,
             detail=f"Failed to update schedule: {str(e)}"
         )
+    
+@router.post("/{schedule_id}/approve")
+async def approve_schedule(
+    schedule_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Approve a generated schedule
+    
+    Process:
+    1. Converts draft (generated_schedules/shifts) to approved tables
+    2. Calculates coverage gaps with priority
+    3. Returns summary for Step 5 (Coverage Gaps UI)
+    
+    Returns:
+        - approved_schedule_id: UUID of approved schedule
+        - shifts_count: Number of shifts approved
+        - total_cost: Final labor cost
+        - gaps: Organized by priority (mission_critical, emergency, standard)
+    """
+    service = SchedulingService()
+    
+    try:
+        result = await service.approve_schedule(
+            schedule_id=schedule_id,
+            approved_by=current_user['staff_id'],
+            restaurant_id=current_user['restaurant_id']
+        )
+        
+        return {
+            "success": True,
+            **result
+        }
+    
+    except Exception as e:
+        import traceback
+        print(f"Approval failed: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to approve schedule: {str(e)}"
+        )
