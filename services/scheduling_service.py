@@ -237,3 +237,259 @@ class SchedulingService:
             return response.data[0]
         
         return None
+    
+    from typing import List, Dict, Union
+from datetime import datetime, date
+
+async def update_schedule_shifts(
+    self,
+    schedule_id: str,
+    restaurant_id: int,
+    changes: List[Dict],
+    updated_by: str
+) -> Dict:
+    """
+    Apply manual edits to a schedule
+    
+    Args:
+        schedule_id: UUID of the schedule to update
+        restaurant_id: Restaurant ID (for security validation)
+        changes: List of {action: "add"|"remove", ...} operations
+        updated_by: staff_id of the manager making changes
+    
+    Returns:
+        {
+            "shifts_added": int,
+            "shifts_removed": int,
+            "updated_metrics": {...},
+            "warnings": [...]
+        }
+    """
+    
+    # 1. Verify schedule belongs to this restaurant
+    schedule_response = self.supabase.from_('generated_schedules') \
+        .select('restaurant_id') \
+        .eq('id', schedule_id) \
+        .single() \
+        .execute()
+    
+    if not schedule_response.data or schedule_response.data['restaurant_id'] != restaurant_id:
+        raise Exception("Schedule not found or access denied")
+    
+    warnings = []
+    shifts_added = 0
+    shifts_removed = 0
+    
+    # 2. Process each change
+    for change in changes:
+        if change['action'] == 'remove':
+            # Remove shift
+            delete_response = self.supabase.from_('generated_shifts') \
+                .delete() \
+                .eq('id', change['shift_id']) \
+                .execute()
+            
+            if delete_response.data:
+                shifts_removed += 1
+        
+        elif change['action'] == 'add':
+            # Validate staff exists and is active
+            staff_response = self.supabase.from_('staff') \
+                .select('staff_id, full_name, position, hourly_rate, max_hours_per_week, efficiency_multiplier') \
+                .eq('staff_id', change['staff_id']) \
+                .eq('restaurant_id', restaurant_id) \
+                .eq('status', 'Active') \
+                .single() \
+                .execute()
+            
+            if not staff_response.data:
+                warnings.append(f"Staff {change['staff_id']} not found or inactive")
+                continue
+            
+            staff = staff_response.data
+            
+            # Check constraints (warn but don't block)
+            constraint_violations = await self._check_constraints(
+                staff_id=change['staff_id'],
+                date=change['date'],
+                start_time=change['start_time'],
+                end_time=change['end_time'],
+                restaurant_id=restaurant_id
+            )
+            
+            if constraint_violations:
+                warnings.extend(constraint_violations)
+            
+            # Insert new shift
+            shift_data = {
+                'generated_schedule_id': schedule_id,
+                'restaurant_id': restaurant_id,
+                'staff_id': change['staff_id'],
+                'date': change['date'],
+                'start_time': change['start_time'],
+                'end_time': change['end_time'],
+                'position': change['position'],
+                'confidence_score': float(staff.get('efficiency_multiplier', 1.0)),
+                'constraint_flags': {'manual_edit': True, 'edited_by': updated_by}
+            }
+            
+            insert_response = self.supabase.from_('generated_shifts') \
+                .insert(shift_data) \
+                .execute()
+            
+            if insert_response.data:
+                shifts_added += 1
+    
+    # 3. Recalculate schedule metrics
+    updated_metrics = await self._recalculate_schedule_metrics(schedule_id, restaurant_id)
+    
+    # 4. Update the schedule record with new metrics
+    update_response = self.supabase.from_('generated_schedules') \
+        .update({
+            'total_labor_cost': updated_metrics['total_cost'],
+            'total_labor_hours': updated_metrics['total_hours'],
+            'coverage_score': updated_metrics['coverage_percent'],
+            'constraint_violations': updated_metrics['gaps']
+        }) \
+        .eq('id', schedule_id) \
+        .execute()
+    
+    return {
+        "shifts_added": shifts_added,
+        "shifts_removed": shifts_removed,
+        "updated_metrics": updated_metrics,
+        "warnings": warnings
+    }
+
+async def _check_constraints(
+    self,
+    staff_id: str,
+    date: str,
+    start_time: str,
+    end_time: str,
+    restaurant_id: int
+) -> List[str]:
+    """Check if shift violates any constraints (warn but don't block)"""
+    warnings = []
+    
+    # Load constraints for this staff member
+    constraints_response = self.supabase.from_('staff_scheduling_rules') \
+        .select('*') \
+        .eq('staff_id', staff_id) \
+        .eq('restaurant_id', restaurant_id) \
+        .eq('is_active', True) \
+        .execute()
+    
+    shift_date = datetime.fromisoformat(date).date()
+    start_hour = int(start_time.split(':')[0])
+    end_hour = int(end_time.split(':')[0])
+    
+    for constraint in constraints_response.data or []:
+        # PTO check
+        if constraint['rule_type'] == 'pto':
+            pto_start = datetime.fromisoformat(constraint['pto_start_date']).date()
+            pto_end = datetime.fromisoformat(constraint['pto_end_date']).date()
+            if pto_start <= shift_date <= pto_end:
+                warnings.append(f"⚠️ {constraint.get('description', 'PTO conflict')}")
+        
+        # Recurring constraints
+        elif constraint['rule_type'] == 'recurring':
+            recurrence_type = constraint.get('recurrence_type', '')
+            
+            # Check blocked days
+            if recurrence_type == 'cannot_work_specific_days':
+                blocked_days = constraint.get('blocked_days', [])
+                if shift_date.weekday() in blocked_days:
+                    warnings.append(f"⚠️ {constraint.get('description', 'Day restriction conflict')}")
+            
+            # Weekend restrictions
+            elif recurrence_type == 'no_weekends' and shift_date.weekday() >= 5:
+                warnings.append(f"⚠️ {constraint.get('description', 'Weekend restriction')}")
+            
+            elif recurrence_type == 'weekends_only' and shift_date.weekday() < 5:
+                warnings.append(f"⚠️ {constraint.get('description', 'Weekday restriction')}")
+            
+            # Time restrictions
+            elif recurrence_type == 'cannot_work_before_time' and start_hour < 12:
+                warnings.append(f"⚠️ {constraint.get('description', 'Start time restriction')}")
+            
+            elif recurrence_type == 'cannot_work_after_time' and end_hour >= 22:
+                warnings.append(f"⚠️ {constraint.get('description', 'End time restriction')}")
+    
+    return warnings
+
+async def _recalculate_schedule_metrics(self, schedule_id: str, restaurant_id: int) -> Dict:
+    """Recalculate coverage, cost, and hours after manual edits"""
+    
+    # Get all current shifts
+    shifts_response = self.supabase.from_('generated_shifts') \
+        .select('*, staff(hourly_rate)') \
+        .eq('generated_schedule_id', schedule_id) \
+        .execute()
+    
+    shifts = shifts_response.data or []
+    
+    # Calculate total hours and cost
+    total_hours = 0
+    total_cost = 0
+    
+    for shift in shifts:
+        start = datetime.strptime(shift['start_time'], '%H:%M:%S')
+        end = datetime.strptime(shift['end_time'], '%H:%M:%S')
+        hours = (end - start).total_seconds() / 3600
+        
+        total_hours += hours
+        total_cost += hours * float(shift['staff']['hourly_rate'])
+    
+    # Calculate coverage (compare to demand)
+    # Load demand patterns
+    demand_response = self.supabase.from_('restaurant_demand_patterns') \
+        .select('day_type, hour, covers_per_hour') \
+        .eq('restaurant_id', restaurant_id) \
+        .execute()
+    
+    demand_data = {}
+    for row in demand_response.data or []:
+        if row['day_type'] not in demand_data:
+            demand_data[row['day_type']] = {}
+        demand_data[row['day_type']][row['hour']] = row['covers_per_hour']
+    
+    # Convert covers to staff demand (using same ratios as algorithm)
+    total_slots_needed = 0
+    filled_slots = 0
+    
+    for day_type in ['weekday', 'weekend']:
+        for hour in range(9, 24):
+            covers = demand_data.get(day_type, {}).get(hour, 0)
+            if covers == 0:
+                continue
+            
+            # Calculate staff needed (using algorithm ratios)
+            roles = {
+                'Server': max(1, round(covers / 12)),
+                'Cook': max(1, round(covers / 25)),
+                'Host': max(1, round(covers / 30)),
+                'Busser': max(1, round(covers / 25)),
+                'Bartender': max(1, round(covers / 15))
+            }
+            
+            # Count how many slots are filled vs needed
+            # This is a simplified calculation - you'd need to match actual shifts to demand
+            for role, needed in roles.items():
+                total_slots_needed += needed
+                
+                # Count scheduled staff for this role at this hour
+                # (This is approximate - you'd want to refine based on actual dates)
+                scheduled = len([s for s in shifts if s['position'] == role])
+                filled_slots += min(scheduled, needed)
+    
+    coverage_percent = (filled_slots / total_slots_needed * 100) if total_slots_needed > 0 else 100
+    gaps = max(0, total_slots_needed - filled_slots)
+    
+    return {
+        'total_hours': round(total_hours, 1),
+        'total_cost': round(total_cost, 2),
+        'coverage_percent': round(coverage_percent, 1),
+        'gaps': gaps,
+        'total_shifts': len(shifts)
+    }
