@@ -60,3 +60,56 @@ async def approve_schedule(
         "shifts_scheduled": result['scheduled_count'],
         "open_shifts_created": result['open_shifts_count']
     }
+
+@router.get("/{schedule_id}/shifts")
+async def get_schedule_shifts(
+    schedule_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all shifts for a schedule"""
+    service = SchedulingService()
+    
+    try:
+        shifts = await service.get_shifts(schedule_id, current_user['restaurant_id'])
+        return {
+            "success": True,
+            "shifts": shifts
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch shifts: {str(e)}"
+        )
+    
+@router.get("/latest")
+async def get_latest_schedule(
+    restaurant_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get the most recent schedule for a restaurant"""
+    
+    # Verify user has access to this restaurant
+    if current_user['restaurant_id'] != restaurant_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    service = SchedulingService()
+    
+    try:
+        latest_schedule = await service.get_latest_schedule(restaurant_id)
+        
+        if not latest_schedule:
+            return {
+                "success": False,
+                "message": "No schedules found for this restaurant"
+            }
+        
+        return {
+            "success": True,
+            "schedule": latest_schedule
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch latest schedule: {str(e)}"
+        )

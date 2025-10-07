@@ -200,3 +200,40 @@ class SchedulingService:
                 .execute()
         
         return schedule_id
+    
+    async def get_shifts(self, schedule_id: str, restaurant_id: int) -> List[Dict]:
+        """Get all shifts for a schedule"""
+        
+        # Verify schedule belongs to this restaurant
+        schedule_response = self.supabase.from_('generated_schedules') \
+            .select('restaurant_id') \
+            .eq('id', schedule_id) \
+            .single() \
+            .execute()
+        
+        if not schedule_response.data or schedule_response.data['restaurant_id'] != restaurant_id:
+            raise Exception("Schedule not found or access denied")
+        
+        # Fetch shifts with staff names
+        shifts_response = self.supabase.from_('generated_shifts') \
+            .select('*, staff(full_name, position)') \
+            .eq('generated_schedule_id', schedule_id) \
+            .order('date, start_time') \
+            .execute()
+        
+        return shifts_response.data if shifts_response.data else []
+    
+    async def get_latest_schedule(self, restaurant_id: int) -> Dict:
+        """Get the most recently created schedule for a restaurant"""
+        
+        response = self.supabase.from_('generated_schedules') \
+            .select('id, created_at, coverage_score, total_labor_cost, total_labor_hours, constraint_violations') \
+            .eq('restaurant_id', restaurant_id) \
+            .order('created_at', desc=True) \
+            .limit(1) \
+            .execute()
+        
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        
+        return None
