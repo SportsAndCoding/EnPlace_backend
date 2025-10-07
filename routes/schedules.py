@@ -42,24 +42,6 @@ async def optimize_schedule(
             detail=f"Optimization failed: {str(e)}"
         )
     
-@router.post("/{schedule_id}/approve")
-async def approve_schedule(
-    schedule_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Approve schedule and create open shifts for gaps"""
-    service = SchedulingService()
-    
-    result = await service.approve_and_post_gaps(
-        schedule_id=schedule_id,
-        approved_by=current_user['staff_id']
-    )
-    
-    return {
-        "success": True,
-        "shifts_scheduled": result['scheduled_count'],
-        "open_shifts_created": result['open_shifts_count']
-    }
 
 @router.get("/{schedule_id}/shifts")
 async def get_schedule_shifts(
