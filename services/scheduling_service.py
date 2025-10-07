@@ -161,6 +161,8 @@ class SchedulingService:
         # Create schedule record
         schedule_data = {
             'restaurant_id': restaurant_id,
+            'pay_period_start': pay_period_start,
+            'pay_period_end': pay_period_end,
             'scenario_name': f'AI Schedule {datetime.now().strftime("%Y-%m-%d %H:%M")}',
             'total_labor_cost': total_cost,
             'total_labor_hours': total_hours,
