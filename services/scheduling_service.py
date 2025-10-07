@@ -59,6 +59,8 @@ class SchedulingService:
         # 3. Save to database
         schedule_id = await self._save_schedule(
             restaurant_id=restaurant_id,
+            pay_period_start=pay_period_start,
+            pay_period_end=pay_period_end,
             shifts=result['shifts'],
             coverage_score=result['coverage_percent'],
             total_cost=result['estimated_cost'],
@@ -149,6 +151,8 @@ class SchedulingService:
     async def _save_schedule(
         self,
         restaurant_id: int,
+        pay_period_start: str,
+        pay_period_end: str,
         shifts: List[Dict],
         coverage_score: float,
         total_cost: float,
@@ -161,8 +165,6 @@ class SchedulingService:
         # Create schedule record
         schedule_data = {
             'restaurant_id': restaurant_id,
-            'pay_period_start': pay_period_start,
-            'pay_period_end': pay_period_end,
             'scenario_name': f'AI Schedule {datetime.now().strftime("%Y-%m-%d %H:%M")}',
             'total_labor_cost': total_cost,
             'total_labor_hours': total_hours,
