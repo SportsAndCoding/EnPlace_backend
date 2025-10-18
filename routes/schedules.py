@@ -17,6 +17,7 @@ async def optimize_schedule(
     current_user: dict = Depends(get_current_user)
 ):
     """Run AI schedule optimization"""
+    print(f"🔵 SCHEDULES.PY - Received allow_overtime: {request.allow_overtime}")
     
     # Verify user has access to this restaurant
     if current_user['restaurant_id'] != request.restaurant_id:

@@ -74,6 +74,7 @@ class ScheduleOptimizer:
         pay_period_end: str,
         allow_overtime: bool = False  # NEW: Default to False (no OT)
     ):
+        print(f"🟡 OPTIMIZER - Received allow_overtime: {allow_overtime}")
         self.restaurant = restaurant_settings
         self.staff = staff
         self.constraints = constraints

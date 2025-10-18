@@ -27,11 +27,7 @@ class SchedulingService:
         allow_overtime: bool = False
     ) -> Dict:
         """
-        Generate optimized schedule
         
-        # DEBUG: Log the overtime parameter
-        print(f"🔥 OVERTIME SETTING RECEIVED: {allow_overtime}")
-        print(f"🔥 Type: {type(allow_overtime)}")
             
             Flow:
             1. Load restaurant settings (role ratios)
@@ -43,6 +39,8 @@ class SchedulingService:
             7. Return metrics
             """
         
+        print(f"🟢 SERVICE - Received allow_overtime: {allow_overtime}")
+
         # 1. Load all data
         restaurant = await self._load_restaurant_settings(restaurant_id)
         staff = await self._load_staff(restaurant_id)
