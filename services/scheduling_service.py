@@ -29,15 +29,19 @@ class SchedulingService:
         """
         Generate optimized schedule
         
-        Flow:
-        1. Load restaurant settings (role ratios)
-        2. Load staff (with efficiency metrics)
-        3. Load constraints (PTO, recurring rules)
-        4. Load demand curve (covers/hour with overrides)
-        5. Run optimization algorithm
-        6. Save schedule and shifts to database
-        7. Return metrics
-        """
+        # DEBUG: Log the overtime parameter
+        print(f"🔥 OVERTIME SETTING RECEIVED: {allow_overtime}")
+        print(f"🔥 Type: {type(allow_overtime)}")
+            
+            Flow:
+            1. Load restaurant settings (role ratios)
+            2. Load staff (with efficiency metrics)
+            3. Load constraints (PTO, recurring rules)
+            4. Load demand curve (covers/hour with overrides)
+            5. Run optimization algorithm
+            6. Save schedule and shifts to database
+            7. Return metrics
+            """
         
         # 1. Load all data
         restaurant = await self._load_restaurant_settings(restaurant_id)
