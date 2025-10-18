@@ -50,8 +50,7 @@ class SchedulingService:
         covers_demand = await self._load_demand_curve(restaurant_id, pay_period_start, pay_period_end)
 
         # 2. Run optimization algorithm
-        # Get overtime setting from restaurant config (default to False)
-        allow_overtime = restaurant.get('allow_overtime', False)
+        
 
         optimizer = ScheduleOptimizer(
             restaurant_settings=restaurant,
@@ -60,7 +59,7 @@ class SchedulingService:
             covers_demand=covers_demand,
             pay_period_start=pay_period_start,
             pay_period_end=pay_period_end,
-            allow_overtime=allow_overtime
+            allow_overtime=allow_overtime  # This now uses the method parameter
         )
         
         result = optimizer.run()
