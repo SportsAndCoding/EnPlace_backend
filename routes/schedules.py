@@ -9,6 +9,7 @@ class OptimizeRequest(BaseModel):
     restaurant_id: int
     pay_period_start: str  # ISO format: "2025-10-14"
     pay_period_end: str    # ISO format: "2025-10-27"
+    allow_overtime: bool = False
 
 @router.post("/optimize")
 async def optimize_schedule(
@@ -28,7 +29,8 @@ async def optimize_schedule(
             restaurant_id=request.restaurant_id,
             pay_period_start=request.pay_period_start,
             pay_period_end=request.pay_period_end,
-            created_by=current_user['staff_id']
+            created_by=current_user['staff_id'],
+            allow_overtime=request.allow_overtime  # NEW
         )
         
         return {

@@ -71,7 +71,8 @@ class ScheduleOptimizer:
         constraints: List[Dict],
         covers_demand: Dict,
         pay_period_start: str,
-        pay_period_end: str
+        pay_period_end: str,
+        allow_overtime: bool = False  # NEW: Default to False (no OT)
     ):
         self.restaurant = restaurant_settings
         self.staff = staff
@@ -79,6 +80,9 @@ class ScheduleOptimizer:
         self.covers_demand = covers_demand
         self.pay_period_start = datetime.fromisoformat(pay_period_start).date()
         self.pay_period_end = datetime.fromisoformat(pay_period_end).date()
+
+        # NEW: Store overtime setting
+        self.allow_overtime = allow_overtime
         
         # Derived data
         self.role_ratios = restaurant_settings.get('role_ratios', self._default_ratios())
@@ -278,10 +282,17 @@ class ScheduleOptimizer:
         pay_period_weeks = pay_period_days / 7
         max_hours_for_period = staff_member['max_hours_per_week'] * pay_period_weeks
         
-        # Check max hours
-        if self.staff_hours[staff_id] + shift_length > max_hours_for_period:
-            print(f"      REJECTED {staff_id}: would exceed max hours ({self.staff_hours[staff_id]} + {shift_length} > {max_hours_for_period})")
-            return False
+        # Check max hours (only enforce if overtime is disabled)
+        if not self.allow_overtime:
+            if self.staff_hours[staff_id] + shift_length > max_hours_for_period:
+                print(f"      REJECTED {staff_id}: would exceed max hours ({self.staff_hours[staff_id]} + {shift_length} > {max_hours_for_period})")
+                return False
+        else:
+            # Overtime allowed: Apply soft cap at 2x max hours (prevent absurd schedules)
+            absolute_max = max_hours_for_period * 2
+            if self.staff_hours[staff_id] + shift_length > absolute_max:
+                print(f"      REJECTED {staff_id}: would exceed absolute max ({self.staff_hours[staff_id]} + {shift_length} > {absolute_max})")
+                return False
         
         # Check all constraints for every hour in shift
         for hour in range(int(start_hour), int(end_hour)):
@@ -311,7 +322,30 @@ class ScheduleOptimizer:
         
         self.all_shifts.append(shift)
         self.staff_hours[staff_member['staff_id']] += shift_length
-        self.total_cost += float(staff_member['hourly_rate']) * shift_length
+        
+        # Calculate cost with overtime premium if applicable
+        base_rate = float(staff_member['hourly_rate'])
+        current_hours = self.staff_hours[staff_member['staff_id']]
+        
+        # Check if this shift pushes into overtime (>40 hours per week)
+        weekly_hours_before = current_hours - shift_length
+        weekly_threshold = 40.0  # Federal overtime threshold
+        
+        if self.allow_overtime and current_hours > weekly_threshold:
+            # Calculate how much of this shift is OT
+            ot_hours = min(shift_length, current_hours - weekly_threshold)
+            regular_hours = shift_length - ot_hours
+            
+            # OT is 1.5x base rate
+            shift_cost = (regular_hours * base_rate) + (ot_hours * base_rate * 1.5)
+            
+            # Add OT flag to shift record
+            shift['overtime_hours'] = round(ot_hours, 2)
+            shift['effective_rate'] = round(shift_cost / shift_length, 2)
+        else:
+            shift_cost = base_rate * shift_length
+        
+        self.total_cost += shift_cost
     
     def _violates_constraints(self, staff_id: str, current_date: date, hour: int) -> bool:
         """Check scheduling constraints"""

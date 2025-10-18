@@ -23,7 +23,8 @@ class SchedulingService:
         restaurant_id: int, 
         pay_period_start: str, 
         pay_period_end: str,
-        created_by: str
+        created_by: str,
+        allow_overtime: bool = False
     ) -> Dict:
         """
         Generate optimized schedule
@@ -43,15 +44,19 @@ class SchedulingService:
         staff = await self._load_staff(restaurant_id)
         constraints = await self._load_constraints(restaurant_id)
         covers_demand = await self._load_demand_curve(restaurant_id, pay_period_start, pay_period_end)
-        
+
         # 2. Run optimization algorithm
+        # Get overtime setting from restaurant config (default to False)
+        allow_overtime = restaurant.get('allow_overtime', False)
+
         optimizer = ScheduleOptimizer(
             restaurant_settings=restaurant,
             staff=staff,
             constraints=constraints,
             covers_demand=covers_demand,
             pay_period_start=pay_period_start,
-            pay_period_end=pay_period_end
+            pay_period_end=pay_period_end,
+            allow_overtime=allow_overtime
         )
         
         result = optimizer.run()
@@ -83,9 +88,9 @@ class SchedulingService:
     # ============ DATA LOADING METHODS ============
     
     async def _load_restaurant_settings(self, restaurant_id: int) -> Dict:
-        """Load restaurant with role ratios"""
+        """Load restaurant with role ratios and overtime setting"""
         response = self.supabase.from_('restaurants') \
-            .select('role_ratios') \
+            .select('role_ratios, allow_overtime') \
             .eq('id', restaurant_id) \
             .single() \
             .execute()
