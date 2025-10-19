@@ -20,6 +20,8 @@ class ScheduleOptimizer:
         'lunch': {'start': 11, 'end': 15, 'length': 4, 'type': 'single'},
         'dinner': {'start': 17, 'end': 21, 'length': 4, 'type': 'single'},
         'late_dinner': {'start': 18, 'end': 23, 'length': 5, 'type': 'single'},
+        'afternoon': {'start': 14, 'end': 18, 'length': 4, 'type': 'single'},
+        'closing': {'start': 19, 'end': 24, 'length': 5, 'type': 'single'},
         
         # Extended shifts (6-8 hours) - Common for BOH and full-time FOH
         'lunch_extended': {'start': 11, 'end': 17, 'length': 6, 'type': 'extended'},
@@ -72,8 +74,15 @@ class ScheduleOptimizer:
         covers_demand: Dict,
         pay_period_start: str,
         pay_period_end: str,
-        allow_overtime: bool = False  # NEW: Default to False (no OT)
+        allow_overtime: bool = False
     ):
+        self.staffing_ratios = restaurant_settings.get('staffing_ratios', {
+            'Server': 12,
+            'Cook': 25,
+            'Host': 30,
+            'Busser': 25,
+            'Bartender': 15
+        })
         print(f"🟡 OPTIMIZER - Received allow_overtime: {allow_overtime}")
         self.restaurant = restaurant_settings
         self.staff = staff
@@ -206,6 +215,20 @@ class ScheduleOptimizer:
                 if 'lunch' not in shifts_needed:
                     shifts_needed['lunch'] = {}
                 shifts_needed['lunch'][role] = lunch_peak
+
+            # Afternoon bridge (14-18) - covers the 3 PM gap
+            afternoon_peak = max((hourly_demand[role].get(h, 0) for h in range(14, 18)), default=0)
+            if afternoon_peak > 0:
+                if 'afternoon' not in shifts_needed:
+                    shifts_needed['afternoon'] = {}
+                shifts_needed['afternoon'][role] = afternoon_peak
+
+            # Closing (19-24) - covers the 11 PM gap  
+            closing_peak = max((hourly_demand[role].get(h, 0) for h in range(19, 24)), default=0)
+            if closing_peak > 0:
+                if 'closing' not in shifts_needed:
+                    shifts_needed['closing'] = {}
+                shifts_needed['closing'][role] = closing_peak
             
             # Dinner (17-21) - use PEAK hour
             dinner_peak = max((hourly_demand[role].get(h, 0) for h in range(17, 21)), default=0)
@@ -401,20 +424,8 @@ class ScheduleOptimizer:
     def _convert_covers_to_staff_by_role(self) -> Dict:
         staff_demand = {}
         
-        # Industry standards for casual dining
-        COVERS_PER_SERVER = 12  # Conservative (can handle 12-15)
-        COVERS_PER_COOK = 25    # Based on "4 cooks per 50 covers"
-        COVERS_PER_HOST = 30     # 1 host can seat/manage high volume
-        COVERS_PER_BUSSER = 25   # Support multiple servers
-        COVERS_PER_BARTENDER = 15  # Bar service + drinks
-        
-        coverage_ratios = {
-            'Server': COVERS_PER_SERVER,
-            'Cook': COVERS_PER_COOK,
-            'Host': COVERS_PER_HOST,
-            'Busser': COVERS_PER_BUSSER,
-            'Bartender': COVERS_PER_BARTENDER
-        }
+        # Use dynamic ratios from restaurant settings
+        coverage_ratios = self.staffing_ratios
         
         for day_type in self.covers_demand:
             staff_demand[day_type] = {}
@@ -425,8 +436,6 @@ class ScheduleOptimizer:
                 for role, covers_per_staff in coverage_ratios.items():
                     staff_needed = max(1, round(covers / covers_per_staff))
                     staff_demand[day_type][hour][role] = staff_needed
-
-        
         
         return staff_demand
     

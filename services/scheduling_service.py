@@ -91,7 +91,7 @@ class SchedulingService:
     async def _load_restaurant_settings(self, restaurant_id: int) -> Dict:
         """Load restaurant with role ratios and overtime setting"""
         response = self.supabase.from_('restaurants') \
-            .select('role_ratios, allow_overtime') \
+            .select('role_ratios, allow_overtime, staffing_ratios') \
             .eq('id', restaurant_id) \
             .single() \
             .execute()
