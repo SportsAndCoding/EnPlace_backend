@@ -94,33 +94,40 @@ class ScheduleOptimizer:
         templates = {}
         
         # Breakfast (if open early enough)
-        if open_hour <= 9:
+        if open_hour <= 9:  # ONLY create breakfast if open by 9 AM
             templates['breakfast'] = {'start': open_hour, 'end': open_hour + 4, 'length': 4, 'type': 'single'}
         
-        # Lunch
-        templates['lunch'] = {'start': 11, 'end': 15, 'length': 4, 'type': 'single'}
+        # Lunch (only if open by 11 AM)
+        if open_hour <= 11:
+            templates['lunch'] = {'start': 11, 'end': 15, 'length': 4, 'type': 'single'}
         
-        # Afternoon bridge
-        templates['afternoon'] = {'start': 14, 'end': 18, 'length': 4, 'type': 'single'}
+        # Afternoon bridge (only if open by 2 PM)
+        if open_hour <= 14:
+            templates['afternoon'] = {'start': 14, 'end': 18, 'length': 4, 'type': 'single'}
         
-        # Dinner
-        templates['dinner'] = {'start': 17, 'end': 21, 'length': 4, 'type': 'single'}
+        # Dinner (always, but adjust start time if opening later)
+        dinner_start = max(open_hour, 17)
+        templates['dinner'] = {'start': dinner_start, 'end': min(21, close_hour), 'length': min(4, close_hour - dinner_start), 'type': 'single'}
         
         # Late dinner
-        templates['late_dinner'] = {'start': 18, 'end': min(23, close_hour), 'length': min(5, close_hour - 18), 'type': 'single'}
+        late_start = max(open_hour, 18)
+        templates['late_dinner'] = {'start': late_start, 'end': min(23, close_hour), 'length': min(5, close_hour - late_start), 'type': 'single'}
         
         # Closing shift (can span midnight)
         if close_hour >= 23:
-            templates['closing'] = {'start': 19, 'end': close_hour, 'length': close_hour - 19, 'type': 'single'}
+            closing_start = max(open_hour, 19)
+            templates['closing'] = {'start': closing_start, 'end': close_hour, 'length': close_hour - closing_start, 'type': 'single'}
         
-        # Extended shifts
-        templates['lunch_extended'] = {'start': 11, 'end': 17, 'length': 6, 'type': 'extended'}
-        templates['dinner_extended'] = {'start': 16, 'end': min(23, close_hour), 'length': min(7, close_hour - 16), 'type': 'extended'}
-        templates['full_day'] = {'start': 11, 'end': 19, 'length': 8, 'type': 'extended'}
+        # Extended shifts (only if enough operating hours)
+        if close_hour - open_hour >= 6:
+            templates['dinner_extended'] = {'start': max(open_hour, 16), 'end': min(23, close_hour), 'length': 6, 'type': 'extended'}
+        
+        if close_hour - open_hour >= 8:
+            templates['full_day'] = {'start': open_hour, 'end': min(open_hour + 8, close_hour), 'length': 8, 'type': 'extended'}
         
         # Management shifts
-        templates['manager_open'] = {'start': open_hour, 'end': open_hour + 8, 'length': 8, 'type': 'management'}
-        templates['manager_close'] = {'start': max(open_hour, close_hour - 9), 'end': close_hour, 'length': 9, 'type': 'management'}
+        templates['manager_open'] = {'start': open_hour, 'end': min(open_hour + 8, close_hour), 'length': min(8, close_hour - open_hour), 'type': 'management'}
+        templates['manager_close'] = {'start': max(open_hour, close_hour - 9), 'end': close_hour, 'length': min(9, close_hour - open_hour), 'type': 'management'}
         
         return templates
 
