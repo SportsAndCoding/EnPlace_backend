@@ -16,6 +16,7 @@ from services.auth_service import verify_jwt_token
 from routes.staff import router as staff_router
 
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -120,6 +121,8 @@ from routes.demand import router as demand_router
 app.include_router(demand_router)
 from routes.schedule_review import router as review_router
 app.include_router(review_router)
+from routes.restaurants import router as restaurants_router
+app.include_router(restaurants_router)
 
 
 @app.get("/")
