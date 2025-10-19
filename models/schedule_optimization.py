@@ -111,7 +111,7 @@ class ScheduleOptimizer:
         
         # Closing shift (can span midnight)
         if close_hour >= 23:
-            templates['closing'] = {'start': 20, 'end': close_hour, 'length': close_hour - 20, 'type': 'single'}
+            templates['closing'] = {'start': 19, 'end': close_hour, 'length': close_hour - 19, 'type': 'single'}
         
         # Extended shifts
         templates['lunch_extended'] = {'start': 11, 'end': 17, 'length': 6, 'type': 'extended'}
@@ -367,7 +367,7 @@ class ScheduleOptimizer:
             end_hour_int = end_hour_int - 24
             end_date_obj = shift_date + timedelta(days=1)
         
-        end_time = f"{end_hour_int:02d}:{end_min_int:02d}:00"
+            end_time = f"{end_hour_int:02d}:{end_min_int:02d}:00"
         
         shift = {
             'staff_id': staff_member['staff_id'],
