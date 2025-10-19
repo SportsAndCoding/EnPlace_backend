@@ -367,8 +367,8 @@ class ScheduleOptimizer:
             end_hour_int = end_hour_int - 24
             end_date_obj = shift_date + timedelta(days=1)
         
-            end_time = f"{end_hour_int:02d}:{end_min_int:02d}:00"
-        
+            
+        end_time = f"{end_hour_int:02d}:{end_min_int:02d}:00"
         shift = {
             'staff_id': staff_member['staff_id'],
             'date': shift_date_obj.isoformat(),
