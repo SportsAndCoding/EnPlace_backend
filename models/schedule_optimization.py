@@ -13,31 +13,6 @@ class ScheduleOptimizer:
     - Minimum 4-hour shifts to avoid reporting time pay penalties
     """
     
-    # Real-world shift templates by type
-    SHIFT_TEMPLATES = {
-        # Single meal services (4-5 hours) - Most common for FOH
-        'breakfast': {'start': 9, 'end': 13, 'length': 4, 'type': 'single'},
-        'lunch': {'start': 11, 'end': 15, 'length': 4, 'type': 'single'},
-        'dinner': {'start': 17, 'end': 21, 'length': 4, 'type': 'single'},
-        'late_dinner': {'start': 18, 'end': 23, 'length': 5, 'type': 'single'},
-        'afternoon': {'start': 14, 'end': 18, 'length': 4, 'type': 'single'},
-        'closing': {'start': 19, 'end': 24, 'length': 5, 'type': 'single'},
-        
-        # Extended shifts (6-8 hours) - Common for BOH and full-time FOH
-        'lunch_extended': {'start': 11, 'end': 17, 'length': 6, 'type': 'extended'},
-        'dinner_extended': {'start': 16, 'end': 23, 'length': 7, 'type': 'extended'},
-        'mid_day': {'start': 13, 'end': 19, 'length': 6, 'type': 'extended'},
-        'full_day': {'start': 11, 'end': 19, 'length': 8, 'type': 'extended'},
-        
-        # Split shifts (lunch + dinner same day) - Common for servers
-        'split_lunch': {'start': 11, 'end': 15, 'length': 4, 'type': 'split_part'},
-        'split_dinner': {'start': 17, 'end': 22, 'length': 5, 'type': 'split_part'},
-        
-        # Manager/supervisor shifts (8-10 hours)
-        'manager_open': {'start': 9, 'end': 17, 'length': 8, 'type': 'management'},
-        'manager_close': {'start': 14, 'end': 23, 'length': 9, 'type': 'management'},
-        'manager_mid': {'start': 11, 'end': 21, 'length': 10, 'type': 'management'},
-    }
 
     # Map generic role categories to actual position titles
     POSITION_ALIASES = {
@@ -83,6 +58,13 @@ class ScheduleOptimizer:
             'Busser': 25,
             'Bartender': 15
         })
+        self.operating_hours = restaurant_settings.get('operating_hours', {
+            'open_hour': 9,
+            'close_hour': 24,
+            'spans_midnight': True
+        })
+        self.SHIFT_TEMPLATES = self._build_shift_templates(self.operating_hours['open_hour'], self.operating_hours['close_hour'])
+
         print(f"🟡 OPTIMIZER - Received allow_overtime: {allow_overtime}")
         self.restaurant = restaurant_settings
         self.staff = staff
@@ -107,6 +89,42 @@ class ScheduleOptimizer:
         self.violations = 0
         self.total_cost = 0.0
     
+    def _build_shift_templates(self, open_hour: int, close_hour: int) -> Dict:
+        """Build shift templates based on restaurant operating hours"""
+        templates = {}
+        
+        # Breakfast (if open early enough)
+        if open_hour <= 9:
+            templates['breakfast'] = {'start': open_hour, 'end': open_hour + 4, 'length': 4, 'type': 'single'}
+        
+        # Lunch
+        templates['lunch'] = {'start': 11, 'end': 15, 'length': 4, 'type': 'single'}
+        
+        # Afternoon bridge
+        templates['afternoon'] = {'start': 14, 'end': 18, 'length': 4, 'type': 'single'}
+        
+        # Dinner
+        templates['dinner'] = {'start': 17, 'end': 21, 'length': 4, 'type': 'single'}
+        
+        # Late dinner
+        templates['late_dinner'] = {'start': 18, 'end': min(23, close_hour), 'length': min(5, close_hour - 18), 'type': 'single'}
+        
+        # Closing shift (can span midnight)
+        if close_hour >= 23:
+            templates['closing'] = {'start': 20, 'end': close_hour, 'length': close_hour - 20, 'type': 'single'}
+        
+        # Extended shifts
+        templates['lunch_extended'] = {'start': 11, 'end': 17, 'length': 6, 'type': 'extended'}
+        templates['dinner_extended'] = {'start': 16, 'end': min(23, close_hour), 'length': min(7, close_hour - 16), 'type': 'extended'}
+        templates['full_day'] = {'start': 11, 'end': 19, 'length': 8, 'type': 'extended'}
+        
+        # Management shifts
+        templates['manager_open'] = {'start': open_hour, 'end': open_hour + 8, 'length': 8, 'type': 'management'}
+        templates['manager_close'] = {'start': max(open_hour, close_hour - 9), 'end': close_hour, 'length': 9, 'type': 'management'}
+        
+        return templates
+
+
     def run(self) -> Dict:
         """Execute shift-based optimization"""
         
@@ -328,21 +346,43 @@ class ScheduleOptimizer:
     
     def _assign_shift(self, staff_member: Dict, shift_date: date, start_hour: float, end_hour: float):
         """Create shift record"""
+        from datetime import timedelta
+        
         shift_length = end_hour - start_hour
         
+        # Handle shifts that span midnight
+        shift_date_obj = shift_date
+        end_date_obj = shift_date
+        
         # Convert float hours to HH:MM format
-        start_time = f"{int(start_hour):02d}:{int((start_hour % 1) * 60):02d}:00"
-        end_time = f"{int(end_hour):02d}:{int((end_hour % 1) * 60):02d}:00"
+        start_hour_int = int(start_hour)
+        start_min_int = int((start_hour % 1) * 60)
+        start_time = f"{start_hour_int:02d}:{start_min_int:02d}:00"
+        
+        end_hour_int = int(end_hour)
+        end_min_int = int((end_hour % 1) * 60)
+        
+        # If end hour >= 24, it's the next day
+        if end_hour_int >= 24:
+            end_hour_int = end_hour_int - 24
+            end_date_obj = shift_date + timedelta(days=1)
+        
+        end_time = f"{end_hour_int:02d}:{end_min_int:02d}:00"
         
         shift = {
             'staff_id': staff_member['staff_id'],
-            'date': shift_date.isoformat(),
+            'date': shift_date_obj.isoformat(),
             'start_time': start_time,
             'end_time': end_time,
             'position': staff_member['position'],
             'hourly_rate': float(staff_member['hourly_rate']),
             'efficiency_multiplier': float(staff_member.get('efficiency_multiplier', 1.0))
         }
+        
+        # If shift spans midnight, add metadata
+        if end_hour >= 24:
+            shift['spans_midnight'] = True
+            shift['end_date'] = end_date_obj.isoformat()
         
         self.all_shifts.append(shift)
         self.staff_hours[staff_member['staff_id']] += shift_length
@@ -351,19 +391,15 @@ class ScheduleOptimizer:
         base_rate = float(staff_member['hourly_rate'])
         current_hours = self.staff_hours[staff_member['staff_id']]
         
-        # Check if this shift pushes into overtime (>40 hours per week)
         weekly_hours_before = current_hours - shift_length
-        weekly_threshold = 40.0  # Federal overtime threshold
+        weekly_threshold = 40.0
         
         if self.allow_overtime and current_hours > weekly_threshold:
-            # Calculate how much of this shift is OT
             ot_hours = min(shift_length, current_hours - weekly_threshold)
             regular_hours = shift_length - ot_hours
             
-            # OT is 1.5x base rate
             shift_cost = (regular_hours * base_rate) + (ot_hours * base_rate * 1.5)
             
-            # Add OT flag to shift record
             shift['overtime_hours'] = round(ot_hours, 2)
             shift['effective_rate'] = round(shift_cost / shift_length, 2)
         else:
