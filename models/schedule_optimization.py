@@ -215,8 +215,12 @@ class ScheduleOptimizer:
         day_type = 'weekend' if current_date.weekday() >= 5 else 'weekday'
         hourly_demand = {}
         
+        # Use dynamic operating hours
+        open_hour = self.operating_hours['open_hour']
+        close_hour = self.operating_hours['close_hour']
+        
         # Collect all hourly demand for this day
-        for hour in range(9, 24):
+        for hour in range(open_hour, close_hour):
             role_demand = staff_demand.get(day_type, {}).get(hour, {})
             for role, count in role_demand.items():
                 if role not in hourly_demand:
@@ -226,48 +230,20 @@ class ScheduleOptimizer:
         shifts_needed = {}
         
         # Use PEAK demand during each shift window
+        # Only check shift types that exist in templates
         for role in hourly_demand:
-            # Breakfast (9-13) - use PEAK hour
-            breakfast_peak = max((hourly_demand[role].get(h, 0) for h in range(9, 13)), default=0)
-            if breakfast_peak > 0:
-                if 'breakfast' not in shifts_needed:
-                    shifts_needed['breakfast'] = {}
-                shifts_needed['breakfast'][role] = breakfast_peak
-            
-            # Lunch (11-15) - use PEAK hour
-            lunch_peak = max((hourly_demand[role].get(h, 0) for h in range(11, 15)), default=0)
-            if lunch_peak > 0:
-                if 'lunch' not in shifts_needed:
-                    shifts_needed['lunch'] = {}
-                shifts_needed['lunch'][role] = lunch_peak
-
-            # Afternoon bridge (14-18) - covers the 3 PM gap
-            afternoon_peak = max((hourly_demand[role].get(h, 0) for h in range(14, 18)), default=0)
-            if afternoon_peak > 0:
-                if 'afternoon' not in shifts_needed:
-                    shifts_needed['afternoon'] = {}
-                shifts_needed['afternoon'][role] = afternoon_peak
-
-            # Closing (19-24) - covers the 11 PM gap  
-            closing_peak = max((hourly_demand[role].get(h, 0) for h in range(19, 24)), default=0)
-            if closing_peak > 0:
-                if 'closing' not in shifts_needed:
-                    shifts_needed['closing'] = {}
-                shifts_needed['closing'][role] = closing_peak
-            
-            # Dinner (17-21) - use PEAK hour
-            dinner_peak = max((hourly_demand[role].get(h, 0) for h in range(17, 21)), default=0)
-            if dinner_peak > 0:
-                if 'dinner' not in shifts_needed:
-                    shifts_needed['dinner'] = {}
-                shifts_needed['dinner'][role] = dinner_peak
-            
-            # Late dinner (18-23) - use PEAK hour
-            late_peak = max((hourly_demand[role].get(h, 0) for h in range(18, 23)), default=0)
-            if late_peak > 0:
-                if 'late_dinner' not in shifts_needed:
-                    shifts_needed['late_dinner'] = {}
-                shifts_needed['late_dinner'][role] = late_peak
+            # Check each shift template that exists
+            for shift_name, template in self.SHIFT_TEMPLATES.items():
+                shift_start = template['start']
+                shift_end = template['end']
+                
+                # Get peak demand during this shift's window
+                peak = max((hourly_demand[role].get(h, 0) for h in range(shift_start, shift_end)), default=0)
+                
+                if peak > 0:
+                    if shift_name not in shifts_needed:
+                        shifts_needed[shift_name] = {}
+                    shifts_needed[shift_name][role] = peak
         
         return shifts_needed
     
