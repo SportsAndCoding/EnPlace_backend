@@ -223,6 +223,11 @@ class ScheduleOptimizer:
         print(f"Total shifts created: {total_shifts_created}")
         print(f"Gap: {total_shifts_attempted - total_shifts_created}")
         print(f"Unique staff used: {len([k for k, v in self.staff_hours.items() if v > 0])}")
+
+        # DEBUG: Show shifts per day
+        print(f"🔴 Shifts attempted per day: {total_shifts_attempted / 14:.1f}")
+        print(f"🔴 Shifts created per day: {total_shifts_created / 14:.1f}")
+
         print("="*80 + "\n")
         
         return self._build_result()
