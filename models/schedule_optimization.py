@@ -73,6 +73,22 @@ class ScheduleOptimizer:
         self.pay_period_start = datetime.fromisoformat(pay_period_start).date()
         self.pay_period_end = datetime.fromisoformat(pay_period_end).date()
 
+        # DEBUG: Calculate and log pay period info
+        pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
+        pay_period_weeks = pay_period_days / 7
+        print(f"🟡 PAY PERIOD DEBUG:")
+        print(f"   Start: {self.pay_period_start}")
+        print(f"   End: {self.pay_period_end}")
+        print(f"   Days: {pay_period_days}")
+        print(f"   Weeks: {pay_period_weeks}")
+
+        # DEBUG PAY PERIOD
+        days = (self.pay_period_end - self.pay_period_start).days + 1
+        weeks = days / 7
+        print(f"🔴 PAY PERIOD: {self.pay_period_start} → {self.pay_period_end}")
+        print(f"🔴 DAYS: {days}, WEEKS: {weeks}")
+        print(f"🔴 SAMPLE STAFF MAX HOURS: {staff[0].get('max_hours_per_week') if staff else 'NO STAFF'}")
+
         # NEW: Store overtime setting
         self.allow_overtime = allow_overtime
         
