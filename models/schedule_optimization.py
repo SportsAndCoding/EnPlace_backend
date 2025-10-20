@@ -307,6 +307,21 @@ class ScheduleOptimizer:
         pay_period_weeks = pay_period_days / 7
         max_hours_for_period = staff_member['max_hours_per_week'] * pay_period_weeks
         
+        # DEBUG: Log ONCE per optimization run
+        if not hasattr(self, '_logged_period_debug'):
+            print(f"\nðŸŸ¡ PAY PERIOD CALCULATION:")
+            print(f"   Start date: {self.pay_period_start}")
+            print(f"   End date: {self.pay_period_end}")
+            print(f"   Total days: {pay_period_days}")
+            print(f"   Calculated weeks: {pay_period_weeks}")
+            print(f"   Sample staff max_hours_per_week: {staff_member['max_hours_per_week']}")
+            print(f"   Calculated max_hours_for_period: {max_hours_for_period}")
+            print(f"   Allow overtime: {self.allow_overtime}")
+            if self.allow_overtime:
+                print(f"   Absolute max (with OT): {max_hours_for_period * 2}")
+            print()
+            self._logged_period_debug = True
+        
         # Check max hours (only enforce if overtime is disabled)
         if not self.allow_overtime:
             if self.staff_hours[staff_id] + shift_length > max_hours_for_period:
