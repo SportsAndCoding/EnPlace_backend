@@ -223,13 +223,67 @@ class ScheduleOptimizer:
         print(f"Total shifts created: {total_shifts_created}")
         print(f"Gap: {total_shifts_attempted - total_shifts_created}")
         print(f"Unique staff used: {len([k for k, v in self.staff_hours.items() if v > 0])}")
-
-        # DEBUG: Show shifts per day
-        print(f"🔴 Shifts attempted per day: {total_shifts_attempted / 14:.1f}")
-        print(f"🔴 Shifts created per day: {total_shifts_created / 14:.1f}")
-
         print("="*80 + "\n")
-        
+
+        # Print per-staff schedule summary
+        print("="*80)
+        print("STAFF SCHEDULE SUMMARY")
+        print("="*80)
+
+        # Group shifts by staff
+        staff_schedules = {}
+        for shift in self.all_shifts:
+            staff_id = shift['staff_id']
+            if staff_id not in staff_schedules:
+                staff_schedules[staff_id] = []
+            staff_schedules[staff_id].append(shift)
+
+        # Sort staff by total hours worked (descending)
+        staff_with_hours = [(sid, self.staff_hours[sid]) for sid in staff_schedules.keys()]
+        staff_with_hours.sort(key=lambda x: x[1], reverse=True)
+
+        # Print each staff member's schedule
+        for staff_id, total_hours in staff_with_hours:
+            # Get staff details
+            staff_member = next((s for s in self.staff if s['staff_id'] == staff_id), None)
+            if not staff_member:
+                continue
+            
+            name = staff_member.get('full_name', 'Unknown')
+            position = staff_member.get('position', 'Unknown')
+            max_hours_week = staff_member.get('max_hours_per_week', 40)
+            
+            shifts = staff_schedules[staff_id]
+            shifts.sort(key=lambda s: s['date'])  # Sort by date
+            
+            print(f"\n{name} ({position}) - {staff_id}")
+            print(f"  Max: {max_hours_week}h/week ({max_hours_week * 2}h/period)")
+            print(f"  Worked: {total_hours:.1f}h total")
+            print(f"  Shifts: {len(shifts)}")
+            
+            # Group by week
+            week1_shifts = [s for s in shifts if s['date'] < '2025-11-03']  # First 7 days
+            week2_shifts = [s for s in shifts if s['date'] >= '2025-11-03']  # Last 7 days
+            
+            week1_hours = sum(self._calculate_shift_hours(s) for s in week1_shifts)
+            week2_hours = sum(self._calculate_shift_hours(s) for s in week2_shifts)
+            
+            print(f"  Week 1: {len(week1_shifts)} shifts, {week1_hours:.1f}h")
+            print(f"  Week 2: {len(week2_shifts)} shifts, {week2_hours:.1f}h")
+            
+            # Show schedule
+            print(f"  Schedule:")
+            for shift in shifts:
+                date = shift['date']
+                start = shift['start_time'][:5]  # HH:MM
+                end = shift['end_time'][:5]
+                hours = self._calculate_shift_hours(shift)
+                print(f"    {date}: {start}-{end} ({hours:.1f}h)")
+
+        print("\n" + "="*80)
+        print("END STAFF SUMMARY")
+        print("="*80 + "\n")
+
         return self._build_result()
     
     def _determine_shifts_for_day(self, staff_demand: Dict, current_date: date) -> Dict:
@@ -548,3 +602,16 @@ class ScheduleOptimizer:
             "constraint_violations": self.violations,
             "has_coverage_gaps": self.violations > 0
         }
+    
+    def _calculate_shift_hours(self, shift: Dict) -> float:
+        """Calculate shift length from shift record"""
+        start_hour = int(shift['start_time'].split(':')[0])
+        start_min = int(shift['start_time'].split(':')[1])
+        end_hour = int(shift['end_time'].split(':')[0])
+        end_min = int(shift['end_time'].split(':')[1])
+        
+        # Handle midnight rollover
+        if end_hour == 0 and start_hour > 0:
+            end_hour = 24
+        
+        return (end_hour + end_min/60) - (start_hour + start_min/60)
