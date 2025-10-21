@@ -408,8 +408,9 @@ class ScheduleOptimizer:
                 print(f"      REJECTED {staff_id}: would exceed max hours ({self.staff_hours[staff_id]} + {shift_length} > {max_hours_for_period})")
                 return False
         else:
-            # Overtime allowed: Apply soft cap at 2x max hours (prevent absurd schedules)
-            absolute_max = max_hours_for_period * 2
+            # Overtime allowed: Can schedule beyond their preference
+            # Soft cap at 60 hours/week (120 hours per 2-week period) to prevent burnout
+            absolute_max = 60 * pay_period_weeks  # 120 hours for 2 weeks
             if self.staff_hours[staff_id] + shift_length > absolute_max:
                 print(f"      REJECTED {staff_id}: would exceed absolute max ({self.staff_hours[staff_id]} + {shift_length} > {absolute_max})")
                 return False
@@ -470,14 +471,31 @@ class ScheduleOptimizer:
         
         # Calculate cost with overtime premium if applicable
         base_rate = float(staff_member['hourly_rate'])
-        current_hours = self.staff_hours[staff_member['staff_id']]
         
-        weekly_hours_before = current_hours - shift_length
+        # Overtime is calculated PER WEEK (not per period)
+        # Determine which week this shift is in (0 or 1 for 2-week period)
+        shift_week = (shift_date - self.pay_period_start).days // 7
+        
+        # Track weekly hours per staff member
+        if not hasattr(self, 'staff_weekly_hours'):
+            self.staff_weekly_hours = {}
+        if staff_member['staff_id'] not in self.staff_weekly_hours:
+            self.staff_weekly_hours[staff_member['staff_id']] = [0.0, 0.0]  # [week0_hours, week1_hours]
+        
+        hours_this_week_before = self.staff_weekly_hours[staff_member['staff_id']][shift_week]
+        hours_this_week_after = hours_this_week_before + shift_length
         weekly_threshold = 40.0
         
-        if self.allow_overtime and current_hours > weekly_threshold:
-            ot_hours = min(shift_length, current_hours - weekly_threshold)
-            regular_hours = shift_length - ot_hours
+        if self.allow_overtime and hours_this_week_after > weekly_threshold:
+            # Calculate how much of this shift is overtime
+            if hours_this_week_before >= weekly_threshold:
+                # Already over 40h this week, entire shift is OT
+                ot_hours = shift_length
+                regular_hours = 0
+            else:
+                # Crosses the 40h threshold during this shift
+                regular_hours = weekly_threshold - hours_this_week_before
+                ot_hours = shift_length - regular_hours
             
             shift_cost = (regular_hours * base_rate) + (ot_hours * base_rate * 1.5)
             
@@ -485,6 +503,9 @@ class ScheduleOptimizer:
             shift['effective_rate'] = round(shift_cost / shift_length, 2)
         else:
             shift_cost = base_rate * shift_length
+        
+        # Update weekly hours tracker
+        self.staff_weekly_hours[staff_member['staff_id']][shift_week] += shift_length
         
         self.total_cost += shift_cost
     
