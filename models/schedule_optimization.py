@@ -377,22 +377,10 @@ class ScheduleOptimizer:
         staff_id = staff_member['staff_id']
         shift_length = end_hour - start_hour
         
-        # CHECK FOR OVERLAPPING SHIFTS ON SAME DAY
+        # RULE 1: Only one shift per person per day (no split shifts, no overlaps)
         if staff_id in self.staff_shifts_today:
-            # Debug: Check what type we got
-            shifts_today = self.staff_shifts_today[staff_id]
-            if not isinstance(shifts_today, list):
-                print(f"      WARNING: staff_shifts_today[{staff_id}] is {type(shifts_today)}, expected list. Resetting.")
-                self.staff_shifts_today[staff_id] = []
-                shifts_today = []
-            
-            for existing_shift_hours in shifts_today:
-                existing_start, existing_end = existing_shift_hours
-                
-                # Check if shifts overlap
-                if not (end_hour <= existing_start or start_hour >= existing_end):
-                    print(f"      REJECTED {staff_id}: already working {existing_start}-{existing_end}, conflicts with {start_hour}-{end_hour}")
-                    return False
+            print(f"      REJECTED {staff_id}: already scheduled today")
+            return False
         
         # Calculate max hours for pay period
         pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
@@ -477,10 +465,8 @@ class ScheduleOptimizer:
         self.all_shifts.append(shift)
         self.staff_hours[staff_member['staff_id']] += shift_length
         
-        # Track this shift's time slot to prevent overlaps
-        if staff_member['staff_id'] not in self.staff_shifts_today:
-            self.staff_shifts_today[staff_member['staff_id']] = []
-        self.staff_shifts_today[staff_member['staff_id']].append((start_hour, end_hour))
+        # Mark this person as scheduled for today (one shift per day)
+        self.staff_shifts_today[staff_member['staff_id']] = True
         
         # Calculate cost with overtime premium if applicable
         base_rate = float(staff_member['hourly_rate'])
