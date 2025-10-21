@@ -379,7 +379,14 @@ class ScheduleOptimizer:
         
         # CHECK FOR OVERLAPPING SHIFTS ON SAME DAY
         if staff_id in self.staff_shifts_today:
-            for existing_shift_hours in self.staff_shifts_today[staff_id]:
+            # Debug: Check what type we got
+            shifts_today = self.staff_shifts_today[staff_id]
+            if not isinstance(shifts_today, list):
+                print(f"      WARNING: staff_shifts_today[{staff_id}] is {type(shifts_today)}, expected list. Resetting.")
+                self.staff_shifts_today[staff_id] = []
+                shifts_today = []
+            
+            for existing_shift_hours in shifts_today:
                 existing_start, existing_end = existing_shift_hours
                 
                 # Check if shifts overlap
