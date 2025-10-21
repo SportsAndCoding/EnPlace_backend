@@ -173,7 +173,7 @@ class ScheduleOptimizer:
         
         for day_offset in range(days):
             current_date = self.pay_period_start + timedelta(days=day_offset)
-            self.staff_shifts_today = {}
+            self.staff_shifts_today = {}  # Reset: staff_id → [(start, end), (start, end), ...]
             
             print(f"\n--- DAY {day_offset + 1}: {current_date} ({current_date.strftime('%A')}) ---")
             
@@ -377,6 +377,16 @@ class ScheduleOptimizer:
         staff_id = staff_member['staff_id']
         shift_length = end_hour - start_hour
         
+        # CHECK FOR OVERLAPPING SHIFTS ON SAME DAY
+        if staff_id in self.staff_shifts_today:
+            for existing_shift_hours in self.staff_shifts_today[staff_id]:
+                existing_start, existing_end = existing_shift_hours
+                
+                # Check if shifts overlap
+                if not (end_hour <= existing_start or start_hour >= existing_end):
+                    print(f"      REJECTED {staff_id}: already working {existing_start}-{existing_end}, conflicts with {start_hour}-{end_hour}")
+                    return False
+        
         # Calculate max hours for pay period
         pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
         pay_period_weeks = pay_period_days / 7
@@ -459,6 +469,11 @@ class ScheduleOptimizer:
         
         self.all_shifts.append(shift)
         self.staff_hours[staff_member['staff_id']] += shift_length
+        
+        # Track this shift's time slot to prevent overlaps
+        if staff_member['staff_id'] not in self.staff_shifts_today:
+            self.staff_shifts_today[staff_member['staff_id']] = []
+        self.staff_shifts_today[staff_member['staff_id']].append((start_hour, end_hour))
         
         # Calculate cost with overtime premium if applicable
         base_rate = float(staff_member['hourly_rate'])
