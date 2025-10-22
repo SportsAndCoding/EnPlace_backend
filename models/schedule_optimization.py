@@ -305,10 +305,15 @@ class ScheduleOptimizer:
         shifts_needed = {}
         
         # Use PEAK demand during each shift window
-        # Only check shift types that exist in templates
+        # CRITICAL: Only use non-overlapping shift templates to avoid over-scheduling
+        # Priority: lunch, dinner, late_dinner for coverage + full_day/manager shifts for long shifts
+        essential_templates = ['lunch', 'dinner', 'late_dinner', 'full_day', 'manager_open', 'manager_close']
+        
         for role in hourly_demand:
-            # Check each shift template that exists
+            # Check only essential, non-redundant shift templates
             for shift_name, template in self.SHIFT_TEMPLATES.items():
+                if shift_name not in essential_templates:
+                    continue  # Skip breakfast, afternoon, closing, dinner_extended (redundant)
                 shift_start = template['start']
                 shift_end = template['end']
                 
