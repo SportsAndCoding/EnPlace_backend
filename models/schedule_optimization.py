@@ -366,7 +366,7 @@ class ScheduleOptimizer:
                 })
         
         # Sort by LOWEST utilization first (balance workload)
-        available.sort(key=lambda x: (utilization_band(x['utilization']), random.random()))
+        available.sort(key=lambda x: (int(x['utilization'] * 4), random.random()))
         
         # Assign staff
         assigned_count = min(len(available), count_needed)
