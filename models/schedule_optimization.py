@@ -327,6 +327,16 @@ class ScheduleOptimizer:
         
         return shifts_needed
     
+    def utilization_band(util):
+            if util < 0.25:
+                return 0
+            elif util < 0.50:
+                return 1
+            elif util < 0.75:
+                return 2
+            else:
+                return 3
+    
     def _schedule_shifts_for_role(self, role: str, count_needed: int, current_date: date, shift_name: str):
         """Schedule staff for a specific shift with balanced utilization"""
         shift_template = self.SHIFT_TEMPLATES[shift_name]
@@ -356,7 +366,7 @@ class ScheduleOptimizer:
                 })
         
         # Sort by LOWEST utilization first (balance workload)
-        available.sort(key=lambda x: (x['utilization'], self._cost_effectiveness(x['staff'])))
+        available.sort(key=lambda x: (utilization_band(x['utilization']), random.random()))
         
         # Assign staff
         assigned_count = min(len(available), count_needed)
@@ -377,10 +387,42 @@ class ScheduleOptimizer:
         if assigned_count < count_needed:
             self.violations += (count_needed - assigned_count)
     
+    def _count_consecutive_days(self, staff_id: str, current_date: date) -> int:
+        """Count how many consecutive days this staff member has worked leading up to today"""
+        if not hasattr(self, 'staff_days_worked_set'):
+            self.staff_days_worked_set = {}
+        
+        if staff_id not in self.staff_days_worked_set:
+            self.staff_days_worked_set[staff_id] = set()
+        
+        consecutive = 0
+        check_date = current_date - timedelta(days=1)
+        
+        # Count backwards to find consecutive days
+        while check_date >= self.pay_period_start:
+            if check_date.isoformat() in self.staff_days_worked_set[staff_id]:
+                consecutive += 1
+                check_date -= timedelta(days=1)
+            else:
+                break
+        
+        return consecutive
+
     def _can_work_shift(self, staff_member: Dict, current_date: date, start_hour: int, end_hour: int) -> bool:
         """Check if staff can work entire shift"""
         staff_id = staff_member['staff_id']
         shift_length = end_hour - start_hour
+        
+        # RULE 0: Maximum days worked per period (prevent burnout)
+        if not hasattr(self, 'staff_days_worked'):
+            self.staff_days_worked = {}
+        
+        days_worked = self.staff_days_worked.get(staff_id, 0)
+        max_days_per_period = 12  # Max 12 out of 14 days (gives 2 days off)
+        
+        if days_worked >= max_days_per_period:
+            print(f"      REJECTED {staff_id}: already worked {days_worked} days (max {max_days_per_period})")
+            return False
         
         # RULE 1: Only one shift per person per day (no split shifts, no overlaps)
         if staff_id in self.staff_shifts_today:
@@ -512,7 +554,16 @@ class ScheduleOptimizer:
         # Update weekly hours tracker
         self.staff_weekly_hours[staff_member['staff_id']][shift_week] += shift_length
         
+        # Track days worked (must check BEFORE marking them as scheduled today)
+        if not hasattr(self, 'staff_days_worked'):
+            self.staff_days_worked = {}
+        
+        # Only increment if this is their first shift today
+        if staff_member['staff_id'] not in self.staff_shifts_today:
+            self.staff_days_worked[staff_member['staff_id']] = self.staff_days_worked.get(staff_member['staff_id'], 0) + 1
+        
         self.total_cost += shift_cost
+
     
     def _violates_constraints(self, staff_id: str, current_date: date, hour: int) -> bool:
         """Check scheduling constraints"""
