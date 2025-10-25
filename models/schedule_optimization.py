@@ -63,40 +63,25 @@ class ScheduleOptimizer:
             'close_hour': 24,
             'spans_midnight': True
         })
+        
+        # Load operating settings (opening/closing crew)
+        self.operating_settings = self._load_operating_settings(restaurant_settings.get('restaurant_id'))
+        
         self.SHIFT_TEMPLATES = self._build_shift_templates(self.operating_hours['open_hour'], self.operating_hours['close_hour'])
 
-        print(f"🟡 OPTIMIZER - Received allow_overtime: {allow_overtime}")
         self.restaurant = restaurant_settings
         self.staff = staff
         self.constraints = constraints
         self.covers_demand = covers_demand
         self.pay_period_start = datetime.fromisoformat(pay_period_start).date()
         self.pay_period_end = datetime.fromisoformat(pay_period_end).date()
-
-        # DEBUG: Calculate and log pay period info
-        pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
-        pay_period_weeks = pay_period_days / 7
-        print(f"🟡 PAY PERIOD DEBUG:")
-        print(f"   Start: {self.pay_period_start}")
-        print(f"   End: {self.pay_period_end}")
-        print(f"   Days: {pay_period_days}")
-        print(f"   Weeks: {pay_period_weeks}")
-
-        # DEBUG PAY PERIOD
-        days = (self.pay_period_end - self.pay_period_start).days + 1
-        weeks = days / 7
-        print(f"🔴 PAY PERIOD: {self.pay_period_start} → {self.pay_period_end}")
-        print(f"🔴 DAYS: {days}, WEEKS: {weeks}")
-        print(f"🔴 SAMPLE STAFF MAX HOURS: {staff[0].get('max_hours_per_week') if staff else 'NO STAFF'}")
-
-        # NEW: Store overtime setting
         self.allow_overtime = allow_overtime
         
         # Derived data
         self.role_ratios = restaurant_settings.get('role_ratios', self._default_ratios())
         self.staff_by_position = self._group_by_position(staff)
         self.staff_hours = {s['staff_id']: 0 for s in staff}
-        self.staff_shifts_today = {}  # Track who's already working today (for split shifts)
+        self.staff_shifts_today = {}
         
         # Tracking
         self.all_shifts = []
@@ -104,6 +89,186 @@ class ScheduleOptimizer:
         self.filled_slots = 0
         self.violations = 0
         self.total_cost = 0.0
+    
+    def _load_operating_settings(self, restaurant_id: int) -> Dict:
+        """Load restaurant operating hours and opening/closing crew settings"""
+        from database import supabase
+        
+        result = supabase.table('restaurant_operating_settings')\
+            .select('*')\
+            .eq('restaurant_id', restaurant_id)\
+            .execute()
+        
+        if not result.data:
+            # Return defaults if not configured
+            return {
+                'prep_start_time': '06:00:00',
+                'prep_positions': ['Prep Cook', 'Sous Chef'],
+                'prep_staff_count': 2,
+                'doors_open_time': '09:00:00',
+                'doors_close_time': '22:00:00',
+                'last_seating_time': '21:30:00',
+                'kitchen_close_time': '23:00:00',
+                'cleanup_positions': ['Dishwasher', 'Line Cook', 'Manager'],
+                'cleanup_staff_count': 3
+            }
+        
+        return result.data[0]
+    
+    def _identify_peaks(self, hourly_demand: Dict[int, int]) -> List[Dict]:
+        """
+        Find local maxima (peaks) in demand curve
+        Returns list of {hour, demand} dicts
+        """
+        if not hourly_demand:
+            return []
+        
+        peaks = []
+        hours = sorted(hourly_demand.keys())
+        
+        # Need at least 3 hours to detect peaks
+        if len(hours) < 3:
+            return []
+        
+        for i in range(1, len(hours) - 1):
+            curr_hour = hours[i]
+            prev_demand = hourly_demand.get(hours[i-1], 0)
+            curr_demand = hourly_demand.get(curr_hour, 0)
+            next_demand = hourly_demand.get(hours[i+1], 0)
+            
+            # Peak = higher than both neighbors AND above minimum threshold
+            if curr_demand > prev_demand and curr_demand > next_demand and curr_demand >= 2:
+                peaks.append({
+                    'hour': curr_hour,
+                    'demand': curr_demand
+                })
+        
+        return peaks
+
+
+    def _create_wave_shifts(self, role: str, hourly_demand: Dict[int, int], current_date: date) -> List[Dict]:
+        """
+        Create shifts using wave/onion layer approach instead of templates
+        
+        Returns list of shift specs: {start_hour, end_hour, count, type}
+        """
+        shifts = []
+        
+        # Layer 0: Opening crew (prep time)
+        if role == 'Cook':
+            prep_start = int(self.operating_settings['prep_start_time'].split(':')[0])
+            doors_open = int(self.operating_settings['doors_open_time'].split(':')[0])
+            
+            if prep_start < doors_open:
+                shifts.append({
+                    'start_hour': prep_start,
+                    'end_hour': doors_open + 6,  # 6h prep shift
+                    'count': self.operating_settings['prep_staff_count'],
+                    'type': 'opening_prep'
+                })
+        
+        # Layer 1: Identify peaks and valleys
+        peaks = self._identify_peaks(hourly_demand)
+        min_demand = self._get_minimum_demand(hourly_demand)
+        
+        # Layer 2: Base layer (covers minimum demand throughout the day)
+        doors_open = int(self.operating_settings['doors_open_time'].split(':')[0])
+        doors_close = int(self.operating_settings['doors_close_time'].split(':')[0])
+        
+        if min_demand > 0:
+            # Create base shifts that span the entire operating day
+            # Split into 2 shifts for better distribution (e.g., 9-5 and 2-10)
+            if (doors_close - doors_open) > 10:
+                # Long day: create overlapping shifts
+                mid_point = doors_open + ((doors_close - doors_open) // 2)
+                
+                shifts.append({
+                    'start_hour': doors_open,
+                    'end_hour': mid_point + 3,  # 8-9h shift
+                    'count': max(1, min_demand // 2),
+                    'type': 'base_morning'
+                })
+                
+                shifts.append({
+                    'start_hour': mid_point - 1,
+                    'end_hour': doors_close,  # 8-9h shift
+                    'count': max(1, min_demand - (min_demand // 2)),
+                    'type': 'base_evening'
+                })
+            else:
+                # Short day: one base shift
+                shifts.append({
+                    'start_hour': doors_open,
+                    'end_hour': doors_close,
+                    'count': min_demand,
+                    'type': 'base_full'
+                })
+        
+        # Layer 3: Peak booster waves
+        for peak in peaks:
+            extra_needed = peak['demand'] - min_demand
+            
+            if extra_needed > 0:
+                # Arrive 1 hour before peak, leave 2 hours after
+                wave_start = max(doors_open, peak['hour'] - 1)
+                wave_end = min(doors_close, peak['hour'] + 3)
+                
+                shifts.append({
+                    'start_hour': wave_start,
+                    'end_hour': wave_end,
+                    'count': extra_needed,
+                    'type': f'peak_boost_{peak["hour"]}h'
+                })
+        
+        # Layer 4: Closing crew
+        if role in self.operating_settings['cleanup_positions']:
+            kitchen_close = int(self.operating_settings['kitchen_close_time'].split(':')[0])
+            last_seating = int(self.operating_settings['last_seating_time'].split(':')[0])
+            
+            shifts.append({
+                'start_hour': last_seating - 2,  # Arrive 2h before last seating
+                'end_hour': kitchen_close,
+                'count': 1,  # Usually 1 per position for closing
+                'type': 'closing'
+            })
+        
+        return shifts
+
+    def _identify_valleys(self, hourly_demand: Dict[int, int]) -> List[Dict]:
+        """
+        Find local minima (valleys) in demand curve
+        Returns list of {hour, demand} dicts
+        """
+        if not hourly_demand:
+            return []
+        
+        valleys = []
+        hours = sorted(hourly_demand.keys())
+        
+        if len(hours) < 3:
+            return []
+        
+        for i in range(1, len(hours) - 1):
+            curr_hour = hours[i]
+            prev_demand = hourly_demand.get(hours[i-1], 0)
+            curr_demand = hourly_demand.get(curr_hour, 0)
+            next_demand = hourly_demand.get(hours[i+1], 0)
+            
+            # Valley = lower than both neighbors
+            if curr_demand <= prev_demand and curr_demand <= next_demand:
+                valleys.append({
+                    'hour': curr_hour,
+                    'demand': curr_demand
+                })
+        
+        return valleys
+
+
+    def _get_minimum_demand(self, hourly_demand: Dict[int, int]) -> int:
+        """Get the minimum staffing level needed (base layer)"""
+        if not hourly_demand:
+            return 0
+        return min(hourly_demand.values())
     
     def _build_shift_templates(self, open_hour: int, close_hour: int) -> Dict:
         """Build shift templates based on restaurant operating hours"""
@@ -177,27 +342,28 @@ class ScheduleOptimizer:
             
             print(f"\n--- DAY {day_offset + 1}: {current_date} ({current_date.strftime('%A')}) ---")
             
-            # Determine shifts needed for this day
+            # Determine shifts needed for this day (wave-based)
             shifts_needed = self._determine_shifts_for_day(staff_demand, current_date)
-            print(f"Shifts needed: {shifts_needed}")
+            print(f"Wave shifts needed: {shifts_needed}")
             
             if not shifts_needed:
                 print("  WARNING: No shifts determined for this day!")
                 continue
             
-            # Schedule each shift type
-            for shift_name, roles_needed in shifts_needed.items():
-                print(f"\n  Shift: {shift_name}")
-                for role, count in roles_needed.items():
-                    print(f"    {role}: need {count}")
+            # Schedule each role's wave shifts
+            for role, wave_shifts in shifts_needed.items():
+                print(f"\n  Role: {role}")
+                for shift_key, shift_spec in wave_shifts.items():
+                    print(f"    Shift: {shift_spec['type']} ({shift_spec['start_hour']}-{shift_spec['end_hour']}h)")
+                    print(f"    Need: {shift_spec['count']}")
                     
                     # Count available staff before scheduling
                     role_staff = self.staff_by_position.get(role, [])
                     available_before = len([
                         s for s in role_staff 
                         if self._can_work_shift(s, current_date, 
-                            self.SHIFT_TEMPLATES[shift_name]['start'],
-                            self.SHIFT_TEMPLATES[shift_name]['end'])
+                            shift_spec['start_hour'],
+                            shift_spec['end_hour'])
                     ])
                     
                     print(f"      Available staff: {available_before} / {len(role_staff)} total")
@@ -205,7 +371,7 @@ class ScheduleOptimizer:
                     total_shifts_attempted += count
                     shifts_before = len(self.all_shifts)
                     
-                    self._schedule_shifts_for_role(role, count, current_date, shift_name)
+                    self._schedule_shifts_for_role(role, shift_spec['count'], current_date, shift_spec)
                     
                     shifts_after = len(self.all_shifts)
                     shifts_created_this_call = shifts_after - shifts_before
@@ -286,44 +452,33 @@ class ScheduleOptimizer:
 
         return self._build_result()
     
-    def _determine_shifts_for_day(self, staff_demand: Dict, current_date: date) -> Dict:
-        day_type = 'weekend' if current_date.weekday() >= 5 else 'weekday'
-        hourly_demand = {}
-        
-        # Use dynamic operating hours
-        open_hour = self.operating_hours['open_hour']
-        close_hour = self.operating_hours['close_hour']
-        
-        # Collect all hourly demand for this day
-        for hour in range(open_hour, close_hour):
-            role_demand = staff_demand.get(day_type, {}).get(hour, {})
-            for role, count in role_demand.items():
-                if role not in hourly_demand:
-                    hourly_demand[role] = {}
-                hourly_demand[role][hour] = count
-        
+    def _determine_shifts_for_day(self, staff_demand: Dict[str, Dict[int, int]], current_date: date) -> Dict[str, Dict[str, int]]:
+        """
+        Determine shifts needed using wave-based approach
+        Returns: {role: {shift_key: count}}
+        """
         shifts_needed = {}
         
-        # Use PEAK demand during each shift window
-        # CRITICAL: Only use non-overlapping shift templates to avoid over-scheduling
-        # Priority: lunch, dinner, late_dinner for coverage + full_day/manager shifts for long shifts
-        essential_templates = ['lunch', 'dinner', 'late_dinner', 'full_day', 'manager_open', 'manager_close']
-        
-        for role in hourly_demand:
-            # Check only essential, non-redundant shift templates
-            for shift_name, template in self.SHIFT_TEMPLATES.items():
-                if shift_name not in essential_templates:
-                    continue  # Skip breakfast, afternoon, closing, dinner_extended (redundant)
-                shift_start = template['start']
-                shift_end = template['end']
-                
-                # Get peak demand during this shift's window
-                peak = max((hourly_demand[role].get(h, 0) for h in range(shift_start, shift_end)), default=0)
-                
-                if peak > 0:
-                    if shift_name not in shifts_needed:
-                        shifts_needed[shift_name] = {}
-                    shifts_needed[shift_name][role] = peak
+        for role, hourly_demand in staff_demand.items():
+            if not hourly_demand:
+                continue
+            
+            # Generate wave-based shifts for this role
+            wave_shifts = self._create_wave_shifts(role, hourly_demand, current_date)
+            
+            # Convert to shift keys for tracking
+            role_shifts = {}
+            for i, shift_spec in enumerate(wave_shifts):
+                shift_key = f"{shift_spec['type']}_{shift_spec['start_hour']}_{shift_spec['end_hour']}"
+                role_shifts[shift_key] = {
+                    'count': shift_spec['count'],
+                    'start_hour': shift_spec['start_hour'],
+                    'end_hour': shift_spec['end_hour'],
+                    'type': shift_spec['type']
+                }
+            
+            if role_shifts:
+                shifts_needed[role] = role_shifts
         
         return shifts_needed
     
@@ -337,12 +492,12 @@ class ScheduleOptimizer:
             else:
                 return 3
     
-    def _schedule_shifts_for_role(self, role: str, count_needed: int, current_date: date, shift_name: str):
+    def _schedule_shifts_for_role(self, role: str, count_needed: int, current_date: date, shift_spec: Dict):
         """Schedule staff for a specific shift with balanced utilization"""
-        shift_template = self.SHIFT_TEMPLATES[shift_name]
-        start_hour = shift_template['start']
-        end_hour = shift_template['end']
-        shift_length = shift_template['length']
+        # Wave shifts pass the full spec instead of template name
+        start_hour = shift_spec['start_hour']
+        end_hour = shift_spec['end_hour']
+        shift_length = end_hour - start_hour
         
         self.total_demand_slots += count_needed
         
