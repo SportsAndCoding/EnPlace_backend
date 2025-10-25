@@ -40,6 +40,12 @@ async def optimize_schedule(
         }
     
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print("="*80)
+        print("OPTIMIZATION ERROR DETAILS:")
+        print(error_details)
+        print("="*80)
         raise HTTPException(
             status_code=500,
             detail=f"Optimization failed: {str(e)}"

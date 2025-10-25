@@ -1,0 +1,502 @@
+2025-10-25T21:58:37.558305+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=3625d827-040a-45e9-829f-336981fb3a93 fwd="72.49.166.235" dyno=web.1 connect=0ms service=120ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:37.580576+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T21:58:37.580862+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=38f6b6a4-3376-c082-f1dc-8be336a7643d fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:38.058299+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T21:58:38.059225+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T21:58:38.059528+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=365024d6-2018-5daf-b998-f121de1783c5 fwd="72.49.166.235" dyno=web.1 connect=0ms service=457ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:38.082597+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T21:58:38.082921+00:00 heroku[router]: at=info method=OPTIONS path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=2354e1c7-601f-5862-bff8-d78175c9ee95 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:38.207325+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:58:38.210175+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T21:58:38.210490+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=31df9797-9214-ecbb-5440-24efdd2d2a8a fwd="72.49.166.235" dyno=web.1 connect=0ms service=107ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:41.275225+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T21:58:41.275625+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=b138209e-5bff-4035-ea19-6df88eba1ab2 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:41.352432+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T21:58:41.427398+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22hour%22%2C%22covers_per_hour%22%2C%22restaurant_id%22%2C%22day_type%22%2C%22pay_period_start%22%2C%22pay_period_end%22 "HTTP/2 201 Created"
+2025-10-25T21:58:41.428208+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T21:58:41.428592+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=2ef8e32d-1928-b3a8-fa0c-d4bf4dd780f9 fwd="72.49.166.235" dyno=web.1 connect=0ms service=132ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:43.462233+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/schedules/optimize HTTP/1.1" 200 OK
+2025-10-25T21:58:43.462518+00:00 heroku[router]: at=info method=OPTIONS path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=6f004d34-41bf-0349-e41c-9e8322c89454 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:58:43.486794+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T21:58:43.486799+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T21:58:43.538544+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:58:43.591700+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T21:58:43.637442+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T21:58:43.677393+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:58:43.734773+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T21:58:43.735762+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T21:58:43.736105+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=aa319913-9f05-4a50-8c7f-f47aa232bca4 fwd="72.49.166.235" dyno=web.1 connect=0ms service=252ms status=500 bytes=107 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:59:10.778263+00:00 app[api]: Log session created by user daniels.robert922@gmail.com
+2025-10-25T21:59:12.849028+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:59:12.852443+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T21:59:12.853191+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=5d40842c-982a-e345-595e-c94392bd7651 fwd="72.49.166.235" dyno=web.1 connect=0ms service=107ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:59:12.934327+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T21:59:12.935421+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T21:59:12.935922+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=498cfc48-dc3b-2603-31a7-89dfb5e6b4e0 fwd="72.49.166.235" dyno=web.1 connect=0ms service=48ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:59:12.998142+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T21:59:12.999164+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T21:59:12.999553+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=1c88648f-227f-bad5-0ab4-c5c671a0bd05 fwd="72.49.166.235" dyno=web.1 connect=0ms service=41ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:59:13.070313+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:59:13.071031+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T21:59:13.071322+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=e680d082-c12e-a267-32f4-789e4d228a7a fwd="72.49.166.235" dyno=web.1 connect=0ms service=49ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:59:15.767469+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T21:59:15.804167+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22hour%22%2C%22covers_per_hour%22%2C%22restaurant_id%22%2C%22day_type%22%2C%22pay_period_start%22%2C%22pay_period_end%22 "HTTP/2 201 Created"
+2025-10-25T21:59:15.804886+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T21:59:15.805222+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=e5a8ffdf-3004-dfc5-d57a-8d76b1e38954 fwd="72.49.166.235" dyno=web.1 connect=0ms service=77ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T21:59:17.642209+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T21:59:17.642242+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T21:59:17.675469+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:59:17.724575+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T21:59:17.754791+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T21:59:17.782473+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T21:59:17.817461+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T21:59:17.818270+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T21:59:17.818703+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=efd677c0-4f09-948d-63e0-634de8b2a2d1 fwd="72.49.166.235" dyno=web.1 connect=0ms service=177ms status=500 bytes=107 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:01:36.000000+00:00 app[api]: Build started by user daniels.robert922@gmail.com
+2025-10-25T22:01:53.348937+00:00 app[api]: Release v78 created by user daniels.robert922@gmail.com
+2025-10-25T22:01:53.348937+00:00 app[api]: Deploy 1dd33dde by user daniels.robert922@gmail.com
+2025-10-25T22:01:53.606183+00:00 heroku[web.1]: Restarting
+2025-10-25T22:01:53.659654+00:00 heroku[web.1]: State changed from up to starting
+2025-10-25T22:01:54.612997+00:00 heroku[web.1]: Stopping all processes with SIGTERM
+2025-10-25T22:01:54.650880+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:01:54.716320+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:01:54.754956+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:01:54.755161+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:01:54.755248+00:00 app[web.1]: INFO:     Finished server process [10]
+2025-10-25T22:01:54.816792+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:01:54.816950+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:01:54.817016+00:00 app[web.1]: INFO:     Finished server process [9]
+2025-10-25T22:01:54.988011+00:00 app[web.1]: INFO:     Received SIGTERM, exiting.
+2025-10-25T22:01:54.988142+00:00 app[web.1]: INFO:     Waiting for child process [9]
+2025-10-25T22:01:54.988183+00:00 app[web.1]: INFO:     Waiting for child process [10]
+2025-10-25T22:01:54.988237+00:00 app[web.1]: INFO:     Stopping parent process [2]
+2025-10-25T22:01:55.081559+00:00 heroku[web.1]: Process exited with status 0
+2025-10-25T22:01:58.080189+00:00 heroku[web.1]: Starting process with command `uvicorn app:app --host 0.0.0.0 --port 28534`
+2025-10-25T22:01:58.780662+00:00 app[web.1]: Python buildpack: Detected 512 MB available memory and 8 CPU cores.
+2025-10-25T22:01:58.780824+00:00 app[web.1]: Python buildpack: Defaulting WEB_CONCURRENCY to 2 based on the available memory.
+2025-10-25T22:01:58.920427+00:00 app[web.1]: INFO:     Uvicorn running on http://0.0.0.0:28534 (Press CTRL+C to quit)
+2025-10-25T22:01:58.920546+00:00 app[web.1]: INFO:     Started parent process [2]
+2025-10-25T22:02:00.103450+00:00 app[web.1]: INFO:     Started server process [10]
+2025-10-25T22:02:00.103486+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:02:00.103712+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:02:00.109398+00:00 app[web.1]: INFO:     Started server process [9]
+2025-10-25T22:02:00.109448+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:02:00.109665+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:02:00.459040+00:00 heroku[web.1]: State changed from starting to up
+2025-10-25T22:02:05.000000+00:00 app[api]: Build succeeded
+2025-10-25T22:02:11.695487+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:11.701132+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:02:11.702098+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=3130cc6c-bdfd-399f-f770-650d67b3d3f7 fwd="72.49.166.235" dyno=web.1 connect=0ms service=195ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:11.782104+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:02:11.783045+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:02:11.783664+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=ca40207b-7f1b-f1fb-1b03-f6d100b7a42c fwd="72.49.166.235" dyno=web.1 connect=0ms service=47ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:11.841174+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:02:11.841882+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:02:11.842282+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=ca049e20-740c-de2d-4363-712dbb504586 fwd="72.49.166.235" dyno=web.1 connect=0ms service=38ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:11.904135+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:11.906862+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:02:11.907241+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=ed7f77b5-6671-63dd-86bf-853d47311f0d fwd="72.49.166.235" dyno=web.1 connect=0ms service=43ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:14.871846+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:02:14.910605+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22day_type%22%2C%22hour%22%2C%22pay_period_start%22%2C%22pay_period_end%22%2C%22restaurant_id%22%2C%22covers_per_hour%22 "HTTP/2 201 Created"
+2025-10-25T22:02:14.911195+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:02:14.911605+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=f667dd8f-9372-3d7e-bc0d-7d71662dd0f6 fwd="72.49.166.235" dyno=web.1 connect=0ms service=78ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:16.616964+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:02:16.616985+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:02:16.653197+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:16.688881+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:02:16.752611+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:02:16.789962+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:16.826772+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:02:16.884089+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_operating_settings?select=%2A&restaurant_id=eq.None "HTTP/2 400 Bad Request"
+2025-10-25T22:02:16.884531+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:02:16.885015+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=c9bd633c-bb1e-d3bc-beb5-e45930c276c1 fwd="72.49.166.235" dyno=web.1 connect=0ms service=271ms status=500 bytes=144 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:39.862374+00:00 app[api]: Log session created by user daniels.robert922@gmail.com
+2025-10-25T22:02:50.717710+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:50.723299+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:02:50.724041+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=8f5656d8-1f44-3c60-54a1-6c1726c0389d fwd="72.49.166.235" dyno=web.1 connect=0ms service=117ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:50.794803+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:02:50.795738+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:02:50.796096+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=f1a6be99-9ad1-7ddd-5dcc-2290ea08879f fwd="72.49.166.235" dyno=web.1 connect=0ms service=37ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:50.845121+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:02:50.845860+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:02:50.849640+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=21b39369-35f1-e681-f6f4-b72ee4a84dc9 fwd="72.49.166.235" dyno=web.1 connect=0ms service=34ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:50.901531+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:50.904124+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:02:50.904541+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=1f7bc35c-2c9a-836f-5806-1c76ecd60a11 fwd="72.49.166.235" dyno=web.1 connect=0ms service=36ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:53.508813+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:02:53.542847+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22restaurant_id%22%2C%22hour%22%2C%22pay_period_end%22%2C%22covers_per_hour%22%2C%22day_type%22%2C%22pay_period_start%22 "HTTP/2 201 Created"
+2025-10-25T22:02:53.543722+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:02:53.544135+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=43087ce1-ada4-0637-56e1-6997ca0f9b99 fwd="72.49.166.235" dyno=web.1 connect=0ms service=73ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:02:55.127037+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:02:55.127060+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:02:55.154566+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:55.184045+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:02:55.214633+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:02:55.272778+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:02:55.297953+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:02:55.323683+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_operating_settings?select=%2A&restaurant_id=eq.None "HTTP/2 400 Bad Request"
+2025-10-25T22:02:55.324150+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:02:55.324506+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=ab1ea5fb-9ab3-16f6-ea85-b4446cb30134 fwd="72.49.166.235" dyno=web.1 connect=0ms service=200ms status=500 bytes=144 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:13:50.000000+00:00 app[api]: Build started by user daniels.robert922@gmail.com
+2025-10-25T22:14:06.532585+00:00 app[api]: Release v79 created by user daniels.robert922@gmail.com
+2025-10-25T22:14:06.532585+00:00 app[api]: Deploy 3739de1e by user daniels.robert922@gmail.com
+2025-10-25T22:14:06.759411+00:00 heroku[web.1]: Restarting
+2025-10-25T22:14:06.815960+00:00 heroku[web.1]: State changed from up to starting
+2025-10-25T22:14:07.521196+00:00 heroku[web.1]: Stopping all processes with SIGTERM
+2025-10-25T22:14:07.565177+00:00 app[web.1]: INFO:     Received SIGTERM, exiting.
+2025-10-25T22:14:07.565283+00:00 app[web.1]: INFO:     Terminated child process [9]
+2025-10-25T22:14:07.565357+00:00 app[web.1]: INFO:     Terminated child process [10]
+2025-10-25T22:14:07.565402+00:00 app[web.1]: INFO:     Waiting for child process [9]
+2025-10-25T22:14:07.613582+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:14:07.615589+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:14:07.713942+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:14:07.714090+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:14:07.714148+00:00 app[web.1]: INFO:     Finished server process [9]
+2025-10-25T22:14:07.715963+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:14:07.716091+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:14:07.716139+00:00 app[web.1]: INFO:     Finished server process [10]
+2025-10-25T22:14:07.722434+00:00 app[web.1]: INFO:     Waiting for child process [10]
+2025-10-25T22:14:07.724534+00:00 app[web.1]: INFO:     Stopping parent process [2]
+2025-10-25T22:14:07.798812+00:00 heroku[web.1]: Process exited with status 0
+2025-10-25T22:14:10.801927+00:00 heroku[web.1]: Starting process with command `uvicorn app:app --host 0.0.0.0 --port 15758`
+2025-10-25T22:14:11.504213+00:00 app[web.1]: Python buildpack: Detected 512 MB available memory and 8 CPU cores.
+2025-10-25T22:14:11.504334+00:00 app[web.1]: Python buildpack: Defaulting WEB_CONCURRENCY to 2 based on the available memory.
+2025-10-25T22:14:11.649032+00:00 app[web.1]: INFO:     Uvicorn running on http://0.0.0.0:15758 (Press CTRL+C to quit)
+2025-10-25T22:14:11.649151+00:00 app[web.1]: INFO:     Started parent process [2]
+2025-10-25T22:14:12.787674+00:00 app[web.1]: INFO:     Started server process [9]
+2025-10-25T22:14:12.787729+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:14:12.787969+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:14:12.798639+00:00 app[web.1]: INFO:     Started server process [10]
+2025-10-25T22:14:12.798694+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:14:12.798927+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:14:13.086367+00:00 heroku[web.1]: State changed from starting to up
+2025-10-25T22:14:18.000000+00:00 app[api]: Build succeeded
+2025-10-25T22:16:18.544129+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:16:18.544766+00:00 heroku[router]: at=info method=OPTIONS path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=0af83117-067f-ce72-e3cd-5929a2afbfab fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.194713+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:16:19.203328+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:16:19.204352+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=0945e739-36b2-e457-3768-4889cb0c8064 fwd="72.49.166.235" dyno=web.1 connect=0ms service=639ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.240139+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:16:19.240505+00:00 heroku[router]: at=info method=OPTIONS path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=1303df76-df92-3be2-611b-819d526e5ec9 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.342966+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:16:19.344229+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:16:19.344690+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=4677155a-895a-4c16-673b-9a59b33dda42 fwd="72.49.166.235" dyno=web.1 connect=0ms service=84ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.368461+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:16:19.368919+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=e63b2d0e-8bc1-34d6-02b4-86d81c6310d5 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.450783+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:16:19.451741+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:16:19.452211+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=941932e4-248a-de5e-acc4-b31cc9bdaeba fwd="72.49.166.235" dyno=web.1 connect=0ms service=63ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.474458+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:16:19.474887+00:00 heroku[router]: at=info method=OPTIONS path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=28dab465-75a7-d80e-aabd-79ccf6c79f19 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:19.577875+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:16:19.580856+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:16:19.581382+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=6a0190ab-76af-ec95-1900-6c12971b0404 fwd="72.49.166.235" dyno=web.1 connect=0ms service=86ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:21.838825+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:16:21.839225+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=544648b4-ca21-b06b-df5d-bccaf4f6da2d fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:21.916585+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:16:21.986423+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22pay_period_end%22%2C%22covers_per_hour%22%2C%22pay_period_start%22%2C%22day_type%22%2C%22hour%22%2C%22restaurant_id%22 "HTTP/2 201 Created"
+2025-10-25T22:16:21.987266+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:16:21.987840+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=c781bb55-855e-dfa7-fe7b-e22253a2a323 fwd="72.49.166.235" dyno=web.1 connect=0ms service=128ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:23.403226+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/schedules/optimize HTTP/1.1" 200 OK
+2025-10-25T22:16:23.403749+00:00 heroku[router]: at=info method=OPTIONS path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=4b489018-4f84-00bb-db20-1881481438d3 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:16:23.436426+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:16:23.436431+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:16:23.570365+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:16:23.629080+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:16:23.680612+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:16:23.720683+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:16:23.764533+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:16:23.765427+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:16:23.765833+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=c617b246-5d27-1c8d-c63c-b58853c2c3c6 fwd="72.49.166.235" dyno=web.1 connect=0ms service=343ms status=500 bytes=80 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:25:29.000000+00:00 app[api]: Build started by user daniels.robert922@gmail.com
+2025-10-25T22:25:44.989645+00:00 app[api]: Deploy e2bb682c by user daniels.robert922@gmail.com
+2025-10-25T22:25:44.989645+00:00 app[api]: Release v80 created by user daniels.robert922@gmail.com
+2025-10-25T22:25:45.558646+00:00 heroku[web.1]: Restarting
+2025-10-25T22:25:45.560840+00:00 heroku[web.1]: State changed from up to starting
+2025-10-25T22:25:46.330570+00:00 heroku[web.1]: Stopping all processes with SIGTERM
+2025-10-25T22:25:46.394670+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:25:46.395637+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:25:46.495087+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:25:46.495214+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:25:46.495277+00:00 app[web.1]: INFO:     Finished server process [9]
+2025-10-25T22:25:46.496010+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:25:46.496165+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:25:46.496231+00:00 app[web.1]: INFO:     Finished server process [10]
+2025-10-25T22:25:46.815888+00:00 app[web.1]: INFO:     Received SIGTERM, exiting.
+2025-10-25T22:25:46.816031+00:00 app[web.1]: INFO:     Waiting for child process [9]
+2025-10-25T22:25:46.816073+00:00 app[web.1]: INFO:     Waiting for child process [10]
+2025-10-25T22:25:46.816132+00:00 app[web.1]: INFO:     Stopping parent process [2]
+2025-10-25T22:25:46.888851+00:00 heroku[web.1]: Process exited with status 0
+2025-10-25T22:25:49.578928+00:00 heroku[web.1]: Starting process with command `uvicorn app:app --host 0.0.0.0 --port 28474`
+2025-10-25T22:25:50.300552+00:00 app[web.1]: Python buildpack: Detected 512 MB available memory and 8 CPU cores.
+2025-10-25T22:25:50.300641+00:00 app[web.1]: Python buildpack: Defaulting WEB_CONCURRENCY to 2 based on the available memory.
+2025-10-25T22:25:50.442937+00:00 app[web.1]: INFO:     Uvicorn running on http://0.0.0.0:28474 (Press CTRL+C to quit)
+2025-10-25T22:25:50.443063+00:00 app[web.1]: INFO:     Started parent process [2]
+2025-10-25T22:25:51.618186+00:00 app[web.1]: INFO:     Started server process [10]
+2025-10-25T22:25:51.618216+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:25:51.618462+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:25:51.620377+00:00 app[web.1]: INFO:     Started server process [9]
+2025-10-25T22:25:51.620435+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:25:51.620671+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:25:51.686811+00:00 heroku[web.1]: State changed from starting to up
+2025-10-25T22:25:57.000000+00:00 app[api]: Build succeeded
+2025-10-25T22:26:26.246957+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:26:26.247286+00:00 heroku[router]: at=info method=OPTIONS path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=152536ad-7791-a7b6-53cc-d76c24b0ad76 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:26.833729+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:26:26.839472+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:26:26.840188+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=40020376-c931-b7df-80ef-69ae3cd5dd61 fwd="72.49.166.235" dyno=web.1 connect=0ms service=575ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:26.881601+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:26:26.882060+00:00 heroku[router]: at=info method=OPTIONS path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=73eba145-db8d-f76f-a2ba-49b0b07cd41f fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:26.969609+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:26:26.970726+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:26:26.971098+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=59e757ea-8247-3004-21a0-05b3914a8363 fwd="72.49.166.235" dyno=web.1 connect=0ms service=69ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:26.994759+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:26:26.995229+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=f815f38f-befe-bf0c-a1da-08767fb15284 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:27.055050+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:26:27.055915+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:26:27.056272+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=8786c2f7-9127-6244-5fec-297f24e94b24 fwd="72.49.166.235" dyno=web.1 connect=0ms service=44ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:27.076262+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:26:27.076516+00:00 heroku[router]: at=info method=OPTIONS path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=af10e4b4-acdc-e05a-7562-3c810795853f fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:27.130902+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:26:27.133761+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:26:27.134125+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=ccca6eb2-cf24-d455-1cba-dfdfd078996c fwd="72.49.166.235" dyno=web.1 connect=0ms service=40ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:29.406016+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:26:29.406424+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=bb9a2a53-e472-366f-68ef-542cdd91b259 fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:29.478669+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:26:29.530632+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22covers_per_hour%22%2C%22restaurant_id%22%2C%22pay_period_end%22%2C%22pay_period_start%22%2C%22hour%22%2C%22day_type%22 "HTTP/2 201 Created"
+2025-10-25T22:26:29.531387+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:26:29.531704+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=c0dc42d8-4189-172d-bc97-b0110714e444 fwd="72.49.166.235" dyno=web.1 connect=0ms service=105ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:31.161926+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/schedules/optimize HTTP/1.1" 200 OK
+2025-10-25T22:26:31.162371+00:00 heroku[router]: at=info method=OPTIONS path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=9b858d2f-d404-2b23-e552-1391eee82c5d fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:26:31.182796+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:26:31.182798+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:26:31.214522+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:26:31.273641+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:26:31.323823+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:26:31.365909+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:26:31.401442+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:26:31.446103+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_operating_settings?select=%2A&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:26:31.446730+00:00 app[web.1]: 
+2025-10-25T22:26:31.446738+00:00 app[web.1]: ================================================================================
+2025-10-25T22:26:31.446739+00:00 app[web.1]: OPTIMIZATION DEBUG LOG
+2025-10-25T22:26:31.446739+00:00 app[web.1]: ================================================================================
+2025-10-25T22:26:31.446804+00:00 app[web.1]: 
+2025-10-25T22:26:31.446805+00:00 app[web.1]: 1. COVERS → STAFF CONVERSION
+2025-10-25T22:26:31.446816+00:00 app[web.1]: Sample weekday demand at 12 PM: {'Cook': 2, 'Host': 2, 'Busser': 2, 'Server': 5, 'Bartender': 4}
+2025-10-25T22:26:31.446818+00:00 app[web.1]: Sample weekday demand at 6 PM: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:26:31.446826+00:00 app[web.1]: 
+2025-10-25T22:26:31.446826+00:00 app[web.1]: DEBUG CONVERSION at 6 PM weekday:
+2025-10-25T22:26:31.446828+00:00 app[web.1]: Covers: 37
+2025-10-25T22:26:31.446837+00:00 app[web.1]: Staff demand: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:26:31.446851+00:00 app[web.1]: 
+2025-10-25T22:26:31.446851+00:00 app[web.1]: 2. PAY PERIOD: 2025-10-27 to 2025-11-09 (14 days)
+2025-10-25T22:26:31.446879+00:00 app[web.1]: 
+2025-10-25T22:26:31.446879+00:00 app[web.1]: --- DAY 1: 2025-10-27 (Monday) ---
+2025-10-25T22:26:31.447111+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:26:31.447586+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=05fa9ebc-68c1-6d3d-7a02-08a2e82da3c2 fwd="72.49.166.235" dyno=web.1 connect=0ms service=267ms status=500 bytes=90 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:27:34.899486+00:00 app[api]: Log session created by user daniels.robert922@gmail.com
+2025-10-25T22:27:46.608215+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:27:46.611217+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:27:46.612023+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=77dae936-8eaf-4940-cf36-9b67e6595a22 fwd="72.49.166.235" dyno=web.1 connect=0ms service=113ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:27:46.693267+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:27:46.694323+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:27:46.694814+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=46b33b59-f26b-b184-9cf1-0d6f403905c8 fwd="72.49.166.235" dyno=web.1 connect=0ms service=49ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:27:46.771754+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:27:46.772594+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:27:46.772958+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=7644771d-021c-0598-1bdf-9773ca62e6d5 fwd="72.49.166.235" dyno=web.1 connect=0ms service=56ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:27:46.837755+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:27:46.838488+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:27:46.838823+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=b2ba1411-5235-b53a-d362-0c9f374bb74c fwd="72.49.166.235" dyno=web.1 connect=0ms service=44ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:27:49.305711+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:27:49.365569+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22covers_per_hour%22%2C%22restaurant_id%22%2C%22pay_period_end%22%2C%22pay_period_start%22%2C%22hour%22%2C%22day_type%22 "HTTP/2 201 Created"
+2025-10-25T22:27:49.366383+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:27:49.366792+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=2c0278e3-d30f-3c5b-0213-39fde1cc6bac fwd="72.49.166.235" dyno=web.1 connect=0ms service=128ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:27:50.923938+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:27:50.923960+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:27:50.958008+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:27:50.990235+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:27:51.025817+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:27:51.058777+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:27:51.098644+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:27:51.132157+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_operating_settings?select=%2A&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:27:51.132806+00:00 app[web.1]: 
+2025-10-25T22:27:51.132816+00:00 app[web.1]: ================================================================================
+2025-10-25T22:27:51.132817+00:00 app[web.1]: OPTIMIZATION DEBUG LOG
+2025-10-25T22:27:51.132818+00:00 app[web.1]: ================================================================================
+2025-10-25T22:27:51.132893+00:00 app[web.1]: 
+2025-10-25T22:27:51.132893+00:00 app[web.1]: 1. COVERS → STAFF CONVERSION
+2025-10-25T22:27:51.132902+00:00 app[web.1]: Sample weekday demand at 12 PM: {'Cook': 2, 'Host': 2, 'Busser': 2, 'Server': 5, 'Bartender': 4}
+2025-10-25T22:27:51.132911+00:00 app[web.1]: Sample weekday demand at 6 PM: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:27:51.132911+00:00 app[web.1]: 
+2025-10-25T22:27:51.132912+00:00 app[web.1]: DEBUG CONVERSION at 6 PM weekday:
+2025-10-25T22:27:51.132919+00:00 app[web.1]: Covers: 37
+2025-10-25T22:27:51.132931+00:00 app[web.1]: Staff demand: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:27:51.132945+00:00 app[web.1]: 
+2025-10-25T22:27:51.132946+00:00 app[web.1]: 2. PAY PERIOD: 2025-10-27 to 2025-11-09 (14 days)
+2025-10-25T22:27:51.132976+00:00 app[web.1]: 
+2025-10-25T22:27:51.132976+00:00 app[web.1]: --- DAY 1: 2025-10-27 (Monday) ---
+2025-10-25T22:27:51.133211+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:27:51.133660+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=52111d8c-23d1-13e2-378b-20440d5b9ea8 fwd="72.49.166.235" dyno=web.1 connect=0ms service=210ms status=500 bytes=90 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:37:14.000000+00:00 app[api]: Build started by user daniels.robert922@gmail.com
+2025-10-25T22:37:31.895785+00:00 app[api]: Release v81 created by user daniels.robert922@gmail.com
+2025-10-25T22:37:31.895785+00:00 app[api]: Deploy f7207b19 by user daniels.robert922@gmail.com
+2025-10-25T22:37:32.121346+00:00 heroku[web.1]: Restarting
+2025-10-25T22:37:32.177278+00:00 heroku[web.1]: State changed from up to starting
+2025-10-25T22:37:32.913537+00:00 heroku[web.1]: Stopping all processes with SIGTERM
+2025-10-25T22:37:32.977082+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:37:33.001121+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:37:33.077487+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:37:33.077610+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:37:33.077663+00:00 app[web.1]: INFO:     Finished server process [9]
+2025-10-25T22:37:33.101520+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:37:33.101639+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:37:33.101693+00:00 app[web.1]: INFO:     Finished server process [10]
+2025-10-25T22:37:33.113636+00:00 app[web.1]: INFO:     Received SIGTERM, exiting.
+2025-10-25T22:37:33.113789+00:00 app[web.1]: INFO:     Waiting for child process [9]
+2025-10-25T22:37:33.113829+00:00 app[web.1]: INFO:     Waiting for child process [10]
+2025-10-25T22:37:33.113906+00:00 app[web.1]: INFO:     Stopping parent process [2]
+2025-10-25T22:37:33.177276+00:00 heroku[web.1]: Process exited with status 0
+2025-10-25T22:37:36.113672+00:00 heroku[web.1]: Starting process with command `uvicorn app:app --host 0.0.0.0 --port 20991`
+2025-10-25T22:37:36.773675+00:00 app[web.1]: Python buildpack: Detected 512 MB available memory and 8 CPU cores.
+2025-10-25T22:37:36.773758+00:00 app[web.1]: Python buildpack: Defaulting WEB_CONCURRENCY to 2 based on the available memory.
+2025-10-25T22:37:36.914099+00:00 app[web.1]: INFO:     Uvicorn running on http://0.0.0.0:20991 (Press CTRL+C to quit)
+2025-10-25T22:37:36.914194+00:00 app[web.1]: INFO:     Started parent process [2]
+2025-10-25T22:37:38.098547+00:00 app[web.1]: INFO:     Started server process [10]
+2025-10-25T22:37:38.098590+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:37:38.098834+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:37:38.102783+00:00 app[web.1]: INFO:     Started server process [9]
+2025-10-25T22:37:38.102829+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:37:38.103048+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:37:38.546828+00:00 heroku[web.1]: State changed from starting to up
+2025-10-25T22:37:44.000000+00:00 app[api]: Build succeeded
+2025-10-25T22:38:10.291129+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:38:10.291396+00:00 heroku[router]: at=info method=OPTIONS path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=95d55542-4c37-87ba-69f4-267fdcc05f7b fwd="72.49.166.235" dyno=web.1 connect=0ms service=1ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:10.835740+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:38:10.841453+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:38:10.842178+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=b92dbe35-8f8a-a9ad-57aa-efc7cc851433 fwd="72.49.166.235" dyno=web.1 connect=0ms service=532ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:10.876122+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:38:10.876410+00:00 heroku[router]: at=info method=OPTIONS path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=00cba84d-8b98-7d1c-fd50-156dae57c52f fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:10.950629+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:38:10.951715+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:38:10.952084+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=0ece2526-f1bc-98de-92ce-988ebf926a0d fwd="72.49.166.235" dyno=web.1 connect=0ms service=58ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:10.972092+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:38:10.972359+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=86db76e1-d45e-9205-3ff0-222f419777b3 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:11.106619+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:38:11.107469+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:38:11.107884+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=1160a89a-31d6-ac7d-5c9d-e0c5ea144efc fwd="72.49.166.235" dyno=web.1 connect=0ms service=118ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:11.128544+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:38:11.128935+00:00 heroku[router]: at=info method=OPTIONS path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=ac04f6fa-63be-fb51-a13a-02c9994c3cb4 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:11.184607+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:38:11.187995+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:38:11.188301+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=f565e9a7-6aa4-3695-0adc-d77ed6f74a43 fwd="72.49.166.235" dyno=web.1 connect=0ms service=42ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:13.503450+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:38:13.503818+00:00 heroku[router]: at=info method=OPTIONS path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=5757b4c0-56c2-4e0f-8c8a-19223ef0caa2 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:13.657532+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:38:13.711058+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22pay_period_start%22%2C%22hour%22%2C%22restaurant_id%22%2C%22pay_period_end%22%2C%22covers_per_hour%22%2C%22day_type%22 "HTTP/2 201 Created"
+2025-10-25T22:38:13.711820+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:38:13.712124+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=68ec731a-aa1b-f234-21b6-04326407fe41 fwd="72.49.166.235" dyno=web.1 connect=0ms service=190ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:15.299386+00:00 app[web.1]: INFO:     72.49.166.235:0 - "OPTIONS /api/schedules/optimize HTTP/1.1" 200 OK
+2025-10-25T22:38:15.299654+00:00 heroku[router]: at=info method=OPTIONS path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=456d4fea-f436-5bb9-d3c5-940e9b13c104 fwd="72.49.166.235" dyno=web.1 connect=0ms service=0ms status=200 bytes=2 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:38:15.328277+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:38:15.328281+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:38:15.492641+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:38:15.541097+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:38:15.622862+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:38:15.665153+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:38:15.757503+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:38:15.806921+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_operating_settings?select=%2A&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:38:15.807435+00:00 app[web.1]: 
+2025-10-25T22:38:15.807436+00:00 app[web.1]: ================================================================================
+2025-10-25T22:38:15.807438+00:00 app[web.1]: OPTIMIZATION DEBUG LOG
+2025-10-25T22:38:15.807438+00:00 app[web.1]: ================================================================================
+2025-10-25T22:38:15.807506+00:00 app[web.1]: 
+2025-10-25T22:38:15.807506+00:00 app[web.1]: 1. COVERS → STAFF CONVERSION
+2025-10-25T22:38:15.807511+00:00 app[web.1]: Sample weekday demand at 12 PM: {'Cook': 2, 'Host': 2, 'Busser': 2, 'Server': 5, 'Bartender': 4}
+2025-10-25T22:38:15.807520+00:00 app[web.1]: Sample weekday demand at 6 PM: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:38:15.807522+00:00 app[web.1]: 
+2025-10-25T22:38:15.807525+00:00 app[web.1]: DEBUG CONVERSION at 6 PM weekday:
+2025-10-25T22:38:15.807534+00:00 app[web.1]: Covers: 37
+2025-10-25T22:38:15.807545+00:00 app[web.1]: Staff demand: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:38:15.807560+00:00 app[web.1]: 
+2025-10-25T22:38:15.807560+00:00 app[web.1]: 2. PAY PERIOD: 2025-10-27 to 2025-11-09 (14 days)
+2025-10-25T22:38:15.807586+00:00 app[web.1]: 
+2025-10-25T22:38:15.807586+00:00 app[web.1]: --- DAY 1: 2025-10-27 (Monday) ---
+2025-10-25T22:38:15.807858+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:38:15.808266+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=02e6c99c-c905-db01-f116-2d4f064739f7 fwd="72.49.166.235" dyno=web.1 connect=0ms service=490ms status=500 bytes=90 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:40:45.000000+00:00 app[api]: Build started by user daniels.robert922@gmail.com
+2025-10-25T22:41:06.507143+00:00 app[api]: Release v82 created by user daniels.robert922@gmail.com
+2025-10-25T22:41:06.507143+00:00 app[api]: Deploy 39de16cd by user daniels.robert922@gmail.com
+2025-10-25T22:41:06.863381+00:00 heroku[web.1]: Restarting
+2025-10-25T22:41:06.918307+00:00 heroku[web.1]: State changed from up to starting
+2025-10-25T22:41:07.709196+00:00 heroku[web.1]: Stopping all processes with SIGTERM
+2025-10-25T22:41:07.793996+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:41:07.801969+00:00 app[web.1]: INFO:     Shutting down
+2025-10-25T22:41:07.894392+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:41:07.894513+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:41:07.894569+00:00 app[web.1]: INFO:     Finished server process [9]
+2025-10-25T22:41:07.902332+00:00 app[web.1]: INFO:     Waiting for application shutdown.
+2025-10-25T22:41:07.902464+00:00 app[web.1]: INFO:     Application shutdown complete.
+2025-10-25T22:41:07.902531+00:00 app[web.1]: INFO:     Finished server process [10]
+2025-10-25T22:41:08.148054+00:00 app[web.1]: INFO:     Received SIGTERM, exiting.
+2025-10-25T22:41:08.148236+00:00 app[web.1]: INFO:     Waiting for child process [9]
+2025-10-25T22:41:08.148268+00:00 app[web.1]: INFO:     Waiting for child process [10]
+2025-10-25T22:41:08.148317+00:00 app[web.1]: INFO:     Stopping parent process [2]
+2025-10-25T22:41:08.219865+00:00 heroku[web.1]: Process exited with status 0
+2025-10-25T22:41:10.875855+00:00 heroku[web.1]: Starting process with command `uvicorn app:app --host 0.0.0.0 --port 51175`
+2025-10-25T22:41:11.564123+00:00 app[web.1]: Python buildpack: Detected 512 MB available memory and 8 CPU cores.
+2025-10-25T22:41:11.564205+00:00 app[web.1]: Python buildpack: Defaulting WEB_CONCURRENCY to 2 based on the available memory.
+2025-10-25T22:41:11.728961+00:00 app[web.1]: INFO:     Uvicorn running on http://0.0.0.0:51175 (Press CTRL+C to quit)
+2025-10-25T22:41:11.729095+00:00 app[web.1]: INFO:     Started parent process [2]
+2025-10-25T22:41:12.822298+00:00 app[web.1]: INFO:     Started server process [9]
+2025-10-25T22:41:12.822335+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:41:12.822560+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:41:12.866767+00:00 app[web.1]: INFO:     Started server process [10]
+2025-10-25T22:41:12.866803+00:00 app[web.1]: INFO:     Waiting for application startup.
+2025-10-25T22:41:12.867059+00:00 app[web.1]: INFO:     Application startup complete.
+2025-10-25T22:41:13.138363+00:00 heroku[web.1]: State changed from starting to up
+2025-10-25T22:41:18.000000+00:00 app[api]: Build succeeded
+2025-10-25T22:43:18.698739+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20email%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20hire_date%2C%20status%2C%20portal_access%2C%20can_edit_staff%2C%20skills%2C%20notes&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:43:18.704533+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/staff?restaurant_id=1&status=Active HTTP/1.1" 200 OK
+2025-10-25T22:43:18.705406+00:00 heroku[router]: at=info method=GET path="/api/staff?restaurant_id=1&status=Active" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=b73830db-36ae-7778-e84b-a1ed85aa99b2 fwd="72.49.166.235" dyno=web.1 connect=0ms service=307ms status=200 bytes=18266 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:43:18.777000+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A%2C%20staff%28full_name%29&restaurant_id=eq.1&is_active=eq.True&order=created_at.desc "HTTP/2 200 OK"
+2025-10-25T22:43:18.778048+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/constraints?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:43:18.778517+00:00 heroku[router]: at=info method=GET path="/api/constraints?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=7ed1777c-4801-f484-08de-d9b42366ed4d fwd="72.49.166.235" dyno=web.1 connect=0ms service=37ms status=200 bytes=8516 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:43:18.832911+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1&order=day_type%2C%20hour "HTTP/2 200 OK"
+2025-10-25T22:43:18.833794+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/demand/patterns?restaurant_id=1 HTTP/1.1" 200 OK
+2025-10-25T22:43:18.834121+00:00 heroku[router]: at=info method=GET path="/api/demand/patterns?restaurant_id=1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=2075d2f5-2758-5ee1-df82-252790ecfe45 fwd="72.49.166.235" dyno=web.1 connect=0ms service=35ms status=200 bytes=1132 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:43:18.894268+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20name%2C%20operating_hours%2C%20staffing_ratios%2C%20role_ratios%2C%20allow_overtime&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:43:18.897078+00:00 app[web.1]: INFO:     72.49.166.235:0 - "GET /api/restaurants/1 HTTP/1.1" 200 OK
+2025-10-25T22:43:18.897443+00:00 heroku[router]: at=info method=GET path="/api/restaurants/1" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=00ac5c04-9678-ff16-c7ff-edeb0a82ef15 fwd="72.49.166.235" dyno=web.1 connect=0ms service=42ms status=200 bytes=300 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:43:20.994943+00:00 app[web.1]: INFO:httpx:HTTP Request: DELETE https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:43:21.026839+00:00 app[web.1]: INFO:httpx:HTTP Request: POST https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?columns=%22hour%22%2C%22pay_period_start%22%2C%22day_type%22%2C%22pay_period_end%22%2C%22restaurant_id%22%2C%22covers_per_hour%22 "HTTP/2 201 Created"
+2025-10-25T22:43:21.027640+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/demand/overrides HTTP/1.1" 200 OK
+2025-10-25T22:43:21.027937+00:00 heroku[router]: at=info method=POST path="/api/demand/overrides" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=b72f1dcc-f33e-93ae-13ef-9762445c9239 fwd="72.49.166.235" dyno=web.1 connect=0ms service=64ms status=200 bytes=37 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:43:22.584555+00:00 app[web.1]: 🔵 SCHEDULES.PY - Received allow_overtime: True
+2025-10-25T22:43:22.584590+00:00 app[web.1]: 🟢 SERVICE - Received allow_overtime: True
+2025-10-25T22:43:22.609213+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurants?select=id%2C%20role_ratios%2C%20allow_overtime%2C%20staffing_ratios%2C%20operating_hours&id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:43:22.639795+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff?select=staff_id%2C%20full_name%2C%20position%2C%20hourly_rate%2C%20max_hours_per_week%2C%20efficiency_multiplier&restaurant_id=eq.1&status=eq.Active "HTTP/2 200 OK"
+2025-10-25T22:43:22.680872+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/staff_scheduling_rules?select=%2A&restaurant_id=eq.1&is_active=eq.True "HTTP/2 200 OK"
+2025-10-25T22:43:22.711343+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_demand_patterns?select=day_type%2C%20hour%2C%20covers_per_hour&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:43:22.761683+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/pay_period_demand_overrides?select=%2A&restaurant_id=eq.1&pay_period_start=eq.2025-10-27&pay_period_end=eq.2025-11-09 "HTTP/2 200 OK"
+2025-10-25T22:43:22.793974+00:00 app[web.1]: INFO:httpx:HTTP Request: GET https://uclgflqwxdixbnylxmih.supabase.co/rest/v1/restaurant_operating_settings?select=%2A&restaurant_id=eq.1 "HTTP/2 200 OK"
+2025-10-25T22:43:22.794453+00:00 app[web.1]: 
+2025-10-25T22:43:22.794455+00:00 app[web.1]: ================================================================================
+2025-10-25T22:43:22.794457+00:00 app[web.1]: OPTIMIZATION DEBUG LOG
+2025-10-25T22:43:22.794460+00:00 app[web.1]: ================================================================================
+2025-10-25T22:43:22.794532+00:00 app[web.1]: 
+2025-10-25T22:43:22.794532+00:00 app[web.1]: 1. COVERS → STAFF CONVERSION
+2025-10-25T22:43:22.794533+00:00 app[web.1]: Sample weekday demand at 12 PM: {'Cook': 2, 'Host': 2, 'Busser': 2, 'Server': 5, 'Bartender': 4}
+2025-10-25T22:43:22.794534+00:00 app[web.1]: Sample weekday demand at 6 PM: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:43:22.794535+00:00 app[web.1]: 
+2025-10-25T22:43:22.794549+00:00 app[web.1]: DEBUG CONVERSION at 6 PM weekday:
+2025-10-25T22:43:22.794549+00:00 app[web.1]: Covers: 37
+2025-10-25T22:43:22.794550+00:00 app[web.1]: Staff demand: {'Cook': 1, 'Host': 1, 'Busser': 1, 'Server': 3, 'Bartender': 2}
+2025-10-25T22:43:22.794566+00:00 app[web.1]: 
+2025-10-25T22:43:22.794567+00:00 app[web.1]: 2. PAY PERIOD: 2025-10-27 to 2025-11-09 (14 days)
+2025-10-25T22:43:22.794591+00:00 app[web.1]: 
+2025-10-25T22:43:22.794591+00:00 app[web.1]: --- DAY 1: 2025-10-27 (Monday) ---
+2025-10-25T22:43:22.794824+00:00 app[web.1]: INFO:     72.49.166.235:0 - "POST /api/schedules/optimize HTTP/1.1" 500 Internal Server Error
+2025-10-25T22:43:22.795248+00:00 heroku[router]: at=info method=POST path="/api/schedules/optimize" host=enplace-api-v3-9101f20a30b4.herokuapp.com request_id=93432b15-c1c0-2ab3-1947-d986de53ec85 fwd="72.49.166.235" dyno=web.1 connect=0ms service=213ms status=500 bytes=90 protocol=http1.1 tls=true tls_version=unknown
+2025-10-25T22:47:48.343440+00:00 app[api]: Log session created by user daniels.robert922@gmail.com
+2025-10-25T22:50:24.044547+00:00 app[api]: Log session created by user daniels.robert922@gmail.com
+Terminate batch job (Y/N)? 
