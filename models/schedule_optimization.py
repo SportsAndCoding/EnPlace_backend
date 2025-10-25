@@ -16,7 +16,7 @@ class ScheduleOptimizer:
 
     # Map generic role categories to actual position titles
     POSITION_ALIASES = {
-        'Cook': ['Line Cook', 'Prep Cook', 'Sous Chef', 'Executive Chef'],
+        'Cook': ['Line Cook', 'Prep Cook', 'Sous Chef', 'Executive Chef', 'Dishwasher'],
         'Server': ['Server'],
         'Host': ['Host'],
         'Busser': ['Busser'],
@@ -510,11 +510,12 @@ class ScheduleOptimizer:
             shift['spans_midnight'] = True
             shift['end_date'] = end_date_obj.isoformat()
         
+        
+        # NOW mark them as scheduled
+        self.staff_shifts_today[staff_member['staff_id']] = True
+        
         self.all_shifts.append(shift)
         self.staff_hours[staff_member['staff_id']] += shift_length
-        
-        # Mark this person as scheduled for today (one shift per day)
-        self.staff_shifts_today[staff_member['staff_id']] = True
         
         # Calculate cost with overtime premium if applicable
         base_rate = float(staff_member['hourly_rate'])
