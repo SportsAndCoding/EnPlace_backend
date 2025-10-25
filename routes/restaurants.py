@@ -56,14 +56,35 @@ async def get_operating_settings(
     return result.data[0]
 
 
-@router.post("/restaurants/{restaurant_id}/operating-settings")
+@router.get("/{restaurant_id}/operating-settings")
+async def get_operating_settings(
+    restaurant_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get restaurant operating hours and settings"""
+    
+    supabase = get_supabase()
+    
+    result = supabase.table('restaurant_operating_settings')\
+        .select('*')\
+        .eq('restaurant_id', restaurant_id)\
+        .execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Operating settings not found")
+    
+    return result.data[0]
+
+
+@router.post("/{restaurant_id}/operating-settings")
 async def update_operating_settings(
     restaurant_id: int,
     settings: dict,
-    current_user: dict = Depends(get_current_user),
-    _: bool = Depends(require_edit_permission)
+    current_user: dict = Depends(get_current_user)
 ):
     """Update restaurant operating settings"""
+    
+    supabase = get_supabase()
     
     # Validate required fields
     required_fields = [
@@ -76,7 +97,7 @@ async def update_operating_settings(
         if field not in settings:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
     
-    result = await supabase.table('restaurant_operating_settings')\
+    result = supabase.table('restaurant_operating_settings')\
         .upsert({
             'restaurant_id': restaurant_id,
             **settings
