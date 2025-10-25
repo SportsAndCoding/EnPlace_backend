@@ -538,7 +538,17 @@ class ScheduleOptimizer:
                 })
         
         # Sort by LOWEST utilization first (balance workload)
-        available.sort(key=lambda x: (int(x['utilization'] * 4), random.random()))
+        available.sort(key=lambda x: int(x['utilization'] * 4))
+        
+        # Shuffle within each band for fair distribution
+        from itertools import groupby
+        shuffled = []
+        for util_band, group in groupby(available, key=lambda x: int(x['utilization'] * 4)):
+            group_list = list(group)
+            random.shuffle(group_list)
+            shuffled.extend(group_list)
+        
+        available = shuffled
         
         # Assign staff
         assigned_count = min(len(available), count_needed)
