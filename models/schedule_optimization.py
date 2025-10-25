@@ -92,7 +92,9 @@ class ScheduleOptimizer:
     
     def _load_operating_settings(self, restaurant_id: int) -> Dict:
         """Load restaurant operating hours and opening/closing crew settings"""
-        from database import supabase
+        from database.supabase_client import get_supabase
+        
+        supabase = get_supabase()
         
         result = supabase.table('restaurant_operating_settings')\
             .select('*')\
