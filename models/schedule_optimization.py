@@ -65,11 +65,22 @@ class ScheduleOptimizer:
         })
         
         # Load operating settings (opening/closing crew)
-        # Extract restaurant_id from the settings or use the one passed in
-        restaurant_id = restaurant_settings.get('id') or restaurant_settings.get('restaurant_id')
-        if not restaurant_id:
-            raise ValueError("restaurant_id not found in restaurant_settings")
-        self.operating_settings = self._load_operating_settings(restaurant_settings['id'])
+        restaurant_id = restaurant_settings.get('id')
+        if restaurant_id:
+            self.operating_settings = self._load_operating_settings(restaurant_id)
+        else:
+            # Use defaults if restaurant_id not available
+            self.operating_settings = {
+                'prep_start_time': '06:00:00',
+                'prep_positions': ['Prep Cook', 'Sous Chef'],
+                'prep_staff_count': 2,
+                'doors_open_time': '09:00:00',
+                'doors_close_time': '22:00:00',
+                'last_seating_time': '21:30:00',
+                'kitchen_close_time': '23:00:00',
+                'cleanup_positions': ['Dishwasher', 'Line Cook', 'Manager'],
+                'cleanup_staff_count': 3
+            }
         
         self.SHIFT_TEMPLATES = self._build_shift_templates(self.operating_hours['open_hour'], self.operating_hours['close_hour'])
 
