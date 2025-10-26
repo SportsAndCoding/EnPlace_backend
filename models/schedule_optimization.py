@@ -192,6 +192,10 @@ class ScheduleOptimizer:
         
         # Layer 1: Identify peaks and valleys
         peaks = self._identify_peaks(hourly_demand)
+        print(f"\nDEBUG {role} WAVE ANALYSIS:")
+        print(f"  hourly_demand = {hourly_demand}")
+        print(f"DEBUG {role}: peaks = {peaks}")
+        print(f"DEBUG {role}: min_demand = {min_demand}")
         min_demand = self._get_minimum_demand(hourly_demand)
         
         # Layer 2: Base layer (covers minimum demand throughout the day)
@@ -255,7 +259,12 @@ class ScheduleOptimizer:
                 'type': 'closing'
             })
         
+        print(f"  Created {len(shifts)} wave shifts for {role}:")
+        for s in shifts:
+            print(f"    - {s['type']}: {s['start_hour']}-{s['end_hour']} ({s['count']} staff)")
+
         return shifts
+
 
     def _identify_valleys(self, hourly_demand: Dict[int, int]) -> List[Dict]:
         """
