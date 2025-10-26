@@ -192,11 +192,12 @@ class ScheduleOptimizer:
         
         # Layer 1: Identify peaks and valleys
         peaks = self._identify_peaks(hourly_demand)
+        min_demand = self._get_minimum_demand(hourly_demand)
         print(f"\nDEBUG {role} WAVE ANALYSIS:")
         print(f"  hourly_demand = {hourly_demand}")
         print(f"DEBUG {role}: peaks = {peaks}")
         print(f"DEBUG {role}: min_demand = {min_demand}")
-        min_demand = self._get_minimum_demand(hourly_demand)
+        
         
         # Layer 2: Base layer (covers minimum demand throughout the day)
         doors_open = int(self.operating_settings['doors_open_time'].split(':')[0])
