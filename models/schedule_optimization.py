@@ -153,6 +153,12 @@ class ScheduleOptimizer:
             curr_demand = hourly_demand.get(curr_hour, 0)
             next_demand = hourly_demand.get(hours[i+1], 0)
             
+            # Handle case where demand might be a dict (extract value)
+            if isinstance(prev_demand, dict):
+                prev_demand = 0
+            if isinstance(next_demand, dict):
+                next_demand = 0
+            
             # Peak = higher than both neighbors AND above minimum threshold
             if curr_demand > prev_demand and curr_demand > next_demand and curr_demand >= 2:
                 peaks.append({
@@ -481,7 +487,7 @@ class ScheduleOptimizer:
                 continue
             
             # Generate wave-based shifts for this role
-            wave_shifts = self._create_wave_shifts(role, hourly_demand, current_date)
+            wave_shifts = self._create_wave_shifts(role, hourly_demand[role], current_date)
             
             # Convert to shift keys for tracking
             role_shifts = {}
