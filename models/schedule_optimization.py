@@ -365,8 +365,20 @@ class ScheduleOptimizer:
             
             print(f"\n--- DAY {day_offset + 1}: {current_date} ({current_date.strftime('%A')}) ---")
             
+            # Extract demand for this specific day type and restructure
+            day_type = 'weekend' if current_date.weekday() >= 5 else 'weekday'
+            day_demand = staff_demand.get(day_type, {})
+            
+            # Restructure from {hour: {role: count}} to {role: {hour: count}}
+            demand_by_role = {}
+            for hour, roles in day_demand.items():
+                for role, count in roles.items():
+                    if role not in demand_by_role:
+                        demand_by_role[role] = {}
+                    demand_by_role[role][hour] = count
+            
             # Determine shifts needed for this day (wave-based)
-            shifts_needed = self._determine_shifts_for_day(staff_demand, current_date)
+            shifts_needed = self._determine_shifts_for_day(demand_by_role, current_date)
             print(f"Wave shifts needed: {shifts_needed}")
             
             if not shifts_needed:
