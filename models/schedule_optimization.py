@@ -159,8 +159,8 @@ class ScheduleOptimizer:
             if isinstance(next_demand, dict):
                 next_demand = 0
             
-            # Peak = higher than both neighbors AND above minimum threshold
-            if curr_demand > prev_demand and curr_demand > next_demand and curr_demand >= 2:
+            # Peak = higher than previous AND at-or-above next (catches plateau starts)
+            if curr_demand > prev_demand and curr_demand >= next_demand and curr_demand >= 2:
                 peaks.append({
                     'hour': curr_hour,
                     'demand': curr_demand
