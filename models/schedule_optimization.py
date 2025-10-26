@@ -237,21 +237,25 @@ class ScheduleOptimizer:
             extra_needed = peak['demand'] - min_demand
             
             if extra_needed > 0:
-                # Arrive exactly when demand rises, leave when it drops
                 # Find when demand rises to near-peak levels
                 wave_start = peak['hour']
                 for h in range(max(doors_open, peak['hour'] - 2), peak['hour']):
                     if hourly_demand.get(h, 0) >= peak['demand'] - 1:
                         wave_start = h
                         break
-            
-            # Find when demand drops below near-peak
-            wave_end = peak['hour'] + 1
-            for h in range(peak['hour'] + 1, min(doors_close + 1, peak['hour'] + 4)):
-                if hourly_demand.get(h, 0) < peak['demand'] - 1:
-                    wave_end = h
-                    break
                 
+                # Find when demand drops below near-peak
+                wave_end = peak['hour'] + 1
+                for h in range(peak['hour'] + 1, min(doors_close + 1, peak['hour'] + 4)):
+                    if hourly_demand.get(h, 0) < peak['demand'] - 1:
+                        wave_end = h
+                        break
+                
+                # CRITICAL: Ensure minimum 4-hour shift
+                if (wave_end - wave_start) < 4:
+                    wave_end = min(doors_close, wave_start + 4)
+                
+                # Create the peak booster wave
                 shifts.append({
                     'start_hour': wave_start,
                     'end_hour': wave_end,
