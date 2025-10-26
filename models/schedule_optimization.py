@@ -499,7 +499,7 @@ class ScheduleOptimizer:
                 continue
             
             # Generate wave-based shifts for this role
-            wave_shifts = self._create_wave_shifts(role, hourly_demand[role], current_date)
+            wave_shifts = self._create_wave_shifts(role, hourly_demand, current_date)
             
             # Convert to shift keys for tracking
             role_shifts = {}
