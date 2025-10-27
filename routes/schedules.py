@@ -155,7 +155,48 @@ async def update_schedule_shifts(
             status_code=500,
             detail=f"Failed to update schedule: {str(e)}"
         )
+
+@router.get("/{schedule_id}/daily-summary")
+async def get_daily_summary(
+    schedule_id: str,
+    date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get daily summary metrics and shift list for GM Command Center left panel
     
+    Args:
+        schedule_id: UUID of approved schedule
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        Daily metrics + shifts grouped by position
+    """
+    from services.scheduling_service import SchedulingService
+    
+    service = SchedulingService()
+    
+    try:
+        summary = await service.get_daily_summary(
+            schedule_id=schedule_id,
+            date=date,
+            restaurant_id=current_user['restaurant_id']
+        )
+        
+        return {
+            "success": True,
+            **summary
+        }
+    
+    except Exception as e:
+        import traceback
+        print(f"❌ Daily summary error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get daily summary: {str(e)}"
+        )
+
 @router.post("/{schedule_id}/approve")
 async def approve_schedule(
     schedule_id: str,

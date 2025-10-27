@@ -618,6 +618,140 @@ class SchedulingService:
             'gaps': gaps_summary
         }
 
+    async def get_daily_summary(
+        self,
+        schedule_id: str,
+        date: str,
+        restaurant_id: int
+    ) -> dict:
+        """Calculate daily summary metrics for GM Command Center"""
+        
+        print(f"📊 Getting daily summary for schedule {schedule_id}, date {date}")
+        
+        # Get approved schedule
+        schedule_response = self.supabase.from_('approved_schedules') \
+            .select('*') \
+            .eq('id', schedule_id) \
+            .single() \
+            .execute()
+        
+        if not schedule_response.data:
+            raise Exception(f"Schedule {schedule_id} not found")
+        
+        schedule = schedule_response.data
+        
+        # Verify ownership
+        if schedule['restaurant_id'] != restaurant_id:
+            raise Exception("Access denied")
+        
+        # Get shifts for this specific date
+        shifts_response = self.supabase.from_('approved_shifts') \
+            .select('*, staff(full_name, hourly_rate, position)') \
+            .eq('approved_schedule_id', schedule_id) \
+            .eq('date', date) \
+            .execute()
+        
+        shifts = shifts_response.data if shifts_response.data else []
+        
+        print(f"  Found {len(shifts)} shifts for {date}")
+        
+        # Calculate hours scheduled
+        total_hours = 0
+        for shift in shifts:
+            start = datetime.strptime(shift['start_time'], '%H:%M:%S')
+            end = datetime.strptime(shift['end_time'], '%H:%M:%S')
+            hours = (end.hour - start.hour) + ((end.minute - start.minute) / 60)
+            total_hours += hours
+        
+        # Calculate labor cost
+        total_cost = 0
+        for shift in shifts:
+            start = datetime.strptime(shift['start_time'], '%H:%M:%S')
+            end = datetime.strptime(shift['end_time'], '%H:%M:%S')
+            hours = (end.hour - start.hour) + ((end.minute - start.minute) / 60)
+            rate = shift['staff']['hourly_rate'] if shift['staff'] else 0
+            total_cost += hours * rate
+        
+        # Get unique staff count
+        staff_ids = set([s['staff_id'] for s in shifts])
+        staff_count = len(staff_ids)
+        
+        # Get gaps for this date
+        gaps_response = self.supabase.from_('coverage_gaps') \
+            .select('*') \
+            .eq('approved_schedule_id', schedule_id) \
+            .eq('date', date) \
+            .execute()
+        
+        gaps = gaps_response.data if gaps_response.data else []
+        
+        # Count gaps by priority
+        critical_gaps = len([g for g in gaps if g['priority_level'] == 'mission_critical'])
+        emergency_gaps = len([g for g in gaps if g['priority_level'] == 'emergency'])
+        standard_gaps = len([g for g in gaps if g['priority_level'] == 'standard'])
+        
+        # Calculate coverage percentage (rough estimate)
+        # This is simplified - you can make it more accurate later
+        hours_needed = 224  # Default daily hours needed (adjust based on your demand)
+        coverage_pct = (total_hours / hours_needed * 100) if hours_needed > 0 else 0
+        coverage_pct = min(100, coverage_pct)  # Cap at 100%
+        
+        # Group shifts by position
+        shifts_by_position = {}
+        for shift in shifts:
+            position = shift['staff']['position'] if shift['staff'] and shift['staff']['position'] else 'Unknown'
+            
+            if position not in shifts_by_position:
+                shifts_by_position[position] = []
+            
+            start = datetime.strptime(shift['start_time'], '%H:%M:%S')
+            end = datetime.strptime(shift['end_time'], '%H:%M:%S')
+            hours = (end.hour - start.hour) + ((end.minute - start.minute) / 60)
+            rate = shift['staff']['hourly_rate'] if shift['staff'] else 0
+            cost = hours * rate
+            
+            shifts_by_position[position].append({
+                'staff_id': shift['staff_id'],
+                'full_name': shift['staff']['full_name'] if shift['staff'] else 'Unknown',
+                'start_time': shift['start_time'],
+                'end_time': shift['end_time'],
+                'hours': round(hours, 1),
+                'cost': round(cost, 2)
+            })
+        
+        # Sort positions by importance
+        position_order = ['Manager', 'Server', 'Cook', 'Bartender', 'Host', 'Busser', 'Dishwasher']
+        sorted_positions = {}
+        
+        for pos in position_order:
+            if pos in shifts_by_position:
+                sorted_positions[pos] = shifts_by_position[pos]
+        
+        # Add any remaining positions not in the order
+        for pos, shifts_list in shifts_by_position.items():
+            if pos not in sorted_positions:
+                sorted_positions[pos] = shifts_list
+        
+        result = {
+            'date': date,
+            'coverage_percentage': round(coverage_pct, 1),
+            'hours_scheduled': round(total_hours, 1),
+            'hours_needed': hours_needed,
+            'labor_cost': round(total_cost, 2),
+            'staff_count': staff_count,
+            'gaps': {
+                'total': len(gaps),
+                'critical': critical_gaps,
+                'emergency': emergency_gaps,
+                'standard': standard_gaps
+            },
+            'shifts_by_position': sorted_positions
+        }
+        
+        print(f"  ✅ Summary calculated: {coverage_pct:.1f}% coverage, ${total_cost:.2f} cost, {staff_count} staff")
+        
+        return result
+
 
     def _calculate_shift_cost(self, shift: dict) -> float:
         """Calculate cost for a single shift"""
@@ -661,7 +795,7 @@ class SchedulingService:
         
         Returns organized summary for Step 5 UI
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime, date, time, timedelta
         
         # Load demand patterns
         demand_response = self.supabase.from_('restaurant_demand_patterns') \
