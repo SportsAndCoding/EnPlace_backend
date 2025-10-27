@@ -393,6 +393,8 @@ class ScheduleOptimizer:
             # Extract demand for this specific day type and restructure
             day_type = 'weekend' if current_date.weekday() >= 5 else 'weekday'
             day_demand = staff_demand.get(day_type, {})
+
+            print(f"DEBUG: day_type = {day_type}, day_demand keys = {sorted(day_demand.keys())}")
             
             # Restructure from {hour: {role: count}} to {role: {hour: count}}
             demand_by_role = {}
