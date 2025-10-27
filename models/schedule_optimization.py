@@ -404,6 +404,8 @@ class ScheduleOptimizer:
                         demand_by_role[role] = {}
                     demand_by_role[role][hour] = count
             
+            print(f"DEBUG: demand_by_role['Server'] keys = {sorted(demand_by_role.get('Server', {}).keys())}")
+
             # Determine shifts needed for this day (wave-based)
             shifts_needed = self._determine_shifts_for_day(demand_by_role, current_date)
             print(f"Wave shifts needed: {shifts_needed}")
