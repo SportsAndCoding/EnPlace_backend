@@ -628,26 +628,41 @@ class SchedulingService:
         
         print(f"📊 Getting daily summary for schedule {schedule_id}, date {date}")
         
-        # Get approved schedule
-        schedule_response = self.supabase.from_('approved_schedules') \
+        # Try to find schedule in generated_schedules first (Step 4)
+        schedule_response = self.supabase.from_('generated_schedules') \
             .select('*') \
             .eq('id', schedule_id) \
-            .single() \
             .execute()
         
-        if not schedule_response.data:
-            raise Exception(f"Schedule {schedule_id} not found")
-        
-        schedule = schedule_response.data
+        if schedule_response.data and len(schedule_response.data) > 0:
+            # Found in generated_schedules
+            schedule = schedule_response.data[0]
+            shifts_table = 'generated_shifts'
+            schedule_id_field = 'generated_schedule_id'
+            print(f"  📝 Using generated_schedules (Step 4)")
+        else:
+            # Try approved_schedules (Step 5+)
+            schedule_response = self.supabase.from_('approved_schedules') \
+                .select('*') \
+                .eq('id', schedule_id) \
+                .execute()
+            
+            if not schedule_response.data or len(schedule_response.data) == 0:
+                raise Exception(f"Schedule {schedule_id} not found in generated or approved schedules")
+            
+            schedule = schedule_response.data[0]
+            shifts_table = 'approved_shifts'
+            schedule_id_field = 'approved_schedule_id'
+            print(f"  ✅ Using approved_schedules (Step 5+)")
         
         # Verify ownership
         if schedule['restaurant_id'] != restaurant_id:
             raise Exception("Access denied")
         
         # Get shifts for this specific date
-        shifts_response = self.supabase.from_('approved_shifts') \
+        shifts_response = self.supabase.from_(shifts_table) \
             .select('*, staff(full_name, hourly_rate, position)') \
-            .eq('approved_schedule_id', schedule_id) \
+            .eq(schedule_id_field, schedule_id) \
             .eq('date', date) \
             .execute()
         
@@ -676,23 +691,24 @@ class SchedulingService:
         staff_ids = set([s['staff_id'] for s in shifts])
         staff_count = len(staff_ids)
         
-        # Get gaps for this date
-        gaps_response = self.supabase.from_('coverage_gaps') \
-            .select('*') \
-            .eq('approved_schedule_id', schedule_id) \
-            .eq('date', date) \
-            .execute()
-        
-        gaps = gaps_response.data if gaps_response.data else []
+        # Get gaps for this date (only exists for approved schedules)
+        gaps = []
+        if shifts_table == 'approved_shifts':
+            gaps_response = self.supabase.from_('coverage_gaps') \
+                .select('*') \
+                .eq('approved_schedule_id', schedule_id) \
+                .eq('date', date) \
+                .execute()
+            
+            gaps = gaps_response.data if gaps_response.data else []
         
         # Count gaps by priority
-        critical_gaps = len([g for g in gaps if g['priority_level'] == 'mission_critical'])
-        emergency_gaps = len([g for g in gaps if g['priority_level'] == 'emergency'])
-        standard_gaps = len([g for g in gaps if g['priority_level'] == 'standard'])
+        critical_gaps = len([g for g in gaps if g.get('priority_level') == 'mission_critical'])
+        emergency_gaps = len([g for g in gaps if g.get('priority_level') == 'emergency'])
+        standard_gaps = len([g for g in gaps if g.get('priority_level') == 'standard'])
         
         # Calculate coverage percentage (rough estimate)
-        # This is simplified - you can make it more accurate later
-        hours_needed = 224  # Default daily hours needed (adjust based on your demand)
+        hours_needed = 224  # Default daily hours needed
         coverage_pct = (total_hours / hours_needed * 100) if hours_needed > 0 else 0
         coverage_pct = min(100, coverage_pct)  # Cap at 100%
         
