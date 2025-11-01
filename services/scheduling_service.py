@@ -321,6 +321,32 @@ class SchedulingService:
                 
                 staff = staff_response.data
                 
+                # VALIDATE SHIFT LENGTH (Labor Law Compliance)
+                start_dt = datetime.strptime(change['start_time'], '%H:%M:%S')
+                end_dt = datetime.strptime(change['end_time'], '%H:%M:%S')
+                shift_hours = (end_dt.hour - start_dt.hour) + ((end_dt.minute - start_dt.minute) / 60)
+
+                # Minimum 4 hours (prevents reporting time pay violations)
+                if shift_hours < 4:
+                    raise Exception(
+                        f"Shift too short: {shift_hours}h for {staff['full_name']}. "
+                        f"Minimum 4 hours required for labor compliance (reporting time pay laws)."
+                    )
+
+                # Maximum 12 hours (safety and fatigue prevention)
+                if shift_hours > 12:
+                    raise Exception(
+                        f"Shift too long: {shift_hours}h for {staff['full_name']}. "
+                        f"Maximum 12 hours allowed for safety and compliance."
+                    )
+
+                # Warn if shift is unusually long but still legal
+                if shift_hours > 10:
+                    warnings.append(
+                        f"⚠️ Long shift: {shift_hours}h for {staff['full_name']}. "
+                        f"Consider split shifts or additional staff for fatigue management."
+                    )
+
                 # Check constraints (warn but don't block)
                 constraint_violations = await self._check_constraints(
                     staff_id=change['staff_id'],
