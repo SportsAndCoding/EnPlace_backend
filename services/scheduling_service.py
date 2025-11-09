@@ -91,12 +91,39 @@ class SchedulingService:
     async def _load_restaurant_settings(self, restaurant_id: int) -> Dict:
         """Load restaurant with role ratios and overtime setting"""
         response = self.supabase.from_('restaurants') \
-            .select('id, role_ratios, allow_overtime, staffing_ratios, operating_hours') \
+            .select('id, role_ratios, allow_overtime, staffing_ratios') \
             .eq('id', restaurant_id) \
             .single() \
             .execute()
         
-        return response.data if response.data else {}
+        restaurant_data = response.data if response.data else {}
+        
+        # Load operating hours from restaurant_operating_settings table
+        settings_response = self.supabase.from_('restaurant_operating_settings') \
+            .select('*') \
+            .eq('restaurant_id', restaurant_id) \
+            .single() \
+            .execute()
+        
+        if settings_response.data:
+            # Parse time strings to hour numbers
+            prep_hour = int(settings_response.data['prep_start_time'].split(':')[0])
+            kitchen_close_hour = int(settings_response.data['kitchen_close_time'].split(':')[0])
+            
+            restaurant_data['operating_hours'] = {
+                'open_hour': prep_hour,  # Start from prep time
+                'close_hour': kitchen_close_hour + 1,  # One hour after kitchen closes
+                'spans_midnight': kitchen_close_hour >= 23
+            }
+        else:
+            # Defaults if not configured
+            restaurant_data['operating_hours'] = {
+                'open_hour': 9,
+                'close_hour': 24,
+                'spans_midnight': True
+            }
+        
+        return restaurant_data
     
     async def _load_staff(self, restaurant_id: int) -> List[Dict]:
         """Load all active staff with efficiency metrics"""
