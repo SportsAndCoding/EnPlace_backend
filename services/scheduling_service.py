@@ -1131,11 +1131,11 @@ class SchedulingService:
                     unavailable_type = "already_scheduled_today"
             
             # Check max hours
-            if not is_unavailable:
-                if hours_this_period >= max_hours_period:
-                    is_unavailable = True
-                    unavailable_reason = f"Max hours reached ({hours_this_period}/{max_hours_period} this period)"
-                    unavailable_type = "max_hours"
+            if not is_unavailable and hours_this_period >= max_hours_period:
+                is_unavailable = True
+                unavailable_reason = f"Max hours reached ({hours_this_period}/{max_hours_period} this period)"
+                unavailable_type = "max_hours"
+
             
             # Categorize
             if is_unavailable:
