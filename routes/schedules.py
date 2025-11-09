@@ -156,6 +156,44 @@ async def update_schedule_shifts(
             detail=f"Failed to update schedule: {str(e)}"
         )
 
+@router.get("/{schedule_id}/staff-availability")
+async def get_staff_availability(
+    schedule_id: str,
+    date: str,
+    hour: int,
+    position: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get categorized staff availability for a specific hour
+    
+    Returns:
+        - currently_scheduled: Staff working this hour
+        - available: Staff who can work (no constraints)
+        - unavailable: Staff who cannot work (with reasons)
+    """
+    service = SchedulingService()
+    
+    try:
+        result = await service.get_staff_availability_for_hour(
+            schedule_id=schedule_id,
+            date=date,
+            hour=hour,
+            position=position,
+            restaurant_id=current_user['restaurant_id']
+        )
+        
+        return result
+    
+    except Exception as e:
+        import traceback
+        print(f"Staff availability check failed: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to check staff availability: {str(e)}"
+        )
+
 @router.get("/{schedule_id}/daily-summary")
 async def get_daily_summary(
     schedule_id: str,

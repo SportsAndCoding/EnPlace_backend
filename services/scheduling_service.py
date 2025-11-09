@@ -974,3 +974,191 @@ class SchedulingService:
         gap_summary['standard_count'] = len(gap_summary['standard'])
         
         return gap_summary
+    
+    async def get_staff_availability_for_hour(
+        self,
+        schedule_id: str,
+        date: str,
+        hour: int,
+        position: str,
+        restaurant_id: int
+    ) -> dict:
+        """
+        Categorize staff into currently_scheduled, available, and unavailable
+        for a specific date/hour/position
+        """
+        from datetime import datetime, timedelta
+        
+        # Parse date
+        target_date = datetime.strptime(date, '%Y-%m-%d').date()
+        day_of_week = target_date.weekday()  # 0=Monday, 6=Sunday
+        
+        # Get schedule to find pay period
+        schedule_response = self.supabase.from_('generated_schedules') \
+            .select('pay_period_start, pay_period_end') \
+            .eq('id', schedule_id) \
+            .single() \
+            .execute()
+        
+        if not schedule_response.data:
+            raise Exception("Schedule not found")
+        
+        pay_period_start = schedule_response.data['pay_period_start']
+        pay_period_end = schedule_response.data['pay_period_end']
+        
+        # Get all staff for this position
+        position_aliases = {
+            'Cook': ['Line Cook', 'Prep Cook', 'Sous Chef', 'Executive Chef'],
+            'Server': ['Server'],
+            'Host': ['Host'],
+            'Busser': ['Busser'],
+            'Bartender': ['Bartender'],
+            'Manager': ['Manager', 'General Manager', 'Assistant Manager']
+        }
+        
+        # Find matching positions
+        matching_positions = position_aliases.get(position, [position])
+        
+        staff_response = self.supabase.from_('staff') \
+            .select('staff_id, full_name, position, hourly_rate, max_hours_per_week, status') \
+            .eq('restaurant_id', restaurant_id) \
+            .eq('status', 'Active') \
+            .in_('position', matching_positions) \
+            .execute()
+        
+        all_staff = staff_response.data or []
+        
+        # Get all shifts for this schedule in the pay period
+        shifts_response = self.supabase.from_('generated_shifts') \
+            .select('*') \
+            .eq('generated_schedule_id', schedule_id) \
+            .execute()
+        
+        all_shifts = shifts_response.data or []
+        
+        # Get all constraints
+        constraints_response = self.supabase.from_('staff_scheduling_rules') \
+            .select('*') \
+            .eq('restaurant_id', restaurant_id) \
+            .eq('is_active', True) \
+            .execute()
+        
+        constraints = constraints_response.data or []
+        
+        # Categorize staff
+        currently_scheduled = []
+        available = []
+        unavailable = []
+        
+        for staff in all_staff:
+            staff_id = staff['staff_id']
+            
+            # Calculate hours this period
+            staff_shifts = [s for s in all_shifts if s['staff_id'] == staff_id]
+            hours_this_period = 0
+            for shift in staff_shifts:
+                start_hour = int(shift['start_time'].split(':')[0])
+                end_hour = int(shift['end_time'].split(':')[0])
+                if end_hour == 0 and start_hour > end_hour:
+                    end_hour = 24
+                hours_this_period += (end_hour - start_hour)
+            
+            max_hours_period = staff['max_hours_per_week'] * 2  # 2-week period
+            
+            # Check if scheduled THIS hour
+            currently_scheduled_this_hour = False
+            current_shift = None
+            for shift in staff_shifts:
+                if shift['date'] != date:
+                    continue
+                    
+                start_hour = int(shift['start_time'].split(':')[0])
+                end_hour = int(shift['end_time'].split(':')[0])
+                if end_hour == 0 and start_hour > end_hour:
+                    end_hour = 24
+                
+                if hour >= start_hour and hour < end_hour:
+                    currently_scheduled_this_hour = True
+                    current_shift = f"{shift['start_time'][:5]}-{shift['end_time'][:5]}"
+                    break
+            
+            if currently_scheduled_this_hour:
+                currently_scheduled.append({
+                    'staff_id': staff_id,
+                    'full_name': staff['full_name'],
+                    'hourly_rate': float(staff['hourly_rate']),
+                    'hours_this_period': hours_this_period,
+                    'max_hours_period': max_hours_period,
+                    'current_shift': current_shift
+                })
+                continue
+            
+            # Check constraints
+            staff_constraints = [c for c in constraints if c['staff_id'] == staff_id]
+            is_unavailable = False
+            unavailable_reason = None
+            unavailable_type = None
+            
+            for constraint in staff_constraints:
+                # Check PTO
+                if constraint['rule_type'] == 'pto':
+                    pto_start = datetime.strptime(constraint['pto_start_date'], '%Y-%m-%d').date()
+                    pto_end = datetime.strptime(constraint['pto_end_date'], '%Y-%m-%d').date()
+                    if pto_start <= target_date <= pto_end:
+                        is_unavailable = True
+                        unavailable_reason = f"PTO: {constraint['pto_start_date']} to {constraint['pto_end_date']}"
+                        unavailable_type = "pto"
+                        break
+                
+                # Check blocked days
+                if constraint['rule_type'] == 'recurring' and constraint.get('blocked_days'):
+                    blocked_days = constraint['blocked_days']
+                    if day_of_week in blocked_days:
+                        is_unavailable = True
+                        days_map = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                        unavailable_reason = f"Cannot work {days_map[day_of_week]}s (recurring constraint)"
+                        unavailable_type = "blocked_day"
+                        break
+            
+            # Check if already scheduled different shift today
+            if not is_unavailable:
+                other_shifts_today = [s for s in staff_shifts if s['date'] == date]
+                if other_shifts_today:
+                    # They have a shift today but not THIS hour - they're unavailable
+                    shift = other_shifts_today[0]
+                    is_unavailable = True
+                    unavailable_reason = f"Already scheduled {shift['start_time'][:5]} - {shift['end_time'][:5]} today"
+                    unavailable_type = "already_scheduled_today"
+            
+            # Check max hours
+            if not is_unavailable:
+                if hours_this_period >= max_hours_period:
+                    is_unavailable = True
+                    unavailable_reason = f"Max hours reached ({hours_this_period}/{max_hours_period} this period)"
+                    unavailable_type = "max_hours"
+            
+            # Categorize
+            if is_unavailable:
+                unavailable.append({
+                    'staff_id': staff_id,
+                    'full_name': staff['full_name'],
+                    'hourly_rate': float(staff['hourly_rate']),
+                    'hours_this_period': hours_this_period,
+                    'max_hours_period': max_hours_period,
+                    'reason': unavailable_reason,
+                    'unavailable_type': unavailable_type
+                })
+            else:
+                available.append({
+                    'staff_id': staff_id,
+                    'full_name': staff['full_name'],
+                    'hourly_rate': float(staff['hourly_rate']),
+                    'hours_this_period': hours_this_period,
+                    'max_hours_period': max_hours_period
+                })
+        
+        return {
+            'currently_scheduled': currently_scheduled,
+            'available': available,
+            'unavailable': unavailable
+        }
