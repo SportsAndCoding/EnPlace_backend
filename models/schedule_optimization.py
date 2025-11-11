@@ -475,7 +475,12 @@ class ScheduleOptimizer:
                     total_shifts_attempted += count
                     shifts_before = len(self.all_shifts)
                     
-                    self._schedule_shifts_for_role(role, shift_spec['count'], current_date, shift_spec)
+                    self._schedule_shifts_for_role(
+                        role,
+                        shift_spec['count'],
+                        current_date,
+                        shift_spec  # Pass the full shift_spec
+                    )
                     
                     shifts_after = len(self.all_shifts)
                     # ------------------------------------------------------------------
@@ -628,7 +633,13 @@ class ScheduleOptimizer:
         # Filter available staff
         available = []
         for s in role_staff:
-            if self._can_work_shift(s, current_date, start_hour, end_hour):
+            if self._can_work_shift(
+                        staff_member,
+                        current_date,
+                        actual_start,
+                        actual_end,
+                        shift_spec=shift_spec
+                    ):
                 # Calculate utilization percentage
                 pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
                 pay_period_weeks = pay_period_days / 7
@@ -733,7 +744,7 @@ class ScheduleOptimizer:
             self._logged_period_debug = True
         
         # SPECIAL RULE: Closing anchor shifts can exceed 8h (up to 9h)
-        is_closing_anchor = shift_spec.get('is_closing_anchor', False)
+        is_closing_anchor = (shift_spec or {}).get('is_closing_anchor', False)
         if is_closing_anchor:
             max_allowed = min(9, max_hours_for_period - self.staff_hours[staff_id])
             if shift_length > max_allowed:
