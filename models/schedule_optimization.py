@@ -459,12 +459,16 @@ class ScheduleOptimizer:
                     
                     # Count available staff before scheduling
                     role_staff = self.staff_by_position.get(role, [])
-                    available_before = len([
-                        s for s in role_staff 
-                        if self._can_work_shift(s, current_date, 
+                    available_before = sum(
+                        1 for s in role_staff
+                        if self._can_work_shift(
+                            s,
+                            current_date,
                             shift_spec['start_hour'],
-                            shift_spec['end_hour'])
-                    ])
+                            shift_spec['end_hour'],
+                            shift_spec=shift_spec
+                        )
+                    )
                     
                     print(f"      Available staff: {available_before} / {len(role_staff)} total")
                     
@@ -680,7 +684,14 @@ class ScheduleOptimizer:
         
         return consecutive
 
-    def _can_work_shift(self, staff_member: Dict, current_date: date, start_hour: int, end_hour: int) -> bool:
+    def _can_work_shift(
+        self,
+        staff_member: Dict,
+        current_date: date,
+        start_hour: int,
+        end_hour: int,
+        shift_spec: Dict = None  # NEW: optional shift spec for closing anchor logic
+    ) -> bool:
         """Check if staff can work entire shift"""
         staff_id = staff_member['staff_id']
         shift_length = end_hour - start_hour
@@ -1017,7 +1028,20 @@ class ScheduleOptimizer:
                 if self.staff_hours[staff_id] + extra_h > max_period and not self.allow_overtime:
                     break
 
-                if self._violates_constraints(staff_id, current_date, check_h):
+                # Build a minimal shift_spec for extension feasibility check
+                extension_shift_spec = {
+                    'start_hour': int(shift['start_time'].split(':')[0]),
+                    'end_hour': end_h + extra_h,
+                    'is_closing_anchor': is_closing_hour
+                }
+
+                if not self._can_work_shift(
+                    staff_member,
+                    current_date,
+                    extension_shift_spec['start_hour'],
+                    extension_shift_spec['end_hour'],
+                    shift_spec=extension_shift_spec
+                ):
                     break
 
                 # ---- EXTEND ----
