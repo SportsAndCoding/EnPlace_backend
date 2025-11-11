@@ -244,11 +244,15 @@ class ScheduleOptimizer:
                         wave_start = h
                         break
                 
-                # Find when demand drops below near-peak
+                # ---- NEW PEAK-WAVE DURATION LOGIC ----
+                # Extend while demand stays above 60 % of the base (min) demand
+                base_demand = min_demand
+                keep_threshold = max(1, base_demand * 0.60)      # at least 1 staff
                 wave_end = peak['hour'] + 1
-                for h in range(peak['hour'] + 1, min(doors_close + 1, peak['hour'] + 4)):
-                    if hourly_demand.get(h, 0) < peak['demand'] - 1:
-                        wave_end = h
+                for h in range(peak['hour'] + 1, doors_close + 1):
+                    if hourly_demand.get(h, 0) >= base_demand + keep_threshold:
+                        wave_end = h + 1          # include the whole hour
+                    else:
                         break
                 
                 # CRITICAL: Ensure minimum 4-hour shift
@@ -263,17 +267,32 @@ class ScheduleOptimizer:
                     'type': f'peak_boost_{peak["hour"]}h'
                 })
         
-        # Layer 4: Closing crew
-        if role in self.operating_settings['cleanup_positions']:
-            kitchen_close = int(self.operating_settings['kitchen_close_time'].split(':')[0])
-            last_seating = int(self.operating_settings['last_seating_time'].split(':')[0])
-            
+        # ---- NEW CLOSING-WAVE LAYER (scaled to demand) ----
+        kitchen_close_hour = int(self.operating_settings['kitchen_close_time'].split(':')[0])
+        last_seating_hour = int(self.operating_settings['last_seating_time'].split(':')[0])
+
+        # Compute max demand in the closing window
+        closing_demand = 0
+        for h in range(last_seating_hour, kitchen_close_hour + 1):
+            closing_demand = max(closing_demand, hourly_demand.get(h, 0))
+
+        if closing_demand > min_demand:
+            extra_needed = closing_demand - min_demand
             shifts.append({
-                'start_hour': last_seating - 2,  # Arrive 2h before last seating
-                'end_hour': kitchen_close,
-                'count': 1,  # Usually 1 per position for closing
-                'type': 'closing'
+                'start_hour': max(doors_open, last_seating_hour - 1),
+                'end_hour': kitchen_close_hour,
+                'count': max(1, extra_needed),
+                'type': 'closing_wave'
             })
+        else:
+            # fallback: at least one closer (keeps original behaviour)
+            if role in self.operating_settings['cleanup_positions']:
+                shifts.append({
+                    'start_hour': max(doors_open, last_seating_hour - 2),
+                    'end_hour': kitchen_close_hour,
+                    'count': 1,
+                    'type': 'closing_fallback'
+                })
         
         print(f"  Created {len(shifts)} wave shifts for {role}:")
         for s in shifts:
@@ -441,13 +460,24 @@ class ScheduleOptimizer:
                     self._schedule_shifts_for_role(role, shift_spec['count'], current_date, shift_spec)
                     
                     shifts_after = len(self.all_shifts)
-                    shifts_created_this_call = shifts_after - shifts_before
-                    total_shifts_created += shifts_created_this_call
-                    
-                    print(f"      Scheduled: {shifts_created_this_call} / {count} needed")
-                    
-                    if shifts_created_this_call < count:
-                        print(f"      GAP: {count - shifts_created_this_call} unfilled")
+                    # ------------------------------------------------------------------
+        #  Per-day gap-fill extension + closing-hour debug
+        # ------------------------------------------------------------------
+        print(f"\nRunning gap-fill extensions for {current_date}...")
+        self._extend_shifts_to_fill_gaps_for_day(current_date, demand_by_role)
+
+        # ---- BONUS: Closing-hour coverage report (10 PM – 11 PM) ----
+        print(f"\nCLOSING COVERAGE DEBUG ({current_date})")
+        today_shifts = [s for s in self.all_shifts if s['date'] == current_date.isoformat()]
+        for close_h in (22, 23):   # 10 PM and 11 PM
+            needed = demand_by_role.get('Server', {}).get(close_h, 0)
+            covered = sum(
+                1 for s in today_shifts
+                if s['position'] == 'Server'
+                and self._hour_covered(s, close_h)
+            )
+            print(f"  {close_h}:00 → Need {needed}, Have {covered}  "
+                  f"{'UNDER' if covered < needed else 'OK'}")
         
         print(f"\n" + "="*80)
         print(f"SUMMARY")
@@ -894,6 +924,73 @@ class ScheduleOptimizer:
         
         return extensions_made
 
+
+    def _hour_covered(self, shift: Dict, hour: int) -> bool:
+        """Return True if *hour* (0-23) is inside the shift."""
+        start = int(shift['start_time'].split(':')[0])
+        end   = int(shift['end_time'].split(':')[0])
+        if end == 0:
+            end = 24
+        return start <= hour < end
+
+        # ------------------------------------------------------------------
+    #  NEW METHOD – per-day gap-fill (re-uses most of the old logic)
+    # ------------------------------------------------------------------
+    def _extend_shifts_to_fill_gaps_for_day(self, current_date: date, demand_by_role: Dict):
+        """Extend existing shifts on *current_date* to cover adjacent under-staffed hours."""
+        today_shifts = [s for s in self.all_shifts if s['date'] == current_date.isoformat()]
+        if not today_shifts:
+            return
+
+        extensions = 0
+        for shift in today_shifts:
+            role = shift['position']
+            staff_id = shift['staff_id']
+            staff_member = next((s for s in self.staff if s['staff_id'] == staff_id), None)
+            if not staff_member:
+                continue
+
+            # current end hour (handle midnight roll-over)
+            end_h = int(shift['end_time'].split(':')[0])
+            if end_h == 0:
+                end_h = 24
+
+            # look ahead up to 4 h
+            for extra_h in range(1, 5):
+                check_h = end_h + extra_h - 1
+                if check_h > self.operating_hours['close_hour']:
+                    break
+
+                needed = demand_by_role.get(role, {}).get(check_h, 0)
+                covered = sum(
+                    1 for s in today_shifts
+                    if s['position'] == role and self._hour_covered(s, check_h)
+                )
+                if covered >= needed:
+                    break   # no gap
+
+                # can we extend?
+                pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
+                pay_period_weeks = pay_period_days / 7.0
+                max_period = staff_member['max_hours_per_week'] * pay_period_weeks
+                if self.staff_hours[staff_id] + extra_h > max_period and not self.allow_overtime:
+                    break
+
+                if self._violates_constraints(staff_id, current_date, check_h):
+                    break
+
+                # ---- EXTEND ----
+                new_end = end_h + extra_h
+                old_end = shift['end_time']
+                shift['end_time'] = f"{new_end % 24:02d}:00:00"
+                self.staff_hours[staff_id] += extra_h
+                self.filled_slots += extra_h
+                extensions += extra_h
+                print(f"  EXTENDED {staff_member['full_name']} ({role}) {old_end[:5]}→{shift['end_time'][:5]} (+{extra_h}h)")
+                break   # only one extension per shift
+
+        if extensions:
+            print(f"  Total extensions on {current_date}: {extensions} hours")
     
     def _violates_constraints(self, staff_id: str, current_date: date, hour: int) -> bool:
         """Check scheduling constraints"""
