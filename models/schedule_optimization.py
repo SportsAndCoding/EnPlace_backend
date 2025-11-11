@@ -364,6 +364,9 @@ class ScheduleOptimizer:
     def run(self) -> Dict:
         """Execute shift-based optimization"""
         
+        # POST-PROCESSING: Extend shifts to fill adjacent gaps
+        extensions = self._extend_shifts_to_fill_gaps()
+
         print("\n" + "="*80)
         print("OPTIMIZATION DEBUG LOG")
         print("="*80)
@@ -783,6 +786,113 @@ class ScheduleOptimizer:
             self.staff_days_worked[staff_member['staff_id']] = self.staff_days_worked.get(staff_member['staff_id'], 0) + 1
         
         self.total_cost += shift_cost
+    
+    def _extend_shifts_to_fill_gaps(self):
+        """
+        Post-processing: Extend existing shifts to fill adjacent gaps
+        Runs after initial scheduling to optimize coverage
+        """
+        print("\n" + "="*80)
+        print("SHIFT EXTENSION OPTIMIZATION")
+        print("="*80)
+        
+        extensions_made = 0
+        
+        # Group shifts by date and role
+        shifts_by_date_role = {}
+        for shift in self.all_shifts:
+            key = (shift['date'], shift['position'])
+            if key not in shifts_by_date_role:
+                shifts_by_date_role[key] = []
+            shifts_by_date_role[key].append(shift)
+        
+        # For each date/role combination, look for extension opportunities
+        for (shift_date, role), role_shifts in shifts_by_date_role.items():
+            day_type = 'weekend' if shift_date.weekday() >= 5 else 'weekday'
+            
+            # Get demand for this day/role
+            if day_type not in self.covers_demand:
+                continue
+                
+            # Calculate hourly demand for this role
+            hourly_demand = {}
+            for hour, covers in self.covers_demand[day_type].items():
+                staff_ratio = self.staffing_ratios.get(role, 15)
+                hourly_demand[hour] = max(1, round(covers / staff_ratio))
+            
+            # Calculate current coverage by hour
+            coverage_by_hour = {}
+            for hour in range(self.operating_hours['open_hour'], self.operating_hours['close_hour']):
+                coverage_by_hour[hour] = 0
+            
+            for shift in role_shifts:
+                start = int(shift['start_time'].split(':')[0])
+                end = int(shift['end_time'].split(':')[0])
+                if end == 0:  # Midnight
+                    end = 24
+                
+                for hour in range(start, end):
+                    if hour in coverage_by_hour:
+                        coverage_by_hour[hour] += 1
+            
+            # Find gaps and extension opportunities
+            for shift in role_shifts:
+                shift_end = int(shift['end_time'].split(':')[0])
+                if shift_end == 0:
+                    shift_end = 24
+                
+                staff_member = next((s for s in self.staff if s['staff_id'] == shift['staff_id']), None)
+                if not staff_member:
+                    continue
+                
+                # Check hours AFTER this shift ends
+                hours_to_extend = 0
+                for check_hour in range(shift_end, min(shift_end + 4, self.operating_hours['close_hour'])):
+                    # Is this hour understaffed?
+                    demand = hourly_demand.get(check_hour, 0)
+                    coverage = coverage_by_hour.get(check_hour, 0)
+                    
+                    if coverage < demand:
+                        # Can this staff member work this hour?
+                        pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
+                        pay_period_weeks = pay_period_days / 7
+                        max_hours_for_period = staff_member['max_hours_per_week'] * pay_period_weeks
+                        
+                        if self.staff_hours[shift['staff_id']] + 1 <= max_hours_for_period:
+                            # Check constraints for this hour
+                            if not self._violates_constraints(shift['staff_id'], shift_date, check_hour):
+                                hours_to_extend += 1
+                            else:
+                                break  # Can't extend past a constraint
+                        else:
+                            break  # Would exceed max hours
+                    else:
+                        break  # No gap, stop checking
+                
+                # Extend the shift if we found hours
+                if hours_to_extend > 0:
+                    new_end = shift_end + hours_to_extend
+                    old_end_time = shift['end_time']
+                    shift['end_time'] = f"{new_end:02d}:00:00"
+                    
+                    # Update hours tracking
+                    self.staff_hours[shift['staff_id']] += hours_to_extend
+                    
+                    # Update coverage
+                    for hour in range(shift_end, new_end):
+                        if hour in coverage_by_hour:
+                            coverage_by_hour[hour] += 1
+                    
+                    extensions_made += 1
+                    self.filled_slots += hours_to_extend
+                    
+                    print(f"  ✅ Extended {staff_member['full_name']} ({role}) on {shift_date}")
+                    print(f"     {old_end_time[:5]} → {shift['end_time'][:5]} (+{hours_to_extend}h)")
+        
+        print(f"\n📊 Extensions made: {extensions_made}")
+        print("="*80 + "\n")
+        
+        return extensions_made
 
     
     def _violates_constraints(self, staff_id: str, current_date: date, hour: int) -> bool:
