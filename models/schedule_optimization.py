@@ -701,9 +701,11 @@ class ScheduleOptimizer:
         current_date: date,
         start_hour: int,
         end_hour: int,
-        shift_spec: Dict = None  # NEW: optional shift spec for closing anchor logic
+        shift_spec: Dict = None
     ) -> bool:
         """Check if staff can work entire shift"""
+        if staff_member is None:
+            return False
         staff_id = staff_member['staff_id']
         shift_length = end_hour - start_hour
         
