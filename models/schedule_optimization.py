@@ -271,27 +271,41 @@ class ScheduleOptimizer:
         kitchen_close_hour = int(self.operating_settings['kitchen_close_time'].split(':')[0])
         last_seating_hour = int(self.operating_settings['last_seating_time'].split(':')[0])
 
-        # Compute max demand in the closing window
-        closing_demand = 0
-        for h in range(last_seating_hour, kitchen_close_hour + 1):
-            closing_demand = max(closing_demand, hourly_demand.get(h, 0))
+        # Define closing window demand
+        closing_window_demand = max(
+            hourly_demand.get(h, 0) for h in range(last_seating_hour, kitchen_close_hour + 1)
+        )
 
-        if closing_demand > min_demand:
-            extra_needed = closing_demand - min_demand
-            shifts.append({
-                'start_hour': max(doors_open, last_seating_hour - 1),
-                'end_hour': kitchen_close_hour,
-                'count': max(1, extra_needed),
-                'type': 'closing_wave'
-            })
-        else:
-            # fallback: at least one closer (keeps original behaviour)
-            if role in self.operating_settings['cleanup_positions']:
+        if closing_window_demand > 0:
+            # Base closing crew (at least 1, even if below min_demand)
+            base_closers = max(1, closing_window_demand - min_demand)
+
+            # Determine shift length: 6–9 hours, anchored to close
+            max_close_shift = 9
+            min_close_shift = 6
+            preferred_length = 8
+
+            # Try 8h first, then 7h, 6h, etc.
+            for length in range(preferred_length, min_close_shift - 1, -1):
+                start_hour = kitchen_close_hour - length
+                if start_hour >= doors_open:
+                    shifts.append({
+                        'start_hour': start_hour,
+                        'end_hour': kitchen_close_hour,
+                        'count': base_closers,
+                        'type': f'closing_anchor_{length}h',
+                        'is_closing_anchor': True  # Flag for special handling
+                    })
+                    print(f"  Created closing anchor: {start_hour}:00–{kitchen_close_hour}:00 ({length}h, {base_closers} staff)")
+                    break
+            else:
+                # Fallback: shortest possible
                 shifts.append({
-                    'start_hour': max(doors_open, last_seating_hour - 2),
+                    'start_hour': max(doors_open, kitchen_close_hour - min_close_shift),
                     'end_hour': kitchen_close_hour,
-                    'count': 1,
-                    'type': 'closing_fallback'
+                    'count': base_closers,
+                    'type': 'closing_anchor_short',
+                    'is_closing_anchor': True
                 })
         
         print(f"  Created {len(shifts)} wave shifts for {role}:")
@@ -479,6 +493,12 @@ class ScheduleOptimizer:
             print(f"  {close_h}:00 → Need {needed}, Have {covered}  "
                   f"{'UNDER' if covered < needed else 'OK'}")
         
+        closing_shifts = [s for s in today_shifts if s.get('is_closing_anchor')]
+        if closing_shifts:
+            print(f"  CLOSING ANCHOR SHIFTS: {len(closing_shifts)}")
+            for s in closing_shifts:
+                print(f"    {s['position']} {s['start_time'][:5]}–{s['end_time'][:5]}")
+
         print(f"\n" + "="*80)
         print(f"SUMMARY")
         print(f"="*80)
@@ -700,6 +720,19 @@ class ScheduleOptimizer:
                 print(f"   Absolute max (with OT): {max_hours_for_period * 2}")
             print()
             self._logged_period_debug = True
+        
+        # SPECIAL RULE: Closing anchor shifts can exceed 8h (up to 9h)
+        is_closing_anchor = shift_spec.get('is_closing_anchor', False)
+        if is_closing_anchor:
+            max_allowed = min(9, max_hours_for_period - self.staff_hours[staff_id])
+            if shift_length > max_allowed:
+                print(f"      REJECTED {staff_id}: closing anchor too long ({shift_length}h > {max_allowed}h remaining)")
+                return False
+        else:
+            # Normal shift: enforce 8h max per shift
+            if shift_length > 8:
+                print(f"      REJECTED {staff_id}: shift too long ({shift_length}h > 8h)")
+                return False
         
         # Check max hours (only enforce if overtime is disabled)
         if not self.allow_overtime:
@@ -968,6 +1001,14 @@ class ScheduleOptimizer:
                 )
                 if covered >= needed:
                     break   # no gap
+
+                # PRIORITY: If this is a closing hour, extend even if shift would be >8h
+                is_closing_hour = check_h >= (kitchen_close_hour - 2)
+                current_shift_length = self._calculate_shift_hours(shift)
+                would_exceed_8h = current_shift_length + extra_h > 8
+
+                if would_exceed_8h and not is_closing_hour:
+                    break  # don't extend beyond 8h unless it's closing
 
                 # can we extend?
                 pay_period_days = (self.pay_period_end - self.pay_period_start).days + 1
