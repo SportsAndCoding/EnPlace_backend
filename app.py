@@ -40,6 +40,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(rest_of_path: str):
+    return {}
+
 # Pydantic models
 class LoginRequest(BaseModel):
     email: EmailStr
