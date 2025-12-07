@@ -117,15 +117,9 @@ async def update_last_login_db(staff_id: str) -> bool:
         return False
 
 # ===== ROUTES =====
+from routes.restaurants import router as restaurants_router
+app.include_router(restaurants_router)
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
-from routes.constraints import router as constraints_router
-app.include_router(constraints_router)
-from routes.schedules import router as schedules_router
-app.include_router(schedules_router)
-from routes.demand import router as demand_router
-app.include_router(demand_router)
-from routes.schedule_review import router as review_router
-app.include_router(review_router)
 from routes.restaurants import router as restaurants_router
 app.include_router(restaurants_router)
 
