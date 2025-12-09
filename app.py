@@ -122,6 +122,8 @@ from routes.restaurants import router as restaurants_router
 app.include_router(restaurants_router)
 from routes.checkins import router as checkins_router
 app.include_router(checkins_router)
+from routes.manager_logs import router as manager_logs_router
+app.include_router(manager_logs_router)
 
 
 @app.get("/")
