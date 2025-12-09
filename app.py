@@ -128,6 +128,8 @@ from routes.alignment import router as alignment_router
 app.include_router(alignment_router)
 from routes.shifts import router as shifts_router
 app.include_router(shifts_router)
+from routes.escalations import router as escalations_router
+app.include_router(escalations_router)
 
 
 @app.get("/")
