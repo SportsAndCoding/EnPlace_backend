@@ -124,6 +124,8 @@ from routes.checkins import router as checkins_router
 app.include_router(checkins_router)
 from routes.manager_logs import router as manager_logs_router
 app.include_router(manager_logs_router)
+from routes.alignment import router as alignment_router
+app.include_router(alignment_router)
 
 
 @app.get("/")
