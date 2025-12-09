@@ -126,6 +126,8 @@ from routes.manager_logs import router as manager_logs_router
 app.include_router(manager_logs_router)
 from routes.alignment import router as alignment_router
 app.include_router(alignment_router)
+from routes.shifts import router as shifts_router
+app.include_router(shifts_router)
 
 
 @app.get("/")
