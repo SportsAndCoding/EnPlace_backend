@@ -130,6 +130,8 @@ from routes.shifts import router as shifts_router
 app.include_router(shifts_router)
 from routes.escalations import router as escalations_router
 app.include_router(escalations_router)
+from routes.candidates import router as candidates_router
+app.include_router(candidates_router)
 
 
 @app.get("/")
