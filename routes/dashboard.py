@@ -4,7 +4,7 @@ Dashboard Route - Single endpoint for manager-home.html
 
 from fastapi import APIRouter, Depends, HTTPException
 from services.dashboard_service import get_dashboard_data
-from auth.jwt_handler import get_current_user
+from services.auth_service import verify_jwt_token as get_current_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
