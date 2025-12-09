@@ -134,6 +134,8 @@ from routes.candidates import router as candidates_router
 app.include_router(candidates_router)
 from routes.notifications import router as notifications_router
 app.include_router(notifications_router)
+from routes.dashboard import router as dashboard_router
+app.include_router(dashboard_router)
 
 
 @app.get("/")
