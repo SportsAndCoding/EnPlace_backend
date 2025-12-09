@@ -117,11 +117,11 @@ async def update_last_login_db(staff_id: str) -> bool:
         return False
 
 # ===== ROUTES =====
-from routes.restaurants import router as restaurants_router
-app.include_router(restaurants_router)
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
 from routes.restaurants import router as restaurants_router
 app.include_router(restaurants_router)
+from routes.checkins import router as checkins_router
+app.include_router(checkins_router)
 
 
 @app.get("/")
