@@ -3,6 +3,7 @@ Dashboard Service - Aggregates all data for manager-home.html
 Single endpoint, single round-trip, all dashboard data.
 """
 
+from services.network_benchmark_service import compute_network_burnout_percentile, compute_organic_burnout_score
 from datetime import datetime, timedelta, date
 from typing import Optional
 from database.supabase_client import supabase
@@ -462,7 +463,9 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
     else:
         status = "critical"
     
-    percentile = max(5, 100 - (total_elevated * 15))
+    # Compute real network percentile
+    organic_score = compute_organic_burnout_score(checkins_7d)
+    network_rank = compute_network_burnout_percentile(organic_score)
     
     return {
         "elevated_count": total_elevated,
@@ -475,8 +478,9 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
             "period": "last week"
         },
         "network": {
-            "percentile": percentile,
-            "interpretation": f"Higher than {100-percentile}% of network" if percentile < 50 else f"Lower than {percentile}% of network"
+            "percentile": network_rank["percentile"],
+            "interpretation": network_rank["interpretation"],
+            "network_size": network_rank.get("network_size", 0)
         },
         "schedule_based": schedule_based[:5],  # Top 5
         "pattern_based": pattern_based[:5]     # Top 5
