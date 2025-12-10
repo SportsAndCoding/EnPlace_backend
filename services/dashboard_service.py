@@ -326,9 +326,16 @@ def compute_fairness(checkins_7d: list, checkins_28d: list, shifts_week: list, s
 
 def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, staff_list: list) -> dict:
     """
-    Compute burnout radar based on low mood + high hours.
+    Compute burnout radar with two lanes:
+    1. Schedule-based: Individual names (manager made the schedule, can see names)
+    2. Pattern-based: Role groups only (emotional data, must be anonymized)
     """
-    at_risk = []
+    
+    # ═══════════════════════════════════════════════════════════════
+    # LANE 1: SCHEDULE-BASED (can show individual names)
+    # ═══════════════════════════════════════════════════════════════
+    
+    schedule_based = []
     
     # Calculate hours per staff this week
     staff_hours = {}
@@ -347,81 +354,120 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
                 except:
                     pass
     
-    # Get mood per staff
-    staff_moods = {}
-    for checkin in checkins_7d:
-        sid = checkin.get("staff_id")
-        if sid:
-            if sid not in staff_moods:
-                staff_moods[sid] = []
-            staff_moods[sid].append(checkin.get("mood_emoji", 3))
-    
-    # Find at-risk staff
+    # Find staff over their max hours
     for staff in staff_list:
         sid = staff.get("staff_id")
         hours = staff_hours.get(sid, 0)
         max_hours = staff.get("max_hours_per_week", 40)
-        moods = staff_moods.get(sid, [])
-        avg_mood = sum(moods) / len(moods) if moods else 3
         
-        signals = []
-        risk_level = None
-        
-        # Check for burnout signals
         if hours > max_hours:
-            signals.append(f"{int(hours)} hours scheduled ({int(hours - max_hours)} over max)")
-        
-        if avg_mood <= 2.5:
-            signals.append(f"Low mood average ({avg_mood:.1f})")
-        
-        low_mood_count = sum(1 for m in moods if m <= 2)
-        if low_mood_count >= 2:
-            signals.append(f"{low_mood_count} low mood check-ins this week")
-        
-        # Determine risk level
-        if hours > max_hours + 5 or avg_mood <= 2:
-            risk_level = "high"
-        elif hours > max_hours or avg_mood <= 2.5 or low_mood_count >= 2:
-            risk_level = "elevated"
-        
-        if risk_level and signals:
-            at_risk.append({
+            over_by = int(hours - max_hours)
+            schedule_based.append({
                 "staff_id": sid,
                 "name": staff.get("full_name", "Unknown"),
                 "position": staff.get("position", "Staff"),
-                "risk_level": risk_level,
                 "hours_this_week": int(hours),
                 "max_hours": max_hours,
-                "signals": signals[:3]
+                "signal": f"{int(hours)} hours ({over_by} over max)"
             })
     
-    # Sort by risk level (high first)
-    at_risk.sort(key=lambda x: 0 if x["risk_level"] == "high" else 1)
+    # Sort by hours over (most overworked first)
+    schedule_based.sort(key=lambda x: x["hours_this_week"] - x["max_hours"], reverse=True)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # LANE 2: PATTERN-BASED (must anonymize by role)
+    # ═══════════════════════════════════════════════════════════════
+    
+    pattern_based = []
+    
+    # Get mood by role for this week
+    role_moods_current = {}
+    for checkin in checkins_7d:
+        sid = checkin.get("staff_id")
+        mood = checkin.get("mood_emoji")
+        if sid and mood:
+            # Find staff's position
+            staff_match = next((s for s in staff_list if s.get("staff_id") == sid), None)
+            if staff_match:
+                role = staff_match.get("position", "Unknown")
+                if role not in role_moods_current:
+                    role_moods_current[role] = []
+                role_moods_current[role].append(mood)
+    
+    # Get mood by role for previous period (baseline)
+    role_moods_baseline = {}
+    old_checkins = [c for c in checkins_28d if c not in checkins_7d]
+    for checkin in old_checkins:
+        sid = checkin.get("staff_id")
+        mood = checkin.get("mood_emoji")
+        if sid and mood:
+            staff_match = next((s for s in staff_list if s.get("staff_id") == sid), None)
+            if staff_match:
+                role = staff_match.get("position", "Unknown")
+                if role not in role_moods_baseline:
+                    role_moods_baseline[role] = []
+                role_moods_baseline[role].append(mood)
+    
+    # Compare current vs baseline by role
+    for role, current_moods in role_moods_current.items():
+        current_avg = sum(current_moods) / len(current_moods) if current_moods else 0
+        baseline_moods = role_moods_baseline.get(role, [])
+        baseline_avg = sum(baseline_moods) / len(baseline_moods) if baseline_moods else current_avg
+        
+        if baseline_avg > 0:
+            pct_change = ((current_avg - baseline_avg) / baseline_avg) * 100
+        else:
+            pct_change = 0
+        
+        # Flag roles with declining mood (more than 10% drop)
+        if pct_change < -10:
+            # Count how many staff in this role have low mood
+            low_mood_count = sum(1 for m in current_moods if m <= 2)
+            
+            pattern_based.append({
+                "role": role,
+                "count": len(current_moods),
+                "low_mood_count": low_mood_count,
+                "trend": "declining",
+                "vs_baseline": f"{int(pct_change)}%",
+                "current_avg": round(current_avg, 1),
+                "baseline_avg": round(baseline_avg, 1)
+            })
+    
+    # Sort by severity (biggest decline first)
+    pattern_based.sort(key=lambda x: float(x["vs_baseline"].replace("%", "")))
+    
+    # ═══════════════════════════════════════════════════════════════
+    # COMBINED METRICS
+    # ═══════════════════════════════════════════════════════════════
+    
+    schedule_count = len(schedule_based)
+    pattern_count = len(pattern_based)
+    total_elevated = schedule_count + pattern_count
     
     # Trend (compare to previous week)
-    elevated_count = len(at_risk)
-    
-    # Simulate trend based on recent data
     delta = 0
     direction = "stable"
     if checkins_28d:
-        old_low = sum(1 for c in checkins_28d if c.get("mood_emoji", 3) <= 2 and c not in checkins_7d)
+        old_low = sum(1 for c in old_checkins if c.get("mood_emoji", 3) <= 2)
         new_low = sum(1 for c in checkins_7d if c.get("mood_emoji", 3) <= 2)
         delta = new_low - old_low
         direction = "up" if delta > 0 else "down" if delta < 0 else "stable"
     
     # Status
-    if elevated_count == 0:
+    if total_elevated == 0:
         status = "healthy"
-    elif elevated_count <= 2:
+    elif total_elevated <= 2:
         status = "warning"
     else:
         status = "critical"
     
-    percentile = max(5, 100 - (elevated_count * 20))
+    percentile = max(5, 100 - (total_elevated * 15))
     
     return {
-        "elevated_count": elevated_count,
+        "elevated_count": total_elevated,
+        "schedule_count": schedule_count,
+        "pattern_count": pattern_count,
         "status": status,
         "trend": {
             "direction": direction,
@@ -432,9 +478,9 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
             "percentile": percentile,
             "interpretation": f"Higher than {100-percentile}% of network" if percentile < 50 else f"Lower than {percentile}% of network"
         },
-        "at_risk": at_risk[:5]  # Top 5
+        "schedule_based": schedule_based[:5],  # Top 5
+        "pattern_based": pattern_based[:5]     # Top 5
     }
-
 
 def compute_stable_schedule(shifts_week: list, shifts_today: list) -> dict:
     """

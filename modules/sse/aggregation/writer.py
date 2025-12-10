@@ -15,10 +15,9 @@ def update_staff_signals(
     signals: dict,
 ) -> Dict[str, Any]:
     """
-    Update the signals JSONB column for a specific staff member on a specific date.
+    Upsert signals for a specific staff member on a specific date.
 
-    This function performs a safe update on the existing stub row in sse_staff_day_metrics.
-    All errors are caught and returned in the result dictionary to preserve nightly job stability.
+    Uses upsert to handle both insert and update cases.
 
     Args:
         restaurant_id: Restaurant identifier
@@ -27,7 +26,7 @@ def update_staff_signals(
         signals: Complete computed signals dictionary to store
 
     Returns:
-        Dictionary describing the outcome of the update operation.
+        Dictionary describing the outcome of the operation.
     """
     if not staff_id or not staff_id.strip():
         return {
@@ -43,47 +42,44 @@ def update_staff_signals(
     try:
         response = (
             supabase.table("sse_staff_day_metrics")
-            .update({"signals": signals})
-            .eq("restaurant_id", restaurant_id)
-            .eq("staff_id", staff_id)
-            .eq("target_date", target_date)
+            .upsert({
+                "restaurant_id": restaurant_id,
+                "staff_id": staff_id,
+                "target_date": target_date,
+                "signals": signals,
+            }, on_conflict="restaurant_id,staff_id,target_date")
             .execute()
         )
 
-        # Check whether any row was actually matched and updated
-        if not response.data:
-            # No rows matched the filter — this usually means the stub row is missing
-            logger.warning(
-                "Signals update matched zero rows for staff %s (restaurant %s) on %s — "
-                "stub row may not exist or identifiers mismatched",
+        if response.data:
+            logger.debug(
+                "Successfully upserted signals for staff %s on %s",
                 staff_id,
-                restaurant_id,
                 target_date,
             )
             return {
                 "restaurant_id": restaurant_id,
                 "staff_id": staff_id,
                 "target_date": target_date,
-                "status": "no_row_updated",
-                "reason": "zero_rows_matched",
+                "status": "upserted",
             }
-
-        logger.debug(
-            "Successfully updated signals for staff %s on %s",
-            staff_id,
-            target_date,
-        )
-
-        return {
-            "restaurant_id": restaurant_id,
-            "staff_id": staff_id,
-            "target_date": target_date,
-            "status": "updated",
-        }
+        else:
+            logger.warning(
+                "Upsert returned no data for staff %s on %s",
+                staff_id,
+                target_date,
+            )
+            return {
+                "restaurant_id": restaurant_id,
+                "staff_id": staff_id,
+                "target_date": target_date,
+                "status": "unknown",
+                "reason": "no_data_returned",
+            }
 
     except Exception as e:
         logger.error(
-            "Failed to update signals for staff %s (restaurant %s) on %s: %s",
+            "Failed to upsert signals for staff %s (restaurant %s) on %s: %s",
             staff_id,
             restaurant_id,
             target_date,

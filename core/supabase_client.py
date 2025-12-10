@@ -22,8 +22,8 @@ def _get_required_env(var_name: str) -> str:
 # Client is created only once at import time in the main process.
 # In multiprocessing scenarios (e.g. uvicorn --workers), each worker gets its own module-level instance.
 _supabase_client: Client = create_client(
-    url=_get_required_env(_SUPABASE_URL_ENV),
-    key=_get_required_env(_SUPABASE_KEY_ENV),
+    _get_required_env(_SUPABASE_URL_ENV),
+    _get_required_env(_SUPABASE_KEY_ENV),
 )
 
 # Primary export – the client instance

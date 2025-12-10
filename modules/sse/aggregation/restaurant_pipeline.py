@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Callable
 
 from modules.sse.aggregation.run_staff_pipeline import run_staff_pipeline
 
@@ -14,7 +14,7 @@ def run_restaurant_pipeline(
     target_date: date,
     staff_rows: List[Dict[str, Any]],
     checkins_by_staff: Dict[str, Dict[str, Any]],
-    schedules_by_staff: Dict[str, Dict[str, Any]],
+    get_shifts_for_staff: Callable[[str], Dict[str, List]],
     osm_stats_by_staff: Dict[str, Dict[str, Any]],
     swap_stats_by_staff: Dict[str, Dict[str, Any]],
     attendance_by_staff: Dict[str, Dict[str, Any]],
@@ -39,10 +39,15 @@ def run_restaurant_pipeline(
         staff_id = staff_row.get("staff_id") if isinstance(staff_row, dict) else None
 
         try:
+            # Get shifts for this staff member
+            shifts = get_shifts_for_staff(staff_id) if staff_id else {"today": [], "yesterday": [], "week": []}
+
             result = run_staff_pipeline(
                 staff_row=staff_row,
                 checkin=checkins_by_staff.get(staff_id),
-                schedule_row=schedules_by_staff.get(staff_id),
+                shifts_today=shifts["today"],
+                shifts_yesterday=shifts["yesterday"],
+                shifts_week=shifts["week"],
                 osm_stats=osm_stats_by_staff.get(staff_id),
                 swap_stats=swap_stats_by_staff.get(staff_id),
                 attendance_row=attendance_by_staff.get(staff_id),

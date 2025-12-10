@@ -1,6 +1,7 @@
 import logging
 from datetime import date, timedelta
 from typing import Dict, Any, List
+from collections import defaultdict
 
 from core.supabase_client import get_supabase
 from modules.sse.aggregation.restaurant_pipeline import run_restaurant_pipeline
@@ -19,7 +20,7 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
             supabase.table("staff")
             .select("*")
             .eq("restaurant_id", restaurant_id)
-            .eq("status", "active")
+            .eq("status", "Active")
             .execute()
         )
         staff_rows = staff_response.data or []
@@ -32,64 +33,79 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
                 "status": "skipped_no_staff",
             }
 
-        # Build staff_id → row mapping for stable hire lookup
         staff_ids = [row["staff_id"] for row in staff_rows]
 
-        # Fetch all optional per-staff daily data
+        # Date calculations
+        yesterday = target_date - timedelta(days=1)
+        week_start = target_date - timedelta(days=target_date.weekday())
+        week_end = week_start + timedelta(days=6)
+
+        # Fetch check-ins for target date
         checkins_resp = (
-            supabase.table("aime_daily_checkins")
+            supabase.table("sse_daily_checkins")
             .select("*")
             .eq("restaurant_id", restaurant_id)
             .eq("checkin_date", str(target_date))
             .in_("staff_id", staff_ids)
             .execute()
         )
-        schedules_resp = (
-            supabase.table("staff_schedules")
+
+        # Fetch shifts for the week (covers today, yesterday, and weekly totals)
+        shifts_resp = (
+            supabase.table("sse_shifts")
             .select("*")
             .eq("restaurant_id", restaurant_id)
-            .eq("schedule_date", str(target_date))
-            .in_("staff_id", staff_ids)
-            .execute()
-        )
-        osm_resp = (
-            supabase.table("osm_stats_daily")
-            .select("*")
-            .eq("restaurant_id", restaurant_id)
-            .eq("stats_date", str(target_date))
-            .in_("staff_id", staff_ids)
-            .execute()
-        )
-        swap_resp = (
-            supabase.table("swap_stats_daily")
-            .select("*")
-            .eq("restaurant_id", restaurant_id)
-            .eq("stats_date", str(target_date))
-            .in_("staff_id", staff_ids)
-            .execute()
-        )
-        attendance_resp = (
-            supabase.table("attendance_daily")
-            .select("*")
-            .eq("restaurant_id", restaurant_id)
-            .eq("attendance_date", str(target_date))
-            .in_("staff_id", staff_ids)
-            .execute()
-        )
-        stable_hire_resp = (
-            supabase.table("stable_hire_profiles")
-            .select("*")
+            .gte("shift_date", str(week_start))
+            .lte("shift_date", str(week_end))
             .in_("staff_id", staff_ids)
             .execute()
         )
 
-        # Index everything by staff_id
+        # Fetch stable hire profiles (candidates who were hired)
+        stable_hire_resp = (
+            supabase.table("hiring_candidates")
+            .select("*")
+            .eq("restaurant_id", restaurant_id)
+            .in_("hired_staff_id", staff_ids)
+            .execute()
+        )
+
+        # OSM, Swap, Attendance - not yet implemented, will return empty
+        osm_resp_data = []
+        swap_resp_data = []
+        attendance_resp_data = []
+
+        # Index check-ins by staff_id
         checkins_by_staff = {item["staff_id"]: item for item in (checkins_resp.data or [])}
-        schedules_by_staff = {item["staff_id"]: item for item in (schedules_resp.data or [])}
-        osm_stats_by_staff = {item["staff_id"]: item for item in (osm_resp.data or [])}
-        swap_stats_by_staff = {item["staff_id"]: item for item in (swap_resp.data or [])}
-        attendance_by_staff = {item["staff_id"]: item for item in (attendance_resp.data or [])}
-        stable_hire_by_staff = {item["staff_id"]: item for item in (stable_hire_resp.data or [])}
+
+        # Index shifts by staff_id and date
+        shifts_by_staff_date = defaultdict(lambda: defaultdict(list))
+        for shift in (shifts_resp.data or []):
+            sid = shift.get("staff_id")
+            sdate = shift.get("shift_date")
+            if sid and sdate:
+                shifts_by_staff_date[sid][sdate].append(shift)
+
+        # Build shifts_today, shifts_yesterday, shifts_week per staff
+        def get_shifts_for_staff(staff_id: str) -> Dict[str, List]:
+            staff_shifts = shifts_by_staff_date.get(staff_id, {})
+            return {
+                "today": staff_shifts.get(str(target_date), []),
+                "yesterday": staff_shifts.get(str(yesterday), []),
+                "week": [s for date_shifts in staff_shifts.values() for s in date_shifts],
+            }
+
+        # Index stable hire profiles by hired_staff_id
+        stable_hire_by_staff = {
+            item["hired_staff_id"]: item 
+            for item in (stable_hire_resp.data or []) 
+            if item.get("hired_staff_id")
+        }
+
+        # OSM, Swap, Attendance by staff (empty for now)
+        osm_stats_by_staff = {}
+        swap_stats_by_staff = {}
+        attendance_by_staff = {}
 
         # Run the full per-staff pipeline
         result = run_restaurant_pipeline(
@@ -97,7 +113,7 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
             target_date=target_date,
             staff_rows=staff_rows,
             checkins_by_staff=checkins_by_staff,
-            schedules_by_staff=schedules_by_staff,
+            get_shifts_for_staff=get_shifts_for_staff,
             osm_stats_by_staff=osm_stats_by_staff,
             swap_stats_by_staff=swap_stats_by_staff,
             attendance_by_staff=attendance_by_staff,

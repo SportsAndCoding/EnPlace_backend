@@ -2,55 +2,39 @@ from typing import Optional, Dict, Any
 
 
 def compute_mood(checkin: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return the raw mood rating (1–10) from the checkin, or None if no checkin."""
+    """Return the raw mood rating (1-5) from the checkin, or None if no checkin."""
     if checkin is None:
         return None
-    return checkin.get("mood_rating")
+    return checkin.get("mood_emoji")
 
 
-def compute_energy(checkin: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return the raw energy level (1–10) from the checkin, or None if no checkin."""
+def felt_safe_flag(checkin: Optional[Dict[str, Any]]) -> Optional[bool]:
+    """Return felt_safe boolean from checkin, or None if no checkin."""
     if checkin is None:
         return None
-    return checkin.get("energy_level")
+    return checkin.get("felt_safe")
 
 
-def compute_stress(checkin: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return the raw stress level (1–10) from the checkin, or None if no checkin."""
+def felt_fair_flag(checkin: Optional[Dict[str, Any]]) -> Optional[bool]:
+    """Return felt_fair boolean from checkin, or None if no checkin."""
     if checkin is None:
         return None
-    return checkin.get("stress_level")
+    return checkin.get("felt_fair")
 
 
-def compute_workload_satisfaction(checkin: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return the raw workload satisfaction (1–10) from the checkin, or None if no checkin."""
+def felt_respected_flag(checkin: Optional[Dict[str, Any]]) -> Optional[bool]:
+    """Return felt_respected boolean from checkin, or None if no checkin."""
     if checkin is None:
         return None
-    return checkin.get("workload_satisfaction")
+    return checkin.get("felt_respected")
 
 
-def felt_safe_flag(checkin: Optional[Dict[str, Any]]) -> None:
-    """Placeholder for future 'felt safe' flag. Currently always None."""
-    return None
-
-
-def felt_fair_flag(checkin: Optional[Dict[str, Any]]) -> None:
-    """Placeholder for future 'felt fair' flag. Currently always None."""
-    return None
-
-
-def felt_supported_flag(checkin: Optional[Dict[str, Any]]) -> None:
-    """Placeholder for future 'felt supported' flag. Currently always None."""
-    return None
-
-
-def compute_emotional_signals(staff_data: Dict[str, Any]) -> Dict[str, Optional[int]]:
+def compute_emotional_signals(staff_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compute all emotional signals for a single staff member on a single day.
 
-    This function extracts raw emotional metrics directly from the daily check-in
-    (if present) and returns them unchanged. All transformation and scoring happens
-    in later layers.
+    Extracts raw emotional metrics directly from the daily check-in (if present).
+    All transformation and scoring happens in later layers.
 
     Args:
         staff_data: Dictionary containing:
@@ -62,12 +46,12 @@ def compute_emotional_signals(staff_data: Dict[str, Any]) -> Dict[str, Optional[
     """
     checkin = staff_data.get("checkin")
 
+    has_checkin = checkin is not None
+
     return {
         "mood_score": compute_mood(checkin),
-        "energy_score": compute_energy(checkin),
-        "stress_score": compute_stress(checkin),
-        "workload_score": compute_workload_satisfaction(checkin),
-        "felt_safe_flag": felt_safe_flag(checkin),
-        "felt_fair_flag": felt_fair_flag(checkin),
-        "felt_supported_flag": felt_supported_flag(checkin),
+        "felt_safe": felt_safe_flag(checkin),
+        "felt_fair": felt_fair_flag(checkin),
+        "felt_respected": felt_respected_flag(checkin),
+        "checkin_submitted": has_checkin,
     }

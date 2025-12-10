@@ -1,95 +1,118 @@
-from typing import Optional, Dict, Any
+from datetime import datetime
+from typing import Optional, Dict, Any, List
 
 
-def extract_shift_type(schedule_row: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Return the raw shift_type string from schedule_row, or None if missing."""
-    if schedule_row is None:
+def compute_shift_hours(shift: Dict[str, Any]) -> float:
+    """Calculate hours for a single shift from start/end times."""
+    start = shift.get("scheduled_start")
+    end = shift.get("scheduled_end")
+    
+    if not start or not end:
+        return 0.0
+    
+    try:
+        if isinstance(start, str):
+            start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        if isinstance(end, str):
+            end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        
+        hours = (end - start).total_seconds() / 3600
+        return max(0, hours)
+    except:
+        return 0.0
+
+
+def extract_shift_type(shifts: Optional[List[Dict[str, Any]]]) -> Optional[str]:
+    """Return shift_type from today's shift, or None if no shifts."""
+    if not shifts:
         return None
-    return schedule_row.get("shift_type")
+    return shifts[0].get("shift_type")
 
 
-def extract_hours_scheduled_week(schedule_row: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return weekly scheduled hours as int, or None if missing or invalid."""
-    if schedule_row is None:
-        return None
-    value = schedule_row.get("hours_scheduled_week")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None
+def compute_hours_today(shifts: Optional[List[Dict[str, Any]]]) -> float:
+    """Sum hours from all shifts on this day."""
+    if not shifts:
+        return 0.0
+    return sum(compute_shift_hours(s) for s in shifts)
 
 
-def extract_hours_scheduled_month(schedule_row: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return monthly scheduled hours as int, or None if missing or invalid."""
-    if schedule_row is None:
-        return None
-    value = schedule_row.get("hours_scheduled_month")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None
-
-
-def extract_overtime_flag(schedule_row: Optional[Dict[str, Any]]) -> Optional[bool]:
-    """Return overtime flag as bool, or None if missing."""
-    if schedule_row is None:
-        return None
-    return schedule_row.get("overtime_flag") if isinstance(schedule_row.get("overtime_flag"), bool) else None
-
-
-def extract_clopen_flag(schedule_row: Optional[Dict[str, Any]]) -> Optional[bool]:
-    """Return clopen flag as bool, or None if missing."""
-    if schedule_row is None:
-        return None
-    return schedule_row.get("clopen_flag") if isinstance(schedule_row.get("clopen_flag"), bool) else None
-
-
-def extract_consecutive_days(schedule_row: Optional[Dict[str, Any]]) -> Optional[int]:
-    """Return number of consecutive working days as int, or None if missing or invalid."""
-    if schedule_row is None:
-        return None
-    value = schedule_row.get("consecutive_days")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None
+def detect_clopen(shifts_today: Optional[List[Dict[str, Any]]], shifts_yesterday: Optional[List[Dict[str, Any]]]) -> bool:
+    """
+    Detect close-open pattern: closed last night, opening this morning.
+    A clopen is when yesterday's shift ended after 10pm and today's starts before 10am.
+    """
+    if not shifts_today or not shifts_yesterday:
+        return False
+    
+    try:
+        yesterday_ends = []
+        for s in shifts_yesterday:
+            end = s.get("scheduled_end")
+            if end:
+                if isinstance(end, str):
+                    end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                yesterday_ends.append(end)
+        
+        today_starts = []
+        for s in shifts_today:
+            start = s.get("scheduled_start")
+            if start:
+                if isinstance(start, str):
+                    start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                today_starts.append(start)
+        
+        if not yesterday_ends or not today_starts:
+            return False
+        
+        last_end = max(yesterday_ends)
+        first_start = min(today_starts)
+        
+        hours_between = (first_start - last_end).total_seconds() / 3600
+        ended_late = last_end.hour >= 22
+        starts_early = first_start.hour < 10
+        
+        return ended_late and starts_early and hours_between < 10
+        
+    except:
+        return False
 
 
 def compute_schedule_signals(staff_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compute all schedule-related signals for a staff member on a given day.
 
-    This function is fully defensive: if the restaurant does not use Stable Schedule Builder
-    (SSB) or no schedule data exists for the day, all signals gracefully return None.
-
     Args:
-        staff_data: Dictionary containing optional "schedule_row" and other keys.
+        staff_data: Dictionary containing:
+            - "shifts_today": list of shift rows for target date
+            - "shifts_yesterday": list of shift rows for day before (for clopen detection)
+            - "shifts_week": list of shift rows for the week (for weekly hours)
 
     Returns:
         Dictionary of schedule signals with explicit presence flag.
     """
-    schedule_row = staff_data.get("schedule_row")
+    shifts_today = staff_data.get("shifts_today") or []
+    shifts_yesterday = staff_data.get("shifts_yesterday") or []
+    shifts_week = staff_data.get("shifts_week") or []
 
-    if schedule_row is None:
+    if not shifts_today and not shifts_week:
         return {
             "shift_type": None,
-            "hours_scheduled_week": None,
-            "hours_scheduled_month": None,
-            "overtime_flag": None,
-            "clopen_flag": None,
-            "consecutive_days": None,
+            "hours_today": 0.0,
+            "hours_week": 0.0,
+            "is_clopen": False,
+            "shifts_this_week": 0,
             "schedule_data_present": False,
         }
 
+    hours_today = compute_hours_today(shifts_today)
+    hours_week = sum(compute_shift_hours(s) for s in shifts_week)
+    is_clopen = detect_clopen(shifts_today, shifts_yesterday)
+
     return {
-        "shift_type": extract_shift_type(schedule_row),
-        "hours_scheduled_week": extract_hours_scheduled_week(schedule_row),
-        "hours_scheduled_month": extract_hours_scheduled_month(schedule_row),
-        "overtime_flag": extract_overtime_flag(schedule_row),
-        "clopen_flag": extract_clopen_flag(schedule_row),
-        "consecutive_days": extract_consecutive_days(schedule_row),
+        "shift_type": extract_shift_type(shifts_today),
+        "hours_today": round(hours_today, 2),
+        "hours_week": round(hours_week, 2),
+        "is_clopen": is_clopen,
+        "shifts_this_week": len(shifts_week),
         "schedule_data_present": True,
     }

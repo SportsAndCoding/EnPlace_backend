@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from modules.sse.builder import build_staff_day_input
 from modules.sse.aggregation.aggregator import aggregate_signals
@@ -14,7 +14,9 @@ def run_staff_pipeline(
     *,
     staff_row: Dict[str, Any],
     checkin: Optional[Dict[str, Any]],
-    schedule_row: Optional[Dict[str, Any]],
+    shifts_today: Optional[List[Dict[str, Any]]],
+    shifts_yesterday: Optional[List[Dict[str, Any]]],
+    shifts_week: Optional[List[Dict[str, Any]]],
     osm_stats: Optional[Dict[str, Any]],
     swap_stats: Optional[Dict[str, Any]],
     attendance_row: Optional[Dict[str, Any]],
@@ -38,7 +40,9 @@ def run_staff_pipeline(
         staff_input = build_staff_day_input(
             staff_row=staff_row,
             checkin=checkin,
-            schedule_row=schedule_row,
+            shifts_today=shifts_today,
+            shifts_yesterday=shifts_yesterday,
+            shifts_week=shifts_week,
             osm_stats=osm_stats,
             swap_stats=swap_stats,
             attendance_row=attendance_row,
