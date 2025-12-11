@@ -327,59 +327,17 @@ def compute_fairness(checkins_7d: list, checkins_28d: list, shifts_week: list, s
 
 def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, staff_list: list) -> dict:
     """
-    Compute burnout radar with two lanes:
-    1. Schedule-based: Individual names (manager made the schedule, can see names)
-    2. Pattern-based: Role groups only (emotional data, must be anonymized)
+    Compute burnout radar - EMOTIONAL PATTERNS ONLY.
+    
+    Shows role-level mood trends (anonymized).
+    Schedule-based burnout (hours, overtime) belongs in Stable Schedule Builder.
     """
     
     # ═══════════════════════════════════════════════════════════════
-    # LANE 1: SCHEDULE-BASED (can show individual names)
+    # ROLE-LEVEL EMOTIONAL PATTERNS (anonymized)
     # ═══════════════════════════════════════════════════════════════
     
-    schedule_based = []
-    
-    # Calculate hours per staff this week
-    staff_hours = {}
-    for shift in shifts_week:
-        sid = shift.get("staff_id")
-        if sid:
-            start = shift.get("scheduled_start")
-            end = shift.get("scheduled_end")
-            if start and end:
-                try:
-                    from datetime import datetime as dt
-                    start_dt = dt.fromisoformat(start.replace("Z", "+00:00"))
-                    end_dt = dt.fromisoformat(end.replace("Z", "+00:00"))
-                    hours = (end_dt - start_dt).total_seconds() / 3600
-                    staff_hours[sid] = staff_hours.get(sid, 0) + hours
-                except:
-                    pass
-    
-    # Find staff over their max hours
-    for staff in staff_list:
-        sid = staff.get("staff_id")
-        hours = staff_hours.get(sid, 0)
-        max_hours = staff.get("max_hours_per_week", 40)
-        
-        if hours > max_hours:
-            over_by = int(hours - max_hours)
-            schedule_based.append({
-                "staff_id": sid,
-                "name": staff.get("full_name", "Unknown"),
-                "position": staff.get("position", "Staff"),
-                "hours_this_week": int(hours),
-                "max_hours": max_hours,
-                "signal": f"{int(hours)} hours ({over_by} over max)"
-            })
-    
-    # Sort by hours over (most overworked first)
-    schedule_based.sort(key=lambda x: x["hours_this_week"] - x["max_hours"], reverse=True)
-    
-    # ═══════════════════════════════════════════════════════════════
-    # LANE 2: PATTERN-BASED (must anonymize by role)
-    # ═══════════════════════════════════════════════════════════════
-    
-    pattern_based = []
+    role_alerts = []
     
     # Get mood by role for this week
     role_moods_current = {}
@@ -387,7 +345,6 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
         sid = checkin.get("staff_id")
         mood = checkin.get("mood_emoji")
         if sid and mood:
-            # Find staff's position
             staff_match = next((s for s in staff_list if s.get("staff_id") == sid), None)
             if staff_match:
                 role = staff_match.get("position", "Unknown")
@@ -422,13 +379,13 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
         
         # Flag roles with declining mood (more than 10% drop)
         if pct_change < -10:
-            # Count how many staff in this role have low mood
-            low_mood_count = sum(1 for m in current_moods if m <= 2)
+            staff_count = len(set(c.get("staff_id") for c in checkins_7d 
+                                  if next((s for s in staff_list if s.get("staff_id") == c.get("staff_id") 
+                                          and s.get("position") == role), None)))
             
-            pattern_based.append({
+            role_alerts.append({
                 "role": role,
-                "count": len(current_moods),
-                "low_mood_count": low_mood_count,
+                "staff_count": staff_count,
                 "trend": "declining",
                 "vs_baseline": f"{int(pct_change)}%",
                 "current_avg": round(current_avg, 1),
@@ -436,41 +393,37 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
             })
     
     # Sort by severity (biggest decline first)
-    pattern_based.sort(key=lambda x: float(x["vs_baseline"].replace("%", "")))
+    role_alerts.sort(key=lambda x: float(x["vs_baseline"].replace("%", "")))
     
     # ═══════════════════════════════════════════════════════════════
-    # COMBINED METRICS
+    # METRICS
     # ═══════════════════════════════════════════════════════════════
     
-    schedule_count = len(schedule_based)
-    pattern_count = len(pattern_based)
-    total_elevated = schedule_count + pattern_count
+    elevated_count = len(role_alerts)
     
-    # Trend (compare to previous week)
+    # Trend (compare low mood count to previous week)
     delta = 0
     direction = "stable"
-    if checkins_28d:
+    if old_checkins:
         old_low = sum(1 for c in old_checkins if c.get("mood_emoji", 3) <= 2)
         new_low = sum(1 for c in checkins_7d if c.get("mood_emoji", 3) <= 2)
         delta = new_low - old_low
         direction = "up" if delta > 0 else "down" if delta < 0 else "stable"
     
-    # Status
-    if total_elevated == 0:
+    # Status based on how many roles are struggling
+    if elevated_count == 0:
         status = "healthy"
-    elif total_elevated <= 2:
+    elif elevated_count <= 2:
         status = "warning"
     else:
         status = "critical"
     
-    # Compute real network percentile
+    # Network comparison (emotional burnout vs synthetic network)
     organic_score = compute_organic_burnout_score(checkins_7d)
     network_rank = compute_network_burnout_percentile(organic_score)
     
     return {
-        "elevated_count": total_elevated,
-        "schedule_count": schedule_count,
-        "pattern_count": pattern_count,
+        "elevated_count": elevated_count,
         "status": status,
         "trend": {
             "direction": direction,
@@ -482,9 +435,10 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
             "interpretation": network_rank["interpretation"],
             "network_size": network_rank.get("network_size", 0)
         },
-        "schedule_based": schedule_based[:5],  # Top 5
-        "pattern_based": pattern_based[:5]     # Top 5
+        "role_alerts": role_alerts[:5]  # Top 5 struggling roles
     }
+
+
 
 def compute_stable_schedule(shifts_week: list, shifts_today: list) -> dict:
     """
