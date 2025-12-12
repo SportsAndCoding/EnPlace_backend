@@ -3,7 +3,14 @@ Dashboard Service - Aggregates all data for manager-home.html
 Single endpoint, single round-trip, all dashboard data.
 """
 
-from services.network_benchmark_service import compute_network_burnout_percentile, compute_organic_burnout_score
+from services.network_benchmark_service import (
+    compute_network_burnout_percentile, 
+    compute_organic_burnout_score,
+    compute_network_sma_percentile,
+    compute_organic_sma_score,
+    compute_network_fairness_percentile,
+    compute_organic_fairness_score,
+)
 from datetime import datetime, timedelta, date
 from typing import Optional
 from database.supabase_client import supabase
@@ -225,8 +232,8 @@ def compute_smm(checkins_7d: list, checkins_28d: list, manager_logs: list) -> di
     else:
         status = "critical"
     
-    # Network percentile (simulated based on score)
-    percentile = min(95, max(5, score - 5 + (score // 10)))
+    # Network percentile (real comparison to synthetic network)
+    network_rank = compute_network_sma_percentile(score)
     
     return {
         "score": score,
@@ -237,8 +244,9 @@ def compute_smm(checkins_7d: list, checkins_28d: list, manager_logs: list) -> di
             "period": "last 4 weeks"
         },
         "network": {
-            "percentile": percentile,
-            "interpretation": f"Better than {percentile}% of network" if percentile >= 50 else f"Below {100-percentile}% of network"
+            "percentile": network_rank["percentile"],
+            "interpretation": network_rank["interpretation"],
+            "network_size": network_rank.get("network_size", 0)
         }
     }
 
@@ -307,7 +315,9 @@ def compute_fairness(checkins_7d: list, checkins_28d: list, shifts_week: list, s
     else:
         status = "critical"
     
-    percentile = min(95, max(5, score - 10))
+    # Network percentile (real comparison to synthetic network)
+    organic_fairness = compute_organic_fairness_score(checkins_7d)
+    network_rank = compute_network_fairness_percentile(organic_fairness)
     
     return {
         "score": score,
@@ -318,8 +328,9 @@ def compute_fairness(checkins_7d: list, checkins_28d: list, shifts_week: list, s
             "period": "last month"
         },
         "network": {
-            "percentile": percentile,
-            "interpretation": f"Better than {percentile}% of network" if percentile >= 50 else f"Worse than {100-percentile}% of network"
+            "percentile": network_rank["percentile"],
+            "interpretation": network_rank["interpretation"],
+            "network_size": network_rank.get("network_size", 0)
         },
         "issues": issues[:3]  # Top 3 issues
     }
