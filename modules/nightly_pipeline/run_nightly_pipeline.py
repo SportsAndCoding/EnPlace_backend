@@ -91,11 +91,9 @@ def load_signatures(signatures_path: str = "quitter_signatures.json") -> Dict[st
 
 def get_active_restaurants(client) -> List[Dict[str, Any]]:
     """Get list of restaurants that need processing."""
-    # For now, just Demo Bistro (restaurant_id=1)
-    # Later: query all restaurants with active subscriptions
     result = client.table("restaurants") \
-        .select("id, name") \
-        .eq("id", 1) \
+        .select("id, name, status") \
+        .eq("status", "active") \
         .execute()
     
     return result.data
