@@ -1,0 +1,176 @@
+{
+  "first_week": {
+    "bucket_label": "First Week",
+    "primary_signal": "mood",
+    "signal_strength": 1.0,
+    "quitter": {
+      "avg_mood": 3.1185770750988144,
+      "safe_rate": 0.5665349143610013,
+      "fair_rate": 0.4927536231884058,
+      "respected_rate": 0.5243741765480896,
+      "mood_trend": 0.1206434316353886,
+      "n_staff": 1529,
+      "n_observations": 759
+    },
+    "stayer": {
+      "avg_mood": 4.07375,
+      "safe_rate": 0.92775,
+      "fair_rate": 0.836,
+      "respected_rate": 0.86375,
+      "mood_trend": 0.009500000000000064,
+      "n_staff": 500,
+      "n_observations": 4000
+    },
+    "gaps": {
+      "mood": 0.955172924901186,
+      "safe": 0.3612150856389986,
+      "fair": 0.34324637681159414,
+      "respected": 0.3393758234519104
+    }
+  },
+  "week_2": {
+    "bucket_label": "Week 2",
+    "primary_signal": "mood",
+    "signal_strength": 0.5170108346269031,
+    "quitter": {
+      "avg_mood": 3.4280540006585447,
+      "safe_rate": 0.8406322028317419,
+      "fair_rate": 0.6763253210405005,
+      "respected_rate": 0.7023378333882121,
+      "mood_trend": -0.010238889965992648,
+      "n_staff": 304,
+      "n_observations": 3037
+    },
+    "stayer": {
+      "avg_mood": 4.062571428571428,
+      "safe_rate": 0.914,
+      "fair_rate": 0.8314285714285714,
+      "respected_rate": 0.8457142857142858,
+      "mood_trend": 0.0033333333333329662,
+      "n_staff": 500,
+      "n_observations": 3500
+    },
+    "gaps": {
+      "mood": 0.6345174279128836,
+      "safe": 0.07336779716825814,
+      "fair": 0.15510325038807093,
+      "respected": 0.14337645232607366
+    }
+  },
+  "month_1": {
+    "bucket_label": "Month 1",
+    "primary_signal": "mood",
+    "signal_strength": 0.5791201814058959,
+    "quitter": {
+      "avg_mood": 3.4650587507730366,
+      "safe_rate": 0.839208410636982,
+      "fair_rate": 0.6598639455782312,
+      "respected_rate": 0.7062461348175634,
+      "mood_trend": -0.02092352092352101,
+      "n_staff": 516,
+      "n_observations": 3234
+    },
+    "stayer": {
+      "avg_mood": 4.0664,
+      "safe_rate": 0.9196,
+      "fair_rate": 0.8336,
+      "respected_rate": 0.854,
+      "mood_trend": 0.0010624679979525098,
+      "n_staff": 500,
+      "n_observations": 5000
+    },
+    "gaps": {
+      "mood": 0.6013412492269632,
+      "safe": 0.08039158936301793,
+      "fair": 0.17373605442176876,
+      "respected": 0.1477538651824366
+    }
+  },
+  "month_2": {
+    "bucket_label": "Month 2",
+    "primary_signal": "mood",
+    "signal_strength": 0.6369813036887317,
+    "quitter": {
+      "avg_mood": 3.346134411318848,
+      "safe_rate": 0.8216270843860536,
+      "fair_rate": 0.6291056088933805,
+      "respected_rate": 0.6755937342091966,
+      "mood_trend": 0.005365619053593118,
+      "n_staff": 402,
+      "n_observations": 1979
+    },
+    "stayer": {
+      "avg_mood": 3.907,
+      "safe_rate": 0.9022,
+      "fair_rate": 0.8202,
+      "respected_rate": 0.8368,
+      "mood_trend": -0.04706470647064709,
+      "n_staff": 500,
+      "n_observations": 5000
+    },
+    "gaps": {
+      "mood": 0.560865588681152,
+      "safe": 0.08057291561394642,
+      "fair": 0.19109439110661952,
+      "respected": 0.16120626579080344
+    }
+  },
+  "90_day_cliff": {
+    "bucket_label": "90-Day Cliff",
+    "primary_signal": "mood",
+    "signal_strength": 0.41580857095214274,
+    "quitter": {
+      "avg_mood": 3.5012506253126565,
+      "safe_rate": 0.8489244622311155,
+      "fair_rate": 0.7128564282141071,
+      "respected_rate": 0.7148574287143572,
+      "mood_trend": -0.01956343385116499,
+      "n_staff": 390,
+      "n_observations": 1999
+    },
+    "stayer": {
+      "avg_mood": 3.8954,
+      "safe_rate": 0.905,
+      "fair_rate": 0.8076,
+      "respected_rate": 0.8396,
+      "mood_trend": -0.003292329232923219,
+      "n_staff": 500,
+      "n_observations": 5000
+    },
+    "gaps": {
+      "mood": 0.39414937468734346,
+      "safe": 0.05607553776888452,
+      "fair": 0.09474357178589288,
+      "respected": 0.12474257128564281
+    }
+  },
+  "post_cliff": {
+    "bucket_label": "Post-Cliff",
+    "primary_signal": "mood",
+    "signal_strength": 0.4246990116801438,
+    "quitter": {
+      "avg_mood": 3.579514824797844,
+      "safe_rate": 0.8733153638814016,
+      "fair_rate": 0.6981132075471698,
+      "respected_rate": 0.7115902964959568,
+      "mood_trend": -0.0015723270440251014,
+      "n_staff": 271,
+      "n_observations": 742
+    },
+    "stayer": {
+      "avg_mood": 3.888,
+      "safe_rate": 0.9122,
+      "fair_rate": 0.812,
+      "respected_rate": 0.839,
+      "mood_trend": 0.013761376137614079,
+      "n_staff": 500,
+      "n_observations": 5000
+    },
+    "gaps": {
+      "mood": 0.308485175202156,
+      "safe": 0.03888463611859838,
+      "fair": 0.11388679245283029,
+      "respected": 0.12740970350404313
+    }
+  }
+}

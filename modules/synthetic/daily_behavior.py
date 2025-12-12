@@ -1,3 +1,17 @@
+"""
+modules/synthetic/daily_behavior.py
+
+Simulates all non-emotional daily behavioral events for a staff member.
+Returns attendance, swap behavior, OSM behavior, and drop requests.
+
+UPDATED: Works with organic-matching schema:
+- mood_emoji: 1-5 integer
+- felt_safe, felt_fair, felt_respected: booleans
+
+Removed stress/energy modifiers (not captured in organic check-ins).
+Behavior now driven by mood + boolean flags.
+"""
+
 import random
 import hashlib
 from typing import Dict, Any
@@ -9,7 +23,7 @@ def simulate_daily_behavior(
     *,
     staff_id: str,
     persona_key: str,
-    emotional_state: Dict[str, float],
+    emotional_state: Dict[str, Any],
     tenure_days: int,
     day_index: int,
     restaurant_profile: Dict[str, Any],
@@ -17,6 +31,11 @@ def simulate_daily_behavior(
     """
     Simulate all non-emotional daily behavioral events for a staff member.
     Returns attendance, swap behavior, OSM behavior, and drop requests.
+    
+    Parameters
+    ----------
+    emotional_state : dict
+        Must contain: mood_emoji (1-5), felt_safe (bool), felt_fair (bool), felt_respected (bool)
     """
     if persona_key not in PERSONA_DEFINITIONS:
         raise KeyError(f"Unknown persona_key '{persona_key}'. Available: {list_persona_keys()}")
@@ -35,13 +54,14 @@ def simulate_daily_behavior(
     att = persona["attendance_bias"]
     sched = persona["schedule_behavior"]
 
-    mood = emotional_state["mood"]
-    stress = emotional_state["stress"]
-    energy = emotional_state["energy"]
-    fairness = emotional_state["fairness"]
+    # New schema fields
+    mood = emotional_state["mood_emoji"]  # 1-5 scale
+    felt_safe = emotional_state["felt_safe"]
+    felt_fair = emotional_state["felt_fair"]
+    felt_respected = emotional_state["felt_respected"]
 
     # ------------------------------------------------------------------
-    # Restaurant profile validation (MUST use only existing keys)
+    # Restaurant profile validation
     # ------------------------------------------------------------------
     def _validate_profile(p: Dict[str, Any]) -> None:
         required_keys = [
@@ -68,29 +88,42 @@ def simulate_daily_behavior(
     swap_culture = restaurant_profile["swap_culture"]
 
     # ------------------------------------------------------------------
-    # 1. Attendance probabilities w/ emotional + restaurant modifiers
+    # 1. Attendance probabilities with emotional + restaurant modifiers
     # ------------------------------------------------------------------
     late_prob = att["late_prob"]
     callout_prob = att["callout_prob"]
     ncns_prob = att["ncns_prob"]
 
-    # Emotional modifiers (unchanged)
-    if stress > 7.0:
+    # Emotional modifiers (adapted for 1-5 mood scale + booleans)
+    
+    # Low mood (1-2 on 5-point scale) increases all negative behaviors
+    if mood <= 2:
         late_prob = min(late_prob * 1.4, 0.95)
-        callout_prob = min(callout_prob * 1.4, 0.95)
-    if energy < 4.0:
         callout_prob = min(callout_prob * 1.5, 0.95)
-    if fairness < 5.0:
         ncns_prob = min(ncns_prob * 1.3, 0.95)
-    if mood < 4.0:
+    elif mood <= 3:
         late_prob = min(late_prob * 1.2, 0.95)
         callout_prob = min(callout_prob * 1.2, 0.95)
+    
+    # Not feeling safe increases callouts (self-preservation)
+    if not felt_safe:
+        callout_prob = min(callout_prob * 1.4, 0.95)
         ncns_prob = min(ncns_prob * 1.2, 0.95)
+    
+    # Not feeling fairly treated increases NCNS (resentment)
+    if not felt_fair:
+        ncns_prob = min(ncns_prob * 1.5, 0.95)
+        late_prob = min(late_prob * 1.2, 0.95)
+    
+    # Not feeling respected increases all negative behaviors
+    if not felt_respected:
+        late_prob = min(late_prob * 1.3, 0.95)
+        callout_prob = min(callout_prob * 1.2, 0.95)
+        ncns_prob = min(ncns_prob * 1.4, 0.95)
 
-    # REQUIRED RESTAURANT MODIFIERS
+    # Restaurant modifiers
     late_prob = min(late_prob * (1.0 + vol), 0.95)
     callout_prob = min(callout_prob * burnout_mult, 0.95)
-    ncns_prob *= 1.0
     ncns_prob = min(0.95, max(0.0, ncns_prob))
 
     # Raw events
@@ -115,10 +148,13 @@ def simulate_daily_behavior(
     # Late minutes
     late_minutes = random.randint(3, 35) if late_arrival else None
 
-    # Early departure (emotional + restaurant modifier)
+    # Early departure (based on mood + safety)
     early_departure = None
     if not (call_out or no_call_no_show):
-        base_prob = (stress / 12.0)
+        # Base probability from mood (inverted: low mood = higher prob)
+        base_prob = (5 - mood) / 20.0  # mood=1 → 0.2, mood=5 → 0.0
+        if not felt_safe:
+            base_prob = min(0.95, base_prob * 1.5)
         base_prob = min(0.95, base_prob * (1.0 + guest_diff))
         early_departure = random.random() < base_prob
 
@@ -134,15 +170,15 @@ def simulate_daily_behavior(
     # ------------------------------------------------------------------
     swap_prob = sched["swap_request_prob"]
 
-    # Emotional modifiers (unchanged)
-    if fairness < 5.0:
+    # Emotional modifiers
+    if not felt_fair:
+        swap_prob = min(swap_prob * 1.3, 0.95)
+    if not felt_respected:
         swap_prob = min(swap_prob * 1.2, 0.95)
-    if stress > 7.0:
-        swap_prob = min(swap_prob * 1.2, 0.95)
-    if energy > 7.5:
-        swap_prob = max(0.0, swap_prob * 0.8)
+    if mood >= 4:
+        swap_prob = max(0.0, swap_prob * 0.8)  # Happy people swap less
 
-    # REQUIRED RESTAURANT MODIFIER
+    # Restaurant modifier
     swap_prob = min(0.95, max(0.0, swap_prob * swap_culture))
 
     swap_requested = 1 if random.random() < swap_prob else 0
@@ -158,12 +194,13 @@ def simulate_daily_behavior(
     # ------------------------------------------------------------------
     drop_prob = sched["drop_request_prob"]
 
-    if energy < 4.0:
-        drop_prob = min(drop_prob * 1.35, 0.95)
-    if stress > 7.0:
-        drop_prob = min(drop_prob * 1.2, 0.95)
+    # Emotional modifiers
+    if mood <= 2:
+        drop_prob = min(drop_prob * 1.4, 0.95)
+    if not felt_safe:
+        drop_prob = min(drop_prob * 1.3, 0.95)
 
-    # REQUIRED RESTAURANT MODIFIER
+    # Restaurant modifier
     drop_prob = min(0.95, drop_prob * (1.0 + vol))
 
     drop_requested = 1 if random.random() < drop_prob else 0
@@ -175,14 +212,15 @@ def simulate_daily_behavior(
 
     accept_prob = sched["osm_offer_accept_prob"]
 
-    if energy > 7.0:
-        accept_prob = min(1.0, accept_prob * 1.15)
-    if fairness < 5.0:
+    # Emotional modifiers
+    if mood >= 4:
+        accept_prob = min(1.0, accept_prob * 1.2)  # Happy = more willing
+    if not felt_fair:
+        accept_prob = max(0.0, accept_prob * 0.7)  # Unfair = less willing
+    if not felt_respected:
         accept_prob = max(0.0, accept_prob * 0.75)
-    if stress > 7.0:
-        accept_prob = max(0.0, accept_prob * 0.7)
 
-    # REQUIRED RESTAURANT MODIFIER
+    # Restaurant modifier
     accept_prob = min(1.0, max(0.0, accept_prob * (1.0 + tip_var)))
 
     osm_offers_accepted = sum(random.random() < accept_prob for _ in range(num_offers))

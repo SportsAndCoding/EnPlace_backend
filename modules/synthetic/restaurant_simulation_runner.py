@@ -4,7 +4,10 @@ modules/synthetic/restaurant_simulation_runner.py
 Restaurant-level orchestration for the En Place synthetic staffing simulation.
 Creates a deterministic cohort of staff, runs each through their full lifecycle,
 and returns three clean, flattened tables.
-All randomness is stable and reproducible across runs and machines.
+
+UPDATED: Output matches organic check-in schema:
+- mood_emoji: 1-5 integer
+- felt_safe, felt_fair, felt_respected: booleans
 """
 
 from __future__ import annotations
@@ -71,14 +74,16 @@ def simulate_restaurant(
     persona_weights : Dict[str, float]
         Weighted distribution of starting personas.
         Keys must exactly match keys in PERSONA_DEFINITIONS.
+    restaurant_profile : Dict[str, Any]
+        Restaurant configuration affecting behavior patterns.
 
     Returns
     -------
     dict
         Three tables:
-            "staff_master"     → one row per employee
-            "daily_emotions"   → one row per employee per simulated day
-            "daily_behavior"   → one row per employee per simulated day
+            "staff_master"     -> one row per employee
+            "daily_emotions"   -> one row per employee per simulated day
+            "daily_behavior"   -> one row per employee per simulated day
     """
     if number_of_staff < 1:
         raise ValueError("number_of_staff must be >= 1")
@@ -130,16 +135,19 @@ def simulate_restaurant(
         for day_record in lifecycle:
             base = {
                 "staff_id": staff_id,
+                "restaurant_id": restaurant_id,
                 "day_index": day_record["day_index"],
                 "tenure_days": day_record["tenure_days"],
             }
 
+            # Emotions now match organic schema exactly
+            emotions = day_record["emotions"]
             daily_emotions.append({
                 **base,
-                "mood": day_record["emotions"]["mood"],
-                "stress": day_record["emotions"]["stress"],
-                "energy": day_record["emotions"]["energy"],
-                "fairness": day_record["emotions"]["fairness"],
+                "mood_emoji": emotions["mood_emoji"],
+                "felt_safe": emotions["felt_safe"],
+                "felt_fair": emotions["felt_fair"],
+                "felt_respected": emotions["felt_respected"],
             })
 
             daily_behavior.append({
