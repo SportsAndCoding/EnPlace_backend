@@ -493,3 +493,128 @@ def compute_organic_fairness_score(checkins_7d: list) -> float:
     fair_count = sum(1 for c in checkins_7d if c.get("felt_fair"))
     
     return (fair_count / total) * 100 if total > 0 else 50.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHEDULE COVERAGE BENCHMARKING
+# Add this to the bottom of network_benchmark_service.py
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def compute_network_coverage_percentile(organic_coverage: float) -> Dict[str, Any]:
+    """
+    Compare an organic restaurant's schedule coverage against the synthetic network.
+    
+    Coverage = assigned shifts / total shifts * 100
+    Higher = better.
+    """
+    
+    network_scores = get_synthetic_coverage_scores()
+    
+    if not network_scores:
+        return {
+            "percentile": 50,
+            "interpretation": "Network data unavailable",
+            "network_size": 0
+        }
+    
+    # Higher is better, count how many are lower
+    worse_count = sum(1 for score in network_scores if score < organic_coverage)
+    
+    percentile = int((worse_count / len(network_scores)) * 100)
+    
+    if percentile >= 75:
+        interpretation = f"Better than {percentile}% of network"
+    elif percentile >= 50:
+        interpretation = f"Better than {percentile}% of network"
+    elif percentile >= 25:
+        interpretation = f"Below average - worse than {100-percentile}% of network"
+    else:
+        interpretation = f"Needs attention - worse than {100-percentile}% of network"
+    
+    return {
+        "percentile": percentile,
+        "interpretation": interpretation,
+        "network_size": len(network_scores),
+        "organic_score": round(organic_coverage, 2),
+        "network_avg": round(sum(network_scores) / len(network_scores), 2)
+    }
+
+
+def get_synthetic_coverage_scores() -> List[float]:
+    """
+    Compute coverage % for each synthetic restaurant (last 7 days).
+    """
+    
+    # Get max day_index for recent data
+    max_day_result = supabase.table("synthetic_shifts") \
+        .select("day_index") \
+        .order("day_index", desc=True) \
+        .limit(1) \
+        .execute()
+    
+    if not max_day_result.data:
+        return []
+    
+    max_day = max_day_result.data[0]["day_index"]
+    recent_start = max_day - 7
+    
+    # Paginate to get all records
+    all_records = []
+    offset = 0
+    batch_size = 1000
+    
+    while True:
+        result = supabase.table("synthetic_shifts") \
+            .select("restaurant_id, is_covered") \
+            .gte("day_index", recent_start) \
+            .range(offset, offset + batch_size - 1) \
+            .execute()
+        
+        if not result.data:
+            break
+            
+        all_records.extend(result.data)
+        
+        if len(result.data) < batch_size:
+            break
+            
+        offset += batch_size
+    
+    if not all_records:
+        return []
+    
+    # Aggregate by restaurant
+    restaurant_data = {}
+    for row in all_records:
+        rid = row["restaurant_id"]
+        if rid not in restaurant_data:
+            restaurant_data[rid] = {"covered": 0, "total": 0}
+        
+        restaurant_data[rid]["total"] += 1
+        if row.get("is_covered"):
+            restaurant_data[rid]["covered"] += 1
+    
+    # Compute coverage % per restaurant
+    scores = []
+    for rid, data in restaurant_data.items():
+        if data["total"] > 0:
+            coverage = (data["covered"] / data["total"]) * 100
+            scores.append(coverage)
+    
+    return scores
+
+
+def compute_organic_coverage_score(shifts_week: list) -> float:
+    """
+    Compute coverage % for an organic restaurant.
+    
+    Coverage = shifts with staff_id assigned / total shifts * 100
+    """
+    
+    if not shifts_week:
+        return 100.0  # No shifts = fully covered (nothing to fill)
+    
+    total = len(shifts_week)
+    covered = sum(1 for s in shifts_week if s.get("staff_id"))
+    
+    return (covered / total) * 100 if total > 0 else 100.0

@@ -10,6 +10,8 @@ from services.network_benchmark_service import (
     compute_organic_sma_score,
     compute_network_fairness_percentile,
     compute_organic_fairness_score,
+    compute_network_coverage_percentile,
+    compute_organic_coverage_score,
 )
 from datetime import datetime, timedelta, date
 from typing import Optional
@@ -490,7 +492,9 @@ def compute_stable_schedule(shifts_week: list, shifts_today: list) -> dict:
     else:
         status = "critical"
     
-    percentile = int(min(95, coverage_pct - 5))
+    # Network percentile (real comparison to synthetic network)
+    organic_coverage = compute_organic_coverage_score(shifts_week)
+    network_rank = compute_network_coverage_percentile(organic_coverage)
     
     return {
         "coverage_percent": round(coverage_pct, 1),
@@ -501,16 +505,16 @@ def compute_stable_schedule(shifts_week: list, shifts_today: list) -> dict:
             "total": len(open_shifts)
         },
         "trend": {
-            "direction": "up",
-            "delta": 2.1,
+            "direction": "stable",
+            "delta": 0,
             "period": "last 2 weeks"
         },
         "network": {
-            "percentile": percentile,
-            "interpretation": f"Better than {percentile}% of network"
+            "percentile": network_rank["percentile"],
+            "interpretation": network_rank["interpretation"],
+            "network_size": network_rank.get("network_size", 0)
         }
     }
-
 
 def compute_stable_hire(candidates: list) -> dict:
     """
