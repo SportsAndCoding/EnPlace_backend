@@ -239,16 +239,32 @@ def get_synthetic_sma_scores() -> List[float]:
     max_day = max_day_result.data[0]["day_index"]
     recent_start = max_day - 7
     
-    # Get staff emotions by restaurant and day
-    emotions_result = supabase.table("synthetic_daily_emotions") \
-        .select("restaurant_id, day_index, mood_emoji") \
-        .gte("day_index", recent_start) \
-        .execute()
+    # Get staff emotions with pagination (Supabase limit is 1000)
+    all_emotions = []
+    offset = 0
+    batch_size = 1000
     
-    if not emotions_result.data:
+    while True:
+        emotions_result = supabase.table("synthetic_daily_emotions") \
+            .select("restaurant_id, day_index, mood_emoji") \
+            .gte("day_index", recent_start) \
+            .range(offset, offset + batch_size - 1) \
+            .execute()
+        
+        if not emotions_result.data:
+            break
+            
+        all_emotions.extend(emotions_result.data)
+        
+        if len(emotions_result.data) < batch_size:
+            break
+            
+        offset += batch_size
+    
+    if not all_emotions:
         return []
     
-    # Get manager logs for same period
+    # Get manager logs (under 1000, no pagination needed)
     manager_result = supabase.table("synthetic_manager_logs") \
         .select("restaurant_id, day_index, overall_rating") \
         .gte("day_index", recent_start) \
@@ -259,7 +275,7 @@ def get_synthetic_sma_scores() -> List[float]:
     
     # Aggregate staff mood by restaurant+day
     staff_by_day = {}
-    for row in emotions_result.data:
+    for row in all_emotions:
         rid = row["restaurant_id"]
         day = row["day_index"]
         key = (rid, day)
@@ -309,7 +325,6 @@ def get_synthetic_sma_scores() -> List[float]:
             scores.append(sma_score)
     
     return scores
-
 
 def compute_organic_sma_score(checkins_7d: list, manager_logs_7d: list) -> float:
     """
