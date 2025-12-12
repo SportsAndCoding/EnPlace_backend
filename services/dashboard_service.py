@@ -233,7 +233,9 @@ def compute_smm(checkins_7d: list, checkins_28d: list, manager_logs: list) -> di
         status = "critical"
     
     # Network percentile (real comparison to synthetic network)
-    network_rank = compute_network_sma_percentile(score)
+    # Use pure alignment score, not blended score, to compare apples-to-apples
+    organic_sma = compute_organic_sma_score(checkins_7d, manager_logs)
+    network_rank = compute_network_sma_percentile(organic_sma)
     
     return {
         "score": score,
