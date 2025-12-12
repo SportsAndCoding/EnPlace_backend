@@ -435,17 +435,34 @@ def get_synthetic_fairness_scores() -> List[float]:
     max_day = max_day_result.data[0]["day_index"]
     recent_start = max_day - 7
     
-    result = supabase.table("synthetic_daily_emotions") \
-        .select("restaurant_id, felt_fair") \
-        .gte("day_index", recent_start) \
-        .execute()
+    # Paginate to get all records (Supabase limit is 1000)
+    all_records = []
+    offset = 0
+    batch_size = 1000
     
-    if not result.data:
+    while True:
+        result = supabase.table("synthetic_daily_emotions") \
+            .select("restaurant_id, felt_fair") \
+            .gte("day_index", recent_start) \
+            .range(offset, offset + batch_size - 1) \
+            .execute()
+        
+        if not result.data:
+            break
+            
+        all_records.extend(result.data)
+        
+        if len(result.data) < batch_size:
+            break
+            
+        offset += batch_size
+    
+    if not all_records:
         return []
     
     # Aggregate by restaurant
     restaurant_data = {}
-    for row in result.data:
+    for row in all_records:
         rid = row["restaurant_id"]
         if rid not in restaurant_data:
             restaurant_data[rid] = {"fair_count": 0, "total": 0}
@@ -462,7 +479,6 @@ def get_synthetic_fairness_scores() -> List[float]:
             scores.append(fairness)
     
     return scores
-
 
 def compute_organic_fairness_score(checkins_7d: list) -> float:
     """
