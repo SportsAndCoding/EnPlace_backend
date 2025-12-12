@@ -2,22 +2,24 @@ from services.network_benchmark_service import compute_organic_sma_score, comput
 from database.supabase_client import supabase
 from datetime import date, timedelta
 
-today = date.today()
-week_ago = today - timedelta(days=7)
+# Check what get_synthetic_sma_scores is actually querying
+max_day_result = supabase.table("synthetic_daily_emotions").select("day_index").order("day_index", desc=True).limit(1).execute()
+max_day = max_day_result.data[0]["day_index"]
+recent_start = max_day - 7
 
-# Get Demo Bistro data
-checkins = supabase.table('sse_daily_checkins').select('*').eq('restaurant_id', 1).gte('checkin_date', week_ago.isoformat()).lte('checkin_date', today.isoformat()).execute()
-logs = supabase.table('manager_daily_logs').select('*').eq('restaurant_id', 1).gte('log_date', week_ago.isoformat()).lte('log_date', today.isoformat()).execute()
+print(f"Max day: {max_day}, Recent start: {recent_start}")
 
-print(f'Checkins: {len(checkins.data)}')
-print(f'Manager logs: {len(logs.data)}')
+# How many emotion records in that range?
+emotions_count = supabase.table("synthetic_daily_emotions").select("id", count="exact").gte("day_index", recent_start).execute()
+print(f"Emotion records in range: {emotions_count.count}")
 
-organic_sma = compute_organic_sma_score(checkins.data, logs.data)
-print(f'Organic SMA: {organic_sma}')
+# How many manager logs in that range?
+manager_count = supabase.table("synthetic_manager_logs").select("id", count="exact").gte("day_index", recent_start).execute()
+print(f"Manager logs in range: {manager_count.count}")
 
-network_scores = get_synthetic_sma_scores()
-print(f'Network scores count: {len(network_scores)}')
-print(f'Network scores sample: {sorted(network_scores)[:10]}')
+# What does the actual query return?
+emotions_result = supabase.table("synthetic_daily_emotions").select("restaurant_id, day_index, mood_emoji").gte("day_index", recent_start).execute()
+print(f"Emotions returned: {len(emotions_result.data)}")
 
-result = compute_network_sma_percentile(organic_sma)
-print(f'Result: {result}')
+manager_result = supabase.table("synthetic_manager_logs").select("restaurant_id, day_index, overall_rating").gte("day_index", recent_start).execute()
+print(f"Manager logs returned: {len(manager_result.data)}")
