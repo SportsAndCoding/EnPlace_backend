@@ -24,6 +24,7 @@ import json
 import time
 from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
+from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_critical_gaps
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -336,6 +337,11 @@ def run_pipeline(run_date: Optional[date] = None):
         checkins_count = seed_demo_bistro(client, run_date)
         stats["checkins"] = checkins_count
         print(f"      Generated {checkins_count} check-ins")
+
+        # Step 1b: Seed Demo Bistro shifts with intentional gaps
+        print(f"\n[1b/5] Seeding Demo Bistro shifts...")
+        shift_stats = seed_demo_shifts(client, restaurant_id=1)
+        print(f"      Created {shift_stats['created']} shifts, {shift_stats['gaps_created']} intentional gaps")
         
         # Step 2: Load signatures
         print(f"\n[2/5] Loading quitter signatures...")

@@ -17,6 +17,8 @@ from .demo_bistro_seeder import (
     seed_today,
     DEMO_BISTRO_PATTERNS,
     StaffPattern,
+    seed_demo_shifts,
+    ensure_critical_gaps,
 )
 
 from .run_nightly_pipeline import run_pipeline
@@ -28,4 +30,6 @@ __all__ = [
     "seed_today",
     "DEMO_BISTRO_PATTERNS",
     "StaffPattern",
+    "seed_demo_shifts",
+    "ensure_critical_gaps",
 ]
