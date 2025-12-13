@@ -55,7 +55,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications)
+    action_board = compute_action_board(notifications, shifts_week)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
     
@@ -617,9 +617,10 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None) -> dict:
     """
     Transform notifications into action board items.
+    Also injects critical coverage gaps from open shifts.
     """
     type_mapping = {
         "swap_request": {"icon": "🔄", "action": "Approve", "secondary": "Deny", "boost": 1},
@@ -628,7 +629,6 @@ def compute_action_board(notifications: list) -> dict:
         "escalation": {"icon": "🚨", "action": "Review", "secondary": None, "boost": 2},
         "system": {"icon": "📋", "action": "View", "secondary": None, "boost": 1}
     }
-    
     priority_mapping = {
         "escalation": "critical",
         "coverage_gap": "critical",
@@ -638,6 +638,64 @@ def compute_action_board(notifications: list) -> dict:
     }
     
     items = []
+    
+    # Inject critical coverage gaps from open shifts (today/tomorrow)
+    if shifts_week:
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        
+        for shift in shifts_week:
+            # Only open shifts (no staff assigned)
+            if shift.get("staff_id"):
+                continue
+            
+            shift_date_str = shift.get("shift_date")
+            if not shift_date_str:
+                continue
+            
+            try:
+                shift_date = date.fromisoformat(str(shift_date_str)[:10])
+            except:
+                continue
+            
+            # Only critical = today or tomorrow
+            if shift_date > tomorrow:
+                continue
+            
+            # Format the shift for display
+            shift_type = shift.get("shift_type", "Shift")
+            day_name = shift_date.strftime("%A")
+            
+            # Get time from scheduled_start if available
+            start_time = ""
+            if shift.get("scheduled_start"):
+                try:
+                    start_str = str(shift.get("scheduled_start"))
+                    if "T" in start_str:
+                        hour = int(start_str.split("T")[1][:2])
+                        am_pm = "AM" if hour < 12 else "PM"
+                        display_hour = hour if hour <= 12 else hour - 12
+                        if display_hour == 0:
+                            display_hour = 12
+                        start_time = f" {display_hour}{am_pm}"
+                except:
+                    pass
+            
+            urgency = "TODAY" if shift_date == today else "TOMORROW"
+            
+            items.append({
+                "id": f"gap_{shift.get('id', 0)}",
+                "type": "coverage_gap",
+                "priority": "critical",
+                "title": f"{urgency}: {shift_type} shift uncovered",
+                "description": f"{day_name}{start_time} - needs immediate coverage",
+                "time_ago": "Open",
+                "action": "Find Coverage",
+                "secondary_action": None,
+                "smm_boost": 2
+            })
+    
+    # Add notification-based items
     for notif in notifications:
         notif_type = notif.get("type", "system")
         mapping = type_mapping.get(notif_type, type_mapping["system"])
@@ -666,7 +724,6 @@ def compute_action_board(notifications: list) -> dict:
         "total_items": len(items),
         "items": items[:10]  # Top 10
     }
-
 
 def compute_mood_heatmap(checkins_7d: list) -> dict:
     """
