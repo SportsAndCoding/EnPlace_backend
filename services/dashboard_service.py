@@ -522,6 +522,7 @@ def compute_stable_hire(candidates: list) -> dict:
     """
     open_candidates = [c for c in candidates if c.get("status") == "open"]
     interviewed = [c for c in candidates if c.get("status") == "interviewed"]
+    total_to_review = len(open_candidates) + len(interviewed)
     
     # Recommendations
     recommended = [c for c in candidates if c.get("recommendation") in ["strong_hire", "hire"]]
@@ -531,22 +532,31 @@ def compute_stable_hire(candidates: list) -> dict:
     scored = [c for c in candidates if c.get("stability_score")]
     avg_score = sum(c.get("stability_score", 0) for c in scored) / len(scored) if scored else 0
     
+    # Build interpretation based on actual data
+    if total_to_review == 0:
+        interpretation = "Add candidates to see predictions"
+    elif len(high_risk) > 0:
+        interpretation = f"{len(high_risk)} high-risk candidate{'s' if len(high_risk) > 1 else ''} flagged"
+    elif len(recommended) > 0:
+        interpretation = f"{len(recommended)} candidate{'s' if len(recommended) > 1 else ''} recommended to hire"
+    else:
+        interpretation = "Review candidates for predictions"
+    
     return {
-        "open_candidates": len(open_candidates) + len(interviewed),
+        "open_candidates": total_to_review,
         "recommended": len(recommended),
         "high_risk": len(high_risk),
         "avg_stability_score": int(avg_score),
         "trend": {
-            "direction": "up",
+            "direction": "up" if avg_score >= 65 else "stable",
             "delta": 5,
             "period": "last quarter"
         },
         "network": {
-            "percentile": 71,
-            "interpretation": "Better than 71% of network"
+            "percentile": None,
+            "interpretation": interpretation
         }
     }
-
 
 def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_schedule: dict, escalations: list) -> dict:
     """
