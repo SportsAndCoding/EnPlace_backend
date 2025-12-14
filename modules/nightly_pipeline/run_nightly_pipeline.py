@@ -25,6 +25,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
 from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_critical_gaps
+from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -342,6 +343,12 @@ def run_pipeline(run_date: Optional[date] = None):
         print(f"\n[1b/5] Seeding Demo Bistro shifts...")
         shift_stats = seed_demo_shifts(client, restaurant_id=1)
         print(f"      Created {shift_stats['created']} shifts, {shift_stats['gaps_created']} intentional gaps")
+        
+        # Step 1c: Reset Stable Hire demo data
+        print(f"\n[1c/5] Resetting Stable Hire demo data...")
+        hire_stats = reset_stable_hire_demo(client, restaurant_id=1)
+        print(f"      Deleted {hire_stats['deleted']} demo candidates")
+        print(f"      Reset {hire_stats['reset_to_open']} to open, {hire_stats['set_hired']} hired, {hire_stats['set_rejected']} rejected")
         
         # Step 2: Load signatures
         print(f"\n[2/5] Loading quitter signatures...")
