@@ -78,12 +78,15 @@ class EscalationMonitorService:
             .execute()
         return result.data or []
     
+    
+    
     async def _process_escalation(self, escalation: Dict) -> Dict[str, Any]:
         """
         Process a single escalation:
         1. Calculate current mood for affected staff/role
         2. Compare to baseline
         3. Decide: resolve, advance, or continue monitoring
+        4. Handle pending verification events
         """
         escalation_id = escalation["id"]
         restaurant_id = escalation["restaurant_id"]
@@ -139,6 +142,62 @@ class EscalationMonitorService:
             "reason": ""
         }
         
+        # ═══════════════════════════════════════════════════════════════
+        # CHECK FOR PENDING VERIFICATION (Manager requested close)
+        # ═══════════════════════════════════════════════════════════════
+        if escalation.get("resolution") == "pending_verification":
+            monitoring_end = escalation.get("monitoring_end_date")
+            if monitoring_end:
+                try:
+                    end_date = datetime.fromisoformat(monitoring_end.replace('Z', '+00:00'))
+                    if datetime.now(timezone.utc) >= end_date:
+                        # Monitoring period complete - evaluate
+                        if trend == "improving" or (trend == "stable" and delta >= 0):
+                            # Confirm resolution - mood improved or stable-positive
+                            await self._confirm_resolution(escalation_id, escalation["current_step"])
+                            action_result["action"] = "resolved"
+                            action_result["reason"] = "Verification complete: improvement confirmed"
+                        else:
+                            # Reopen - mood didn't improve
+                            await self._reopen_escalation(escalation_id, escalation["current_step"])
+                            action_result["action"] = "reopened"
+                            action_result["reason"] = "Verification failed: mood did not improve"
+                        return action_result
+                    else:
+                        # Still in verification period
+                        days_left = (end_date - datetime.now(timezone.utc)).days
+                        action_result["reason"] = f"Pending verification ({days_left} days remaining)"
+                        return action_result
+                except Exception as e:
+                    logger.error(f"Error parsing monitoring_end_date: {e}")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # CHECK FOR MONITORING PERIOD EXPIRY
+        # ═══════════════════════════════════════════════════════════════
+        if escalation["status"] == "monitoring" and escalation.get("monitoring_end_date"):
+            try:
+                end_date = datetime.fromisoformat(escalation["monitoring_end_date"].replace('Z', '+00:00'))
+                if datetime.now(timezone.utc) >= end_date:
+                    # Monitoring period ended - evaluate outcome
+                    if trend == "improving":
+                        await self._auto_resolve(escalation_id, escalation["current_step"])
+                        action_result["action"] = "resolved"
+                        action_result["reason"] = "Monitoring complete: situation improved"
+                    elif trend == "declining":
+                        await self._auto_advance(escalation_id, escalation["current_step"])
+                        action_result["action"] = "advanced"
+                        action_result["reason"] = "Monitoring complete: situation worsened, escalating"
+                    else:
+                        # Stable - extend monitoring or return to active
+                        action_result["reason"] = "Monitoring complete: stable, continuing observation"
+                    return action_result
+            except Exception as e:
+                logger.error(f"Error parsing monitoring_end_date: {e}")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # STANDARD PROCESSING (Not in verification/monitoring period)
+        # ═══════════════════════════════════════════════════════════════
+        
         # Check for improvement-based resolution
         if trend == "improving":
             days_improving = await self._count_improvement_days(
@@ -166,7 +225,6 @@ class EscalationMonitorService:
             action_result["reason"] = f"Stable (delta: {round(delta, 2)})"
         
         return action_result
-    
     async def _calculate_baseline_mood(
         self,
         restaurant_id: int,
@@ -371,3 +429,54 @@ class EscalationMonitorService:
         }).execute()
         
         logger.info(f"Auto-advanced escalation {escalation_id} to step {new_step}")
+    async def _confirm_resolution(self, escalation_id: str, current_step: int):
+        """Confirm a pending verification resolution - manager's close was validated"""
+        now = datetime.now(timezone.utc).isoformat()
+        
+        self.supabase.table("sse_escalation_events") \
+            .update({
+                "status": "resolved",
+                "resolution": "retained",
+                "resolved_at": now,
+                "monitoring_end_date": None,
+                "updated_at": now
+            }) \
+            .eq("id", escalation_id) \
+            .execute()
+        
+        self.supabase.table("sse_escalation_history").insert({
+            "escalation_id": escalation_id,
+            "step_number": current_step,
+            "action_taken": "Resolution verified: Mood improvement confirmed by system after 7-day monitoring period",
+            "actor_type": "system",
+            "actor_id": "SYSTEM",
+            "completed_at": now
+        }).execute()
+        
+        logger.info(f"Confirmed resolution for escalation {escalation_id}")
+
+    async def _reopen_escalation(self, escalation_id: str, current_step: int):
+        """Reopen an escalation that failed verification - manager's close was not validated"""
+        now = datetime.now(timezone.utc).isoformat()
+        
+        self.supabase.table("sse_escalation_events") \
+            .update({
+                "status": "active",
+                "resolution": None,
+                "monitoring_end_date": None,
+                "updated_at": now
+            }) \
+            .eq("id", escalation_id) \
+            .execute()
+        
+        self.supabase.table("sse_escalation_history").insert({
+            "escalation_id": escalation_id,
+            "step_number": current_step,
+            "action_taken": "Event reopened: Verification failed - mood data did not support resolution during 7-day monitoring period",
+            "actor_type": "system",
+            "actor_id": "SYSTEM",
+            "completed_at": now
+        }).execute()
+        
+        logger.info(f"Reopened escalation {escalation_id} - verification failed")
+
