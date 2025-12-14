@@ -9,6 +9,9 @@ from models.escalations import (
     EscalationResponse, 
     EscalationCreateResponse
 )
+import os
+from services.escalation_monitor_service import EscalationMonitorService
+
 
 router = APIRouter(prefix="/api/escalations", tags=["escalations"])
 
@@ -305,3 +308,33 @@ async def advance_escalation_step(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to advance escalation: {str(e)}"
         )
+    
+
+
+@router.post("/monitoring/run")
+async def run_monitoring_job(
+    api_key: str = Query(None, description="API key for scheduled job authentication")
+):
+    """
+    Run the nightly escalation monitoring job.
+    Can be triggered by:
+    - Heroku Scheduler
+    - Manual API call
+    - Cron job
+    """
+    # Simple API key check (in production, use proper auth)
+    expected_key = os.environ.get("MONITORING_JOB_KEY", "enplace-monitor-2025")
+    if api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    try:
+        monitor = EscalationMonitorService()
+        results = await monitor.run_nightly_monitoring()
+        return {
+            "success": True,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Monitoring job failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
