@@ -22,6 +22,7 @@ class CandidateUpdate(BaseModel):
     gm_notes: Optional[str] = None
     interviewed_at: Optional[datetime] = None
     decision_at: Optional[datetime] = None
+    hired_at: Optional[datetime] = None
 
 class ScenarioRankings(BaseModel):
     """Request model for scoring a candidate"""
