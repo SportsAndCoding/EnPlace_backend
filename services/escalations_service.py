@@ -27,6 +27,7 @@ class EscalationsService:
                 "primary_staff_id": escalation_data.get("primary_staff_id"),
                 "affected_role": escalation_data.get("affected_role"),
                 "trigger_reason": escalation_data["trigger_reason"],
+                "source_type": escalation_data.get("source_type", "mood"),
                 "triggered_at": datetime.utcnow().isoformat(),
                 "next_action_deadline": escalation_data.get("next_action_deadline"),
                 "created_by": created_by,

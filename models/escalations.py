@@ -11,6 +11,7 @@ class EscalationCreate(BaseModel):
     primary_staff_id: Optional[str] = None
     affected_role: Optional[str] = None
     trigger_reason: str
+    source_type: str = "mood"  # 'mood' (anonymize) or 'schedule' (can name)
     next_action_deadline: Optional[datetime] = None
 
 class EscalationUpdate(BaseModel):
@@ -40,6 +41,7 @@ class EscalationResponse(BaseModel):
     primary_staff_id: Optional[str]
     affected_role: Optional[str]
     trigger_reason: str
+    source_type: Optional[str] = None  # 'mood' or 'schedule'
     triggered_at: datetime
     next_action_deadline: Optional[datetime]
     resolved_at: Optional[datetime]
