@@ -10,6 +10,9 @@ from models.escalations import (
     EscalationCreateResponse
 )
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 from services.escalation_monitor_service import EscalationMonitorService
 
 
