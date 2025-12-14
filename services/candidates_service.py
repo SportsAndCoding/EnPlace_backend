@@ -95,23 +95,6 @@ class CandidatesService:
             raise e
     
     async def update_candidate(
-        self, 
-        candidate_id: str, 
-        restaurant_id: int,
-        update_data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Update a candidate"""
-        try:
-            # Filter out None values
-            payload = {k: v for k, v in update_data.items() if v is not None}
-            
-            # Convert datetime objects
-            for key in ['interviewed_at', 'decision_at', 'hired_at']:
-                if key in payload and hasattr(payload[key], 'isoformat'):
-                    payload[key] = payload[key].isoformat()
-            
-            # Always update timestamp
-            payload["updated_at"] = datetime.utcnow().isoformat()
             
             if not payload:
                 return await self.get_candidate_by_id(candidate_id, restaurant_id)
