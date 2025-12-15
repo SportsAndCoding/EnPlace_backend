@@ -132,7 +132,7 @@ class EscalationMonitorService:
         
         # Decision logic
         action_result = {
-            "escalation_id": escalation_id,
+            "event_id": escalation_id,
             "affected_role": affected_role,
             "baseline_mood": baseline,
             "current_mood": current_mood,
@@ -392,7 +392,7 @@ class EscalationMonitorService:
         
         # Add history entry
         self.supabase.table("sse_escalation_history").insert({
-            "escalation_id": escalation_id,
+            "event_id": escalation_id,
             "step_number": current_step,
             "action_taken": "Auto-resolved: Mood improved consistently for 7+ days",
             "actor_type": "system",
@@ -420,7 +420,7 @@ class EscalationMonitorService:
         
         # Add history entry
         self.supabase.table("sse_escalation_history").insert({
-            "escalation_id": escalation_id,
+            "event_id": escalation_id,
             "step_number": new_step,
             "action_taken": f"Auto-advanced: Mood declining despite intervention at step {current_step}",
             "actor_type": "system",
@@ -445,7 +445,7 @@ class EscalationMonitorService:
             .execute()
         
         self.supabase.table("sse_escalation_history").insert({
-            "escalation_id": escalation_id,
+            "event_id": escalation_id,
             "step_number": current_step,
             "action_taken": "Resolution verified: Mood improvement confirmed by system after 7-day monitoring period",
             "actor_type": "system",
@@ -470,7 +470,7 @@ class EscalationMonitorService:
             .execute()
         
         self.supabase.table("sse_escalation_history").insert({
-            "escalation_id": escalation_id,
+            "event_id": escalation_id,
             "step_number": current_step,
             "action_taken": "Event reopened: Verification failed - mood data did not support resolution during 7-day monitoring period",
             "actor_type": "system",

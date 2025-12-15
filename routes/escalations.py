@@ -342,3 +342,24 @@ async def run_monitoring_job(
     except Exception as e:
         logger.error(f"Monitoring job failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/{escalation_id}/history")
+async def get_escalation_history(escalation_id: str):
+    """Get all history entries for an escalation"""
+    try:
+        supabase = get_supabase()
+        
+        result = supabase.table("sse_escalation_history") \
+            .select("*") \
+            .eq("escalation_id", escalation_id) \
+            .order("completed_at", desc=False) \
+            .execute()
+        
+        return {
+            "success": True,
+            "event_id": escalation_id,
+            "history": result.data or []
+        }
+    except Exception as e:
+        logger.error(f"Get escalation history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
