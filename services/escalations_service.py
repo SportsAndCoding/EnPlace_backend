@@ -22,7 +22,7 @@ class EscalationsService:
                 "event_type": escalation_data["event_type"],
                 "severity": escalation_data.get("severity", "moderate"),
                 "severity_score": escalation_data.get("severity_score"),
-                "status": "active",
+                "status": "actionable",
                 "current_step": 1,
                 "primary_staff_id": escalation_data.get("primary_staff_id"),
                 "affected_role": escalation_data.get("affected_role"),
@@ -119,8 +119,8 @@ class EscalationsService:
             
             if status:
                 if status == "active_all":
-                    # Get both active and escalated
-                    query = query.in_("status", ["active", "escalated"])
+                    # Get all actionable
+                    query = query.eq("status", "actionable")
                 else:
                     query = query.eq("status", status)
             
@@ -226,7 +226,7 @@ class EscalationsService:
             
             # Update status if reaching escalation threshold
             new_status = event["status"]
-            if new_step >= 5 and new_status == "active":
+            if new_step >= 5 and new_status == "actionable":
                 new_status = "escalated"
             
             # Update the event
@@ -259,7 +259,7 @@ class EscalationsService:
             result = self.supabase.table("sse_escalation_events") \
                 .select("id", count="exact") \
                 .eq("restaurant_id", restaurant_id) \
-                .in_("status", ["active", "escalated"]) \
+                .eq("status", "actionable") \
                 .execute()
             
             return result.count or 0

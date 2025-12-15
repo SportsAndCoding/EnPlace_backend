@@ -406,7 +406,7 @@ class EscalationMonitorService:
         """Auto-advance escalation due to decline"""
         now = datetime.now(timezone.utc).isoformat()
         new_step = min(current_step + 1, 7)
-        new_status = "escalated" if new_step >= 5 else "active"
+        new_status = "actionable"
         
         # Update step
         self.supabase.table("sse_escalation_events") \
@@ -461,7 +461,7 @@ class EscalationMonitorService:
         
         self.supabase.table("sse_escalation_events") \
             .update({
-                "status": "active",
+                "status": "actionable",
                 "resolution": None,
                 "monitoring_end_date": None,
                 "updated_at": now
