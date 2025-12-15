@@ -363,3 +363,86 @@ async def get_escalation_history(escalation_id: str):
     except Exception as e:
         logger.error(f"Get escalation history error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/{escalation_id}/resolve")
+async def resolve_escalation(
+    escalation_id: str,
+    resolution: str = Query(..., description="Resolution type"),
+    notes: str = Query(None, description="Optional notes about the resolution"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Resolve/close an escalation event.
+    Managers only.
+    """
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can resolve escalations"
+        )
+
+    try:
+        supabase = get_supabase()
+        
+        valid_resolutions = ['retained', 'resigned', 'terminated', 'resolved', 'staff_preference', 'not_applicable', 'other']
+        if resolution not in valid_resolutions:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid resolution. Must be one of: {valid_resolutions}"
+            )
+        
+        existing = supabase.table("sse_escalation_events") \
+            .select("*") \
+            .eq("id", escalation_id) \
+            .single() \
+            .execute()
+        
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Escalation not found")
+        
+        escalation = existing.data
+        
+        if escalation["status"] == "resolved":
+            raise HTTPException(status_code=400, detail="Escalation is already resolved")
+        
+        now = datetime.now(timezone.utc).isoformat()
+        
+        supabase.table("sse_escalation_events") \
+            .update({
+                "status": "resolved",
+                "resolution": resolution,
+                "resolved_at": now,
+                "updated_at": now
+            }) \
+            .eq("id", escalation_id) \
+            .execute()
+        
+        history_note = f"Event resolved as '{resolution}'"
+        if notes:
+            history_note += f": {notes}"
+        
+        supabase.table("sse_escalation_history").insert({
+            "event_id": escalation_id,
+            "step_number": escalation["current_step"],
+            "action_taken": history_note,
+            "actor_staff_id": current_user['staff_id'],
+            "completed_at": now
+        }).execute()
+        
+        updated = supabase.table("sse_escalation_events") \
+            .select("*, primary_staff:primary_staff_id(full_name, position)") \
+            .eq("id", escalation_id) \
+            .single() \
+            .execute()
+        
+        return {
+            "success": True,
+            "message": f"Escalation resolved as '{resolution}'",
+            "escalation": updated.data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Resolve escalation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
