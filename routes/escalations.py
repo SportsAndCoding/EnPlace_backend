@@ -14,6 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 from services.escalation_monitor_service import EscalationMonitorService
 from datetime import datetime, timezone
+from database.supabase_client import get_supabase
 
 
 router = APIRouter(prefix="/api/escalations", tags=["escalations"])
