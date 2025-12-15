@@ -446,3 +446,24 @@ async def resolve_escalation(
     except Exception as e:
         logger.error(f"Resolve escalation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/{escalation_id}/mood-history")
+async def get_mood_history(escalation_id: str):
+    """Get mood snapshots for trend chart"""
+    try:
+        supabase = get_supabase()
+        
+        result = supabase.table("sse_escalation_mood_snapshots") \
+            .select("snapshot_date, mood_value") \
+            .eq("escalation_id", escalation_id) \
+            .order("snapshot_date", desc=False) \
+            .execute()
+        
+        return {
+            "success": True,
+            "escalation_id": escalation_id,
+            "snapshots": result.data or []
+        }
+    except Exception as e:
+        logger.error(f"Get mood history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

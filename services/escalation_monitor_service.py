@@ -129,6 +129,9 @@ class EscalationMonitorService:
             current_mood=current_mood,
             mood_trend=trend
         )
+
+        # Save daily snapshot for trend chart
+        await self._save_mood_snapshot(escalation_id, current_mood)
         
         # Decision logic
         action_result = {
@@ -480,3 +483,21 @@ class EscalationMonitorService:
         
         logger.info(f"Reopened escalation {escalation_id} - verification failed")
 
+    async def _save_mood_snapshot(self, escalation_id: str, mood_value: float):
+        """Save daily mood snapshot for trend visualization"""
+        try:
+            today = datetime.now(timezone.utc).date().isoformat()
+            
+            # Upsert - update if exists, insert if not
+            self.supabase.table("sse_escalation_mood_snapshots").upsert({
+                "escalation_id": escalation_id,
+                "snapshot_date": today,
+                "mood_value": round(mood_value, 2),
+                "sample_size": 1  # Could be enhanced to track actual sample size
+            }, on_conflict="escalation_id,snapshot_date").execute()
+            
+            logger.debug(f"Saved mood snapshot for {escalation_id}: {mood_value}")
+            
+        except Exception as e:
+            logger.error(f"Save mood snapshot error: {e}")
+            # Don't fail the whole process for snapshot errors
