@@ -351,7 +351,7 @@ async def get_escalation_history(escalation_id: str):
         
         result = supabase.table("sse_escalation_history") \
             .select("*") \
-            .eq("escalation_id", escalation_id) \
+            .eq("event_id", escalation_id) \
             .order("completed_at", desc=False) \
             .execute()
         
