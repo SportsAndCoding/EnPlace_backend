@@ -55,7 +55,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week)
+    action_board = compute_action_board(notifications, shifts_week, escalations)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
     
@@ -627,7 +627,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -648,7 +648,48 @@ def compute_action_board(notifications: list, shifts_week: list = None) -> dict:
     }
     
     items = []
-    
+
+    # ═══════════════════════════════════════════════════════════════════
+    # INJECT ACTIONABLE ESCALATIONS
+    # ═══════════════════════════════════════════════════════════════════
+    if escalations:
+        for esc in escalations:
+            # Only show active escalations
+            if esc.get("status") not in ["active", "monitoring"]:
+                continue
+
+            event_type = esc.get("event_type", "issue")
+            affected_count = esc.get("affected_staff_count", 1)
+            current_step = esc.get("current_step", 1)
+            
+            # Format title based on event type
+            event_labels = {
+                "burnout": "Burnout Risk",
+                "fairness": "Fairness Issue", 
+                "retention": "Retention Risk",
+                "alignment": "Alignment Gap",
+                "mood_drop": "Mood Alert"
+            }
+            event_label = event_labels.get(event_type, event_type.replace("_", " ").title())
+            
+            # Description based on affected count (anonymized)
+            if affected_count > 1:
+                desc = f"{affected_count} staff affected - Step {current_step}"
+            else:
+                desc = f"Staff member needs attention - Step {current_step}"
+
+            items.append({
+                "id": esc.get("id"),
+                "type": "escalation",
+                "priority": "critical",
+                "title": event_label,
+                "description": desc,
+                "time_ago": _time_ago(esc.get("created_at")) if esc.get("created_at") else "Active",
+                "action": "Review",
+                "secondary_action": None,
+                "smm_boost": 2
+            })
+
     # Inject critical coverage gaps from open shifts (today/tomorrow)
     if shifts_week:
         today = date.today()
