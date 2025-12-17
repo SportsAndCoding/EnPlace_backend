@@ -153,6 +153,13 @@ def get_notifications(restaurant_id: int) -> list:
     result = supabase.table("notifications").select("*").eq("restaurant_id", restaurant_id).eq("is_read", False).order("created_at", desc=True).limit(10).execute()
     return result.data or []
 
+def get_house_guardian_alerts(restaurant_id: int) -> list:
+    """Get active House Guardian alerts."""
+    try:
+        result = supabase.table("house_guardian_alerts").select("*").eq("restaurant_id", restaurant_id).eq("status", "active").execute()
+        return result.data or []
+    except Exception as e:
+        return []
 
 # ═══════════════════════════════════════════════════════════════════
 # COMPUTATION FUNCTIONS
