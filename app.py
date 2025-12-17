@@ -136,6 +136,8 @@ from routes.notifications import router as notifications_router
 app.include_router(notifications_router)
 from routes.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
+from routes.house_guardian import router as house_guardian_router
+app.include_router(house_guardian_router)
 
 
 @app.get("/")

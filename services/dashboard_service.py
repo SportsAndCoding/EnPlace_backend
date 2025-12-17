@@ -47,6 +47,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     candidates = get_candidates(restaurant_id)
     escalations = get_escalations(restaurant_id)
     notifications = get_notifications(restaurant_id)
+    house_guardian_alerts = get_house_guardian_alerts(restaurant_id)
     
     # Compute each section
     smm = compute_smm(checkins_7d, checkins_28d, manager_logs)
@@ -55,7 +56,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
     
@@ -627,7 +628,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -685,6 +686,41 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "title": event_label,
                 "description": desc,
                 "time_ago": _time_ago(esc.get("created_at")) if esc.get("created_at") else "Active",
+                "action": "Review",
+                "secondary_action": None,
+                "smm_boost": 2
+            })
+
+    # ═══════════════════════════════════════════════════════════════════
+    # INJECT HOUSE GUARDIAN ALERTS
+    # ═══════════════════════════════════════════════════════════════════
+    if hg_alerts:
+        for alert in hg_alerts:
+            if alert.get("status") != "active":
+                continue
+            
+            category_labels = {
+                "harassment": "Harassment Signal",
+                "theft": "Theft Signal",
+                "drugs": "Substance Concern",
+                "threats": "Safety Threat",
+                "bullying": "Hostile Behavior"
+            }
+            
+            category = alert.get("category", "concern")
+            label = category_labels.get(category, category.title() + " Signal")
+            strength = alert.get("signal_strength", "MEDIUM")
+            source_count = alert.get("source_count", 1)
+            location = alert.get("location_context", "General")
+            
+            items.append({
+                "id": alert.get("id"),
+                "type": "house_guardian",
+                "priority": "critical" if strength == "HIGH" else "high",
+                "title": label,
+                "description": f"{location} • {source_count} source{'s' if source_count != 1 else ''}",
+                "signal_strength": strength,
+                "time_ago": _time_ago(alert.get("created_at")) if alert.get("created_at") else "Recent",
                 "action": "Review",
                 "secondary_action": None,
                 "smm_boost": 2
