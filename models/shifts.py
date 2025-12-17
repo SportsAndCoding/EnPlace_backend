@@ -22,6 +22,7 @@ class ShiftUpdate(BaseModel):
     shift_type: Optional[str] = None
     day_type: Optional[str] = None
     is_published: Optional[bool] = None
+    status: Optional[str] = None
 
 class ShiftResponse(BaseModel):
     """Response model for a shift"""
