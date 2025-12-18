@@ -44,17 +44,18 @@ class ShiftsService:
         shift_id: int, 
         restaurant_id: int
     ) -> Optional[Dict[str, Any]]:
-        """Get a specific shift by ID"""
+        """Get a specific shift by ID - NO EMBED"""
         try:
             result = self.supabase.table("sse_shifts") \
-                .select("*, staff:staff_id(full_name, position)") \
+                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
                 .eq("id", shift_id) \
                 .eq("restaurant_id", restaurant_id) \
                 .execute()
             
-            if result.data and len(result.data) > 0:
-                return result.data[0]
-            return None
+            if not result.data or len(result.data) == 0:
+                return None
+            
+            return result.data[0]
             
         except Exception as e:
             logger.error(f"Get shift error: {e}")
@@ -68,10 +69,10 @@ class ShiftsService:
         staff_id: Optional[str] = None,
         is_published: Optional[bool] = None
     ) -> List[Dict[str, Any]]:
-        """Get shifts for a restaurant within a date range"""
+        """Get shifts for a restaurant - NO EMBED"""
         try:
             query = self.supabase.table("sse_shifts") \
-                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id, staff:staff_id(full_name, position)") \
+                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
                 .eq("restaurant_id", restaurant_id) \
                 .gte("shift_date", start_date.isoformat()) \
                 .lte("shift_date", end_date.isoformat())
@@ -83,7 +84,6 @@ class ShiftsService:
                 query = query.eq("is_published", is_published)
             
             result = query.order("shift_date").order("scheduled_start").execute()
-            
             return result.data or []
             
         except Exception as e:
@@ -98,10 +98,8 @@ class ShiftsService:
     ) -> Optional[Dict[str, Any]]:
         """Update an existing shift"""
         try:
-            # Filter out None values
             payload = {k: v for k, v in update_data.items() if v is not None}
             
-            # Convert date/datetime objects to ISO strings
             if "shift_date" in payload and hasattr(payload["shift_date"], 'isoformat'):
                 payload["shift_date"] = payload["shift_date"].isoformat()
             if "scheduled_start" in payload and hasattr(payload["scheduled_start"], 'isoformat'):
@@ -151,7 +149,7 @@ class ShiftsService:
         start_date: date,
         end_date: date
     ) -> List[Dict[str, Any]]:
-        """Get unassigned (open) shifts"""
+        """Get unassigned (open) shifts - NO EMBED"""
         try:
             result = self.supabase.table("sse_shifts") \
                 .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \

@@ -189,3 +189,23 @@ async def get_staff_metrics(current_user: dict = Depends(verify_jwt_token)):
     except Exception as e:
         print(f"Error in get_staff_metrics endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/names")
+async def get_staff_names(
+    staff_ids: str,
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """Bulk fetch staff names by IDs"""
+    from database.supabase_client import get_supabase
+    
+    ids = [s.strip() for s in staff_ids.split(",") if s.strip()]
+    if not ids:
+        return {}
+    
+    supabase = get_supabase()
+    result = supabase.table("staff") \
+        .select("staff_id, full_name, position") \
+        .in_("staff_id", ids) \
+        .execute()
+    
+    return {row["staff_id"]: {"full_name": row["full_name"], "position": row["position"]} for row in result.data}
