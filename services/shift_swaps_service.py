@@ -131,8 +131,10 @@ class ShiftSwapsService:
         try:
             # Get the swap
             swap = await self.get_swap_by_id(swap_id, restaurant_id)
-            if not swap or swap['status'] != 'pending':
+            if not swap:
                 return None
+            if swap['status'] != 'pending':
+                raise ValueError(f"Swap already {swap['status']}")
             
             # Update swap status
             result = self.supabase.table("shift_swaps") \
