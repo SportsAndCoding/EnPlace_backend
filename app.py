@@ -140,6 +140,8 @@ from routes.house_guardian import router as house_guardian_router
 app.include_router(house_guardian_router)
 from routes.shift_swaps import router as shift_swaps_router
 app.include_router(shift_swaps_router)
+from routes.schedule import router as schedule_router
+app.include_router(schedule_router)
 
 
 @app.get("/")
