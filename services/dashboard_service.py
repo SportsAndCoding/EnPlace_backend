@@ -77,7 +77,8 @@ def get_dashboard_data(restaurant_id: int) -> dict:
             "stable_schedule_builder": {"owned": True},
             "stable_hire": {"owned": True},
             "house_guardian": {"owned": True},
-            "open_shift_creator": {"owned": True}
+            "open_shift_creator": {"owned": True},
+            "shift_swap": {"owned": True}
         },
         "timestamp": {
             "generated_at": datetime.utcnow().isoformat() + "Z",
