@@ -40,7 +40,8 @@ class ShiftResponse(BaseModel):
     status: Optional[str] = None          
     position: Optional[str] = None        
     reason: Optional[str] = None          
-    original_staff_id: Optional[str] = None  
+    original_staff_id: Optional[str] = None
+    volunteer_count: Optional[int] = 0
 
 class ShiftCreateResponse(BaseModel):
     """Response after creating a shift"""
