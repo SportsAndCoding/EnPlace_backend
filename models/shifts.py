@@ -37,6 +37,10 @@ class ShiftResponse(BaseModel):
     is_published: bool
     created_by: Optional[str]
     created_at: datetime
+    status: Optional[str] = None          
+    position: Optional[str] = None        
+    reason: Optional[str] = None          
+    original_staff_id: Optional[str] = None  
 
 class ShiftCreateResponse(BaseModel):
     """Response after creating a shift"""
