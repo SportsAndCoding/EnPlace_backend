@@ -48,6 +48,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     escalations = get_escalations(restaurant_id)
     notifications = get_notifications(restaurant_id)
     house_guardian_alerts = get_house_guardian_alerts(restaurant_id)
+    pending_swaps = get_pending_swaps(restaurant_id)
     
     # Compute each section
     smm = compute_smm(checkins_7d, checkins_28d, manager_logs)
@@ -56,7 +57,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
     
@@ -159,6 +160,19 @@ def get_house_guardian_alerts(restaurant_id: int) -> list:
         result = supabase.table("house_guardian_alerts").select("*").eq("restaurant_id", restaurant_id).eq("status", "active").execute()
         return result.data or []
     except Exception as e:
+        return []
+    
+def get_pending_swaps(restaurant_id: int) -> list:
+    """Get pending shift swap requests."""
+    try:
+        result = supabase.table("shift_swaps") \
+            .select("*, sse_shifts(shift_date, scheduled_start, position, shift_type)") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("status", "pending") \
+            .execute()
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Error fetching swaps: {e}")
         return []
 
 # ═══════════════════════════════════════════════════════════════════
@@ -635,7 +649,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -731,6 +745,38 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "action": "Review",
                 "secondary_action": None,
                 "smm_boost": 2
+            })
+
+    # ═══════════════════════════════════════════════════════════════════
+    # INJECT SHIFT SWAP REQUESTS
+    # ═══════════════════════════════════════════════════════════════════
+    if swaps:
+        for swap in swaps:
+            shift = swap.get("sse_shifts") or {}
+            shift_date = shift.get("shift_date", "")
+            position = shift.get("position") or shift.get("shift_type") or "Shift"
+            
+            # Format date
+            if shift_date:
+                from datetime import datetime as dt
+                try:
+                    d = dt.fromisoformat(shift_date)
+                    date_str = d.strftime("%a %b %d")
+                except:
+                    date_str = shift_date
+            else:
+                date_str = "Upcoming"
+            
+            items.append({
+                "id": swap.get("id"),
+                "type": "swap_request",
+                "priority": "high",
+                "title": f"Swap Request: {position}",
+                "description": f"{date_str} - {swap.get('reason', 'No reason given')}",
+                "time_ago": _time_ago(swap.get("created_at")) if swap.get("created_at") else "Recently",
+                "action": "Approve",
+                "secondary_action": "Deny",
+                "smm_boost": 1
             })
 
     # Inject critical coverage gaps from open shifts (today/tomorrow)
