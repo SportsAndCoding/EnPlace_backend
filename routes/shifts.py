@@ -277,3 +277,32 @@ async def delete_shift(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete shift: {str(e)}"
         )
+    
+@router.get("/{shift_id}/volunteers")
+async def get_shift_volunteers(
+    shift_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get volunteers for a specific shift.
+    Returns staff info + hours this week + response time.
+    """
+    service = ShiftsService()
+    
+    try:
+        volunteers = await service.get_shift_volunteers(
+            shift_id=shift_id,
+            restaurant_id=current_user['restaurant_id']
+        )
+        
+        return {
+            "success": True,
+            "volunteers": volunteers,
+            "count": len(volunteers)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch volunteers: {str(e)}"
+        )

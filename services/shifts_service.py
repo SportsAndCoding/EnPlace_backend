@@ -84,7 +84,30 @@ class ShiftsService:
                 query = query.eq("is_published", is_published)
             
             result = query.order("shift_date").order("scheduled_start").execute()
-            return result.data or []
+            shifts = result.data or []
+            
+            # Add volunteer counts via sse_open_shifts junction
+            for shift in shifts:
+                vol_count = 0
+                # Find corresponding open_shift record
+                open_shift = self.supabase.table("sse_open_shifts") \
+                    .select("id") \
+                    .eq("original_shift_id", shift['id']) \
+                    .limit(1) \
+                    .execute()
+                
+                if open_shift.data:
+                    # Count pending volunteers
+                    count_result = self.supabase.table("sse_shift_offers") \
+                        .select("id", count="exact") \
+                        .eq("open_shift_id", open_shift.data[0]['id']) \
+                        .eq("offer_status", "pending") \
+                        .execute()
+                    vol_count = count_result.count if count_result.count else 0
+                
+                shift['volunteer_count'] = vol_count
+            
+            return shifts
             
         except Exception as e:
             logger.error(f"Get shifts error: {e}")
@@ -166,3 +189,151 @@ class ShiftsService:
         except Exception as e:
             logger.error(f"Get open shifts error: {e}")
             raise e
+    
+    async def get_shift_volunteers(self, shift_id: int, restaurant_id: int) -> List[Dict[str, Any]]:
+    """Get volunteers for a shift with staff details"""
+    try:
+        # First verify shift belongs to restaurant
+        shift_check = self.supabase.table("sse_shifts") \
+            .select("id") \
+            .eq("id", shift_id) \
+            .eq("restaurant_id", restaurant_id) \
+            .single() \
+            .execute()
+        
+        if not shift_check.data:
+            return []
+        
+        # Get the open_shift record
+        open_shift = self.supabase.table("sse_open_shifts") \
+            .select("id") \
+            .eq("original_shift_id", shift_id) \
+            .limit(1) \
+            .execute()
+        
+        if not open_shift.data:
+            return []
+        
+        open_shift_id = open_shift.data[0]['id']
+        
+        # Get volunteers
+        result = self.supabase.table("sse_shift_offers") \
+            .select("id, staff_id, offer_status, created_at, responded_at") \
+            .eq("open_shift_id", open_shift_id) \
+            .eq("offer_status", "pending") \
+            .order("created_at", desc=False) \
+            .execute()
+        
+        if not result.data:
+            return []
+        
+        # Get staff details
+        staff_ids = [v['staff_id'] for v in result.data]
+        staff_result = self.supabase.table("staff") \
+            .select("staff_id, full_name, position") \
+            .in_("staff_id", staff_ids) \
+            .execute()
+        
+        staff_map = {s['staff_id']: s for s in staff_result.data}
+        
+        # Build response
+        volunteers = []
+        for v in result.data:
+            staff = staff_map.get(v['staff_id'], {})
+            
+            # Calculate time ago
+            responded = v.get('responded_at')
+            time_ago = "just now"
+            if responded:
+                from datetime import datetime, timezone
+                responded_dt = datetime.fromisoformat(responded.replace('Z', '+00:00'))
+                delta = datetime.now(timezone.utc) - responded_dt
+                minutes = int(delta.total_seconds() / 60)
+                if minutes < 60:
+                    time_ago = f"{minutes}m ago"
+                else:
+                    hours = minutes // 60
+                    time_ago = f"{hours}h ago"
+            
+            volunteers.append({
+                "id": v['id'],
+                "staff_id": v['staff_id'],
+                "name": staff.get('full_name', 'Unknown'),
+                "position": staff.get('position', ''),
+                "hours_this_week": 0,
+                "time_ago": time_ago,
+                "offer_status": v['offer_status']
+            })
+        
+        return volunteers
+        
+    except Exception as e:
+        print(f"Error getting shift volunteers: {e}")
+        return []
+        """Get volunteers for a shift with staff details"""
+        try:
+            # First verify shift belongs to restaurant
+            shift_check = self.supabase.table("sse_shifts") \
+                .select("id") \
+                .eq("id", shift_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .single() \
+                .execute()
+            
+            if not shift_check.data:
+                return []
+            
+            # Get volunteers
+            result = self.supabase.table("sse_shift_offers") \
+                .select("id, staff_id, offer_status, created_at, responded_at") \
+                .eq("open_shift_id", shift_id) \
+                .eq("offer_status", "pending") \
+                .order("created_at", desc=False) \
+                .execute()
+            
+            if not result.data:
+                return []
+            
+            # Get staff details
+            staff_ids = [v['staff_id'] for v in result.data]
+            staff_result = self.supabase.table("staff") \
+                .select("staff_id, full_name, position") \
+                .in_("staff_id", staff_ids) \
+                .execute()
+            
+            staff_map = {s['staff_id']: s for s in staff_result.data}
+            
+            # Build response
+            volunteers = []
+            for v in result.data:
+                staff = staff_map.get(v['staff_id'], {})
+                
+                # Calculate time ago
+                responded = v.get('responded_at')
+                time_ago = "just now"
+                if responded:
+                    from datetime import datetime, timezone
+                    responded_dt = datetime.fromisoformat(responded.replace('Z', '+00:00'))
+                    delta = datetime.now(timezone.utc) - responded_dt
+                    minutes = int(delta.total_seconds() / 60)
+                    if minutes < 60:
+                        time_ago = f"{minutes}m ago"
+                    else:
+                        hours = minutes // 60
+                        time_ago = f"{hours}h ago"
+                
+                volunteers.append({
+                    "id": v['id'],
+                    "staff_id": v['staff_id'],
+                    "name": staff.get('full_name', 'Unknown'),
+                    "position": staff.get('position', ''),
+                    "hours_this_week": 0,  # TODO: Calculate from sse_shifts
+                    "time_ago": time_ago,
+                    "offer_status": v['offer_status']
+                })
+            
+            return volunteers
+            
+        except Exception as e:
+            print(f"Error getting shift volunteers: {e}")
+            return []
