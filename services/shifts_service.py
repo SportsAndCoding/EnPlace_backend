@@ -71,7 +71,7 @@ class ShiftsService:
         """Get shifts for a restaurant within a date range"""
         try:
             query = self.supabase.table("sse_shifts") \
-                .select("*, staff:staff_id(full_name, position)") \
+                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, staff:staff_id(full_name, position)") \
                 .eq("restaurant_id", restaurant_id) \
                 .gte("shift_date", start_date.isoformat()) \
                 .lte("shift_date", end_date.isoformat())
