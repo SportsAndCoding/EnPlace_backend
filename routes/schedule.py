@@ -1,21 +1,23 @@
 """
 SCHEDULE ROUTES
 ===============
-Endpoints for schedule parsing and analysis.
+Endpoints for schedule upload queue and analysis retrieval.
 
-POST /api/schedule/analyze - Parse and analyze a draft schedule
-GET /api/schedule/profiles - Get staff work profiles for a restaurant
+POST /api/schedule/upload - Queue a schedule for overnight analysis
+GET /api/schedule/status/{upload_id} - Check status of an upload
+GET /api/schedule/history - Get past schedule analyses
+GET /api/schedule/profiles - Get staff work profiles
 PUT /api/schedule/profiles/{staff_id} - Update a staff work profile
 """
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 
+from supabase import create_client, Client
+from config.settings import SUPABASE_URL, SUPABASE_KEY
 from services.auth_service import verify_jwt_token
-from services.schedule_parser_service import parse_schedule
-from services.schedule_analysis_service import analyze_schedule
 
 import logging
 
@@ -23,29 +25,32 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
 
+# Initialize Supabase
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # REQUEST/RESPONSE MODELS
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AnalyzeScheduleRequest(BaseModel):
+class UploadScheduleRequest(BaseModel):
     raw_schedule: str
     week_of: str  # YYYY-MM-DD
     manager_notes: Optional[str] = ""
 
-class AnalyzeScheduleResponse(BaseModel):
+class UploadScheduleResponse(BaseModel):
     success: bool
-    parse_result: Optional[Dict[str, Any]] = None
-    analysis: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    upload_id: Optional[int] = None
+    message: str
+    week_of: Optional[str] = None
 
 class WorkProfileUpdate(BaseModel):
     hired_shift: Optional[str] = None
     hired_days: Optional[List[str]] = None
     hired_hours_target: Optional[int] = None
     unavailable_days: Optional[List[str]] = None
-    unavailable_before: Optional[str] = None  # HH:MM
-    unavailable_after: Optional[str] = None   # HH:MM
+    unavailable_before: Optional[str] = None
+    unavailable_after: Optional[str] = None
     availability_reason: Optional[str] = None
     preferred_shift: Optional[str] = None
     preferred_days: Optional[List[str]] = None
@@ -54,23 +59,20 @@ class WorkProfileUpdate(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ENDPOINTS
+# UPLOAD ENDPOINT (QUEUE FOR OVERNIGHT PROCESSING)
 # ═══════════════════════════════════════════════════════════════════════════
 
-@router.post("/analyze", response_model=AnalyzeScheduleResponse)
-async def analyze_schedule_endpoint(
-    request: AnalyzeScheduleRequest,
+@router.post("/upload", response_model=UploadScheduleResponse)
+async def upload_schedule(
+    request: UploadScheduleRequest,
     current_staff: Dict[str, Any] = Depends(verify_jwt_token)
 ):
     """
-    Parse raw schedule data and return full analysis.
-    
-    Flow:
-    1. GPT-4o-mini parses messy schedule → normalized shifts
-    2. Analysis engine scores fairness, fatigue, preferences
-    3. Returns complete analysis matching frontend SCHEDULE_DATA structure
+    Queue a schedule for overnight analysis.
+    Returns immediately - results available next morning.
     """
     restaurant_id = current_staff.get("restaurant_id")
+    staff_id = current_staff.get("staff_id")
     
     if not restaurant_id:
         raise HTTPException(status_code=400, detail="No restaurant associated with user")
@@ -79,76 +81,205 @@ async def analyze_schedule_endpoint(
         raise HTTPException(status_code=400, detail="Schedule data is too short or empty")
     
     try:
-        # Step 1: Parse the raw schedule
-        logger.info(f"Parsing schedule for restaurant {restaurant_id}, week of {request.week_of}")
+        # Check if upload already exists for this week
+        existing = supabase.table("schedule_uploads") \
+            .select("id, status") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("week_of", request.week_of) \
+            .execute()
         
-        parse_result = await parse_schedule(
-            raw_schedule=request.raw_schedule,
-            restaurant_id=restaurant_id,
+        if existing.data:
+            existing_upload = existing.data[0]
+            if existing_upload["status"] == "completed":
+                # Allow re-upload by updating existing record
+                result = supabase.table("schedule_uploads") \
+                    .update({
+                        "raw_schedule": request.raw_schedule,
+                        "manager_notes": request.manager_notes,
+                        "uploaded_by": staff_id,
+                        "status": "pending",
+                        "analysis_result": None,
+                        "stability_score": None,
+                        "issues_found": 0,
+                        "critical_issues": 0,
+                        "error_message": None,
+                        "processed_at": None,
+                        "created_at": datetime.utcnow().isoformat()
+                    }) \
+                    .eq("id", existing_upload["id"]) \
+                    .execute()
+                
+                return UploadScheduleResponse(
+                    success=True,
+                    upload_id=existing_upload["id"],
+                    message="Schedule re-uploaded. Previous analysis will be replaced overnight.",
+                    week_of=request.week_of
+                )
+            else:
+                return UploadScheduleResponse(
+                    success=True,
+                    upload_id=existing_upload["id"],
+                    message="Schedule already queued for this week. Analysis in progress.",
+                    week_of=request.week_of
+                )
+        
+        # Insert new upload
+        result = supabase.table("schedule_uploads") \
+            .insert({
+                "restaurant_id": restaurant_id,
+                "uploaded_by": staff_id,
+                "week_of": request.week_of,
+                "raw_schedule": request.raw_schedule,
+                "manager_notes": request.manager_notes,
+                "status": "pending"
+            }) \
+            .execute()
+        
+        upload_id = result.data[0]["id"] if result.data else None
+        
+        logger.info(f"Schedule queued: restaurant={restaurant_id}, week={request.week_of}, upload_id={upload_id}")
+        
+        return UploadScheduleResponse(
+            success=True,
+            upload_id=upload_id,
+            message="Schedule uploaded! Analysis will be available tomorrow morning.",
             week_of=request.week_of
         )
         
-        if not parse_result.get("success"):
-            return AnalyzeScheduleResponse(
-                success=False,
-                parse_result=parse_result,
-                error=parse_result.get("error", "Failed to parse schedule")
-            )
+    except Exception as e:
+        logger.error(f"Schedule upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STATUS & HISTORY ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get("/status/{upload_id}")
+async def get_upload_status(
+    upload_id: int,
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """Get status of a specific schedule upload."""
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    try:
+        result = supabase.table("schedule_uploads") \
+            .select("*") \
+            .eq("id", upload_id) \
+            .eq("restaurant_id", restaurant_id) \
+            .execute()
         
-        shifts = parse_result.get("shifts", [])
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Upload not found")
         
-        if not shifts:
-            return AnalyzeScheduleResponse(
-                success=False,
-                parse_result=parse_result,
-                error="No shifts could be extracted from the schedule"
-            )
+        upload = result.data[0]
         
-        logger.info(f"Parsed {len(shifts)} shifts, {len(parse_result.get('unmapped', []))} unmapped names")
-        
-        # Step 2: Run full analysis
-        analysis_result = await analyze_schedule(
-            shifts=shifts,
-            restaurant_id=restaurant_id,
-            week_of=request.week_of,
-            manager_notes=request.manager_notes or ""
-        )
-        
-        logger.info(f"Analysis complete. Stability score: {analysis_result['analysis']['scores']['stabilityScore']}")
-        
-        return AnalyzeScheduleResponse(
-            success=True,
-            parse_result={
-                "shifts_parsed": len(shifts),
-                "unmapped_names": parse_result.get("unmapped", []),
-                "warnings": parse_result.get("warnings", []),
-                "tokens_used": parse_result.get("tokens_used", 0),
-                "estimated_cost": parse_result.get("estimated_cost", 0)
+        return {
+            "success": True,
+            "upload": {
+                "id": upload["id"],
+                "week_of": upload["week_of"],
+                "status": upload["status"],
+                "stability_score": upload.get("stability_score"),
+                "issues_found": upload.get("issues_found", 0),
+                "critical_issues": upload.get("critical_issues", 0),
+                "created_at": upload["created_at"],
+                "processed_at": upload.get("processed_at"),
+                "error_message": upload.get("error_message")
             },
-            analysis=analysis_result
-        )
+            "analysis": upload.get("analysis_result") if upload["status"] == "completed" else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch upload status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch status")
+
+
+@router.get("/history")
+async def get_schedule_history(
+    limit: int = 10,
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """Get past schedule analyses for the restaurant."""
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    try:
+        result = supabase.table("schedule_uploads") \
+            .select("id, week_of, status, stability_score, issues_found, critical_issues, created_at, processed_at") \
+            .eq("restaurant_id", restaurant_id) \
+            .order("week_of", desc=True) \
+            .limit(limit) \
+            .execute()
+        
+        return {
+            "success": True,
+            "uploads": result.data or []
+        }
         
     except Exception as e:
-        logger.error(f"Schedule analysis failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        logger.error(f"Failed to fetch schedule history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch history")
 
+
+@router.get("/latest")
+async def get_latest_analysis(
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """Get the most recent completed schedule analysis."""
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    try:
+        result = supabase.table("schedule_uploads") \
+            .select("*") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("status", "completed") \
+            .order("week_of", desc=True) \
+            .limit(1) \
+            .execute()
+        
+        if not result.data:
+            return {
+                "success": True,
+                "has_analysis": False,
+                "message": "No completed analyses yet"
+            }
+        
+        upload = result.data[0]
+        
+        return {
+            "success": True,
+            "has_analysis": True,
+            "upload": {
+                "id": upload["id"],
+                "week_of": upload["week_of"],
+                "stability_score": upload.get("stability_score"),
+                "issues_found": upload.get("issues_found", 0),
+                "critical_issues": upload.get("critical_issues", 0),
+                "processed_at": upload.get("processed_at")
+            },
+            "analysis": upload.get("analysis_result")
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch latest analysis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch analysis")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WORK PROFILES
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/profiles")
 async def get_work_profiles(
     current_staff: Dict[str, Any] = Depends(verify_jwt_token)
 ):
-    """
-    Get all staff work profiles for the restaurant.
-    Used to display/edit availability and preferences.
-    """
-    from supabase import create_client
-    from config.settings import SUPABASE_URL, SUPABASE_KEY
-    
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    """Get all staff work profiles for the restaurant."""
     restaurant_id = current_staff.get("restaurant_id")
     
     try:
-        # Get profiles with staff names
         result = supabase.table("staff_work_profile") \
             .select("*, staff(full_name, position)") \
             .eq("restaurant_id", restaurant_id) \
@@ -179,32 +310,21 @@ async def update_work_profile(
     update: WorkProfileUpdate,
     current_staff: Dict[str, Any] = Depends(verify_jwt_token)
 ):
-    """
-    Update a staff member's work profile.
-    Manager can edit availability, preferences, etc.
-    """
-    from supabase import create_client
-    from config.settings import SUPABASE_URL, SUPABASE_KEY
-    
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    """Update a staff member's work profile."""
     restaurant_id = current_staff.get("restaurant_id")
     
-    # Build update dict (only non-None fields)
     update_data = {k: v for k, v in update.dict().items() if v is not None}
     
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
     
-    # Add timestamp
     update_data["updated_at"] = datetime.utcnow().isoformat()
     
-    # If updating preferences, set preference_updated_at
     pref_fields = ["preferred_shift", "preferred_days", "preferred_max_hours", "preference_notes"]
     if any(f in update_data for f in pref_fields):
         update_data["preference_updated_at"] = datetime.utcnow().isoformat()
     
     try:
-        # Check if profile exists
         existing = supabase.table("staff_work_profile") \
             .select("id") \
             .eq("staff_id", staff_id) \
@@ -212,14 +332,12 @@ async def update_work_profile(
             .execute()
         
         if existing.data:
-            # Update existing
             result = supabase.table("staff_work_profile") \
                 .update(update_data) \
                 .eq("staff_id", staff_id) \
                 .eq("restaurant_id", restaurant_id) \
                 .execute()
         else:
-            # Create new profile
             update_data["staff_id"] = staff_id
             update_data["restaurant_id"] = restaurant_id
             result = supabase.table("staff_work_profile") \
@@ -234,103 +352,3 @@ async def update_work_profile(
     except Exception as e:
         logger.error(f"Failed to update work profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to update profile")
-
-
-@router.post("/publish")
-async def publish_schedule(
-    request: Dict[str, Any],
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
-):
-    """
-    Publish analyzed schedule to sse_shifts and create SSE events.
-    
-    Request body:
-    - shifts: List of shifts to publish
-    - sse_events: List of auto-generated events to create
-    - override_reason: If publishing with unresolved issues
-    - override_notes: Manager notes for override
-    """
-    from supabase import create_client
-    from config.settings import SUPABASE_URL, SUPABASE_KEY
-    
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    restaurant_id = current_staff.get("restaurant_id")
-    manager_id = current_staff.get("staff_id")
-    
-    shifts = request.get("shifts", [])
-    sse_events = request.get("sse_events", [])
-    override_reason = request.get("override_reason")
-    override_notes = request.get("override_notes", "")
-    
-    if not shifts:
-        raise HTTPException(status_code=400, detail="No shifts to publish")
-    
-    try:
-        published_count = 0
-        
-        # Insert/update shifts
-        for shift in shifts:
-            shift_data = {
-                "restaurant_id": restaurant_id,
-                "staff_id": shift.get("staff_id"),
-                "shift_date": shift.get("date"),
-                "scheduled_start": f"{shift.get('date')}T{shift.get('start_time')}:00",
-                "scheduled_end": f"{shift.get('date')}T{shift.get('end_time')}:00",
-                "position": shift.get("position"),
-                "shift_type": classify_shift_type(shift.get("start_time"), shift.get("end_time")),
-                "status": "scheduled",
-                "is_published": True
-            }
-            
-            # Upsert based on date + staff
-            supabase.table("sse_shifts").upsert(
-                shift_data,
-                on_conflict="restaurant_id,staff_id,shift_date"
-            ).execute()
-            
-            published_count += 1
-        
-        # Create SSE escalation events
-        events_created = 0
-        for event in sse_events:
-            if event.get("autoCreated"):
-                event_data = {
-                    "restaurant_id": restaurant_id,
-                    "event_type": event.get("type"),
-                    "severity": event.get("severity"),
-                    "status": "active",
-                    "trigger_source": "schedule_analysis",
-                    "trigger_details": event.get("trigger"),
-                    "affected_staff_count": 1,
-                    "created_by": manager_id
-                }
-                
-                supabase.table("sse_escalation_events").insert(event_data).execute()
-                events_created += 1
-        
-        return {
-            "success": True,
-            "shifts_published": published_count,
-            "events_created": events_created,
-            "override_logged": override_reason is not None
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to publish schedule: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Publish failed: {str(e)}")
-
-
-def classify_shift_type(start_time: str, end_time: str) -> str:
-    """Classify shift as AM, PM, or Close based on times."""
-    try:
-        start_hour = int(start_time.split(":")[0])
-        end_hour = int(end_time.split(":")[0])
-        
-        if start_hour < 12:
-            return "AM"
-        elif end_hour >= 22 or end_hour <= 2:
-            return "Close"
-        else:
-            return "PM"
-    except:
-        return "PM"
