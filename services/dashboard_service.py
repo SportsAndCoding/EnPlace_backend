@@ -48,6 +48,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     escalations = get_escalations(restaurant_id)
     notifications = get_notifications(restaurant_id)
     house_guardian_alerts = get_house_guardian_alerts(restaurant_id)
+    house_guardian_report = get_house_guardian_weekly_report(restaurant_id)
     pending_swaps = get_pending_swaps(restaurant_id)
     latest_schedule = get_latest_schedule_analysis(restaurant_id)
     
@@ -58,9 +59,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule)
-    mood_heatmap = compute_mood_heatmap(checkins_7d)
-    quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report)
     
     return {
         "success": True,
@@ -163,6 +162,14 @@ def get_house_guardian_alerts(restaurant_id: int) -> list:
         return result.data or []
     except Exception as e:
         return []
+
+def get_house_guardian_weekly_report(restaurant_id: int) -> dict:
+    """Get most recent House Guardian weekly report."""
+    try:
+        result = supabase.table("house_guardian_weekly_reports").select("*").eq("restaurant_id", restaurant_id).order("generated_at", desc=True).limit(1).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        return None
     
 def get_pending_swaps(restaurant_id: int) -> list:
     """Get pending shift swap requests."""
@@ -665,7 +672,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -953,6 +960,42 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "stability_score": stability_score,
                 "week_of": week_of
             }
+        })
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # INJECT HOUSE GUARDIAN WEEKLY REPORT (MON/TUE ONLY)
+    # ═══════════════════════════════════════════════════════════════════
+    is_hg_report_day = date.today().weekday() in [0, 1, 4]  # Monday, Tuesday, Friday for testing
+    if is_hg_report_day and hg_weekly_report:
+        content = hg_weekly_report.get("report_content") or {}
+        week_start = hg_weekly_report.get("week_start", "")
+        week_end = hg_weekly_report.get("week_end", "")
+        
+        try:
+            start_dt = date.fromisoformat(week_start)
+            end_dt = date.fromisoformat(week_end)
+            week_label = f"{start_dt.strftime('%b %d')} – {end_dt.strftime('%b %d')}"
+        except:
+            week_label = "Recent"
+        
+        notes_scanned = hg_weekly_report.get("notes_scanned", 0)
+        flagged = content.get("categories_flagged", [])
+        
+        if flagged:
+            description = f"{len(flagged)} category flagged. {notes_scanned} check-ins scanned."
+        else:
+            description = f"All clear. {notes_scanned} check-ins scanned."
+        
+        items.append({
+            "id": f"hg_weekly_{hg_weekly_report.get('id')}",
+            "type": "house_guardian_report",
+            "priority": "info",
+            "title": f"🏠 House Guardian: {week_label}",
+            "description": description,
+            "time_ago": _time_ago(hg_weekly_report.get("generated_at")),
+            "action": "View Summary",
+            "secondary_action": None,
+            "smm_boost": 0
         })
     
     # Sort by priority (info always at bottom)
