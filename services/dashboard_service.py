@@ -1004,20 +1004,25 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     items.sort(key=lambda x: priority_order.get(x["priority"], 3))
     
-    # Separate summary from actionable items
+    # Separate info items from actionable items
     summary_item = None
+    hg_report_item = None
     actionable_items = []
     
     for item in items:
         if item.get("type") == "schedule_summary":
             summary_item = item
+        elif item.get("type") == "house_guardian_report":
+            hg_report_item = item
         else:
             actionable_items.append(item)
     
-    # Return top 10 actionable + summary (if exists)
+    # Return top 10 actionable + info items at bottom
     final_items = actionable_items[:10]
     if summary_item:
         final_items.append(summary_item)
+    if hg_report_item:
+        final_items.append(hg_report_item)
     
     return {
         "total_items": len(items),
