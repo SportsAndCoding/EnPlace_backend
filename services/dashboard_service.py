@@ -60,7 +60,9 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
     action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report)
-    
+    mood_heatmap = compute_mood_heatmap(checkins_7d)
+    quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
+
     return {
         "success": True,
         "restaurant": restaurant,
