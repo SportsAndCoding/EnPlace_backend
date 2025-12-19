@@ -292,32 +292,21 @@ def create_action_board_items(
             existing = supabase.table("notifications") \
                 .select("id") \
                 .eq("restaurant_id", restaurant_id) \
-                .eq("notification_type", "schedule_issue") \
-                .eq("reference_id", f"schedule_{upload_id}_{fix.get('id')}") \
+                .eq("type", "schedule_issue") \
+                .ilike("title", f"%{fix.get('title', '')[:50]}%") \
                 .execute()
             
             if existing.data:
                 continue
             
-            # Create notification
+            # Create notification - matches actual schema
             notification_data = {
                 "restaurant_id": restaurant_id,
-                "notification_type": "schedule_issue",
-                "title": fix.get("title", "Schedule Issue"),
-                "message": fix.get("description", ""),
-                "severity": "high",
-                "reference_id": f"schedule_{upload_id}_{fix.get('id')}",
-                "reference_type": "schedule_upload",
-                "action_url": f"/modules/ssb/stable-schedule.html?upload={upload_id}",
-                "metadata": {
-                    "upload_id": upload_id,
-                    "week_of": week_of,
-                    "fix_type": fix.get("type"),
-                    "suggested_action": fix.get("suggestedAction"),
-                    "affected_staff": fix.get("affectedStaff", [])
-                },
-                "is_read": False,
-                "created_at": datetime.utcnow().isoformat()
+                "recipient_id": None,  # Restaurant-wide notification
+                "type": "schedule_issue",
+                "title": fix.get("title", "Schedule Issue")[:255],
+                "message": f"{fix.get('description', '')} Suggested: {fix.get('suggestedAction', '')}",
+                "is_read": False
             }
             
             supabase.table("notifications").insert(notification_data).execute()
@@ -332,21 +321,23 @@ def create_action_board_items(
             continue
         
         try:
+            # Get staff_id from event
+            staff_id = event.get("staff_id")
+            staff_name = event.get("staff", "Unknown")
+            
+            # Create event - matches actual schema
             event_data = {
                 "restaurant_id": restaurant_id,
                 "event_type": map_sse_event_type(event.get("type")),
                 "severity": event.get("severity", "medium"),
+                "severity_score": severity_to_score(event.get("severity", "medium")),
                 "status": "active",
-                "trigger_source": "schedule_analysis",
-                "trigger_details": json.dumps({
-                    "trigger": event.get("trigger"),
-                    "staff_id": event.get("staff_id"),
-                    "staff_name": event.get("staff"),
-                    "upload_id": upload_id,
-                    "week_of": week_of
-                }),
-                "affected_staff_count": 1,
-                "created_at": datetime.utcnow().isoformat()
+                "current_step": 1,
+                "primary_staff_id": staff_id,
+                "trigger_reason": f"Schedule analysis: {event.get('trigger', 'No details')}",
+                "triggered_at": datetime.utcnow().isoformat(),
+                "auto_created": True,
+                "source_type": "schedule_analysis"
             }
             
             supabase.table("sse_escalation_events").insert(event_data).execute()
@@ -357,6 +348,16 @@ def create_action_board_items(
     
     return items_created
 
+
+def severity_to_score(severity: str) -> int:
+    """Convert severity string to numeric score."""
+    mapping = {
+        "low": 25,
+        "medium": 50,
+        "high": 75,
+        "critical": 100
+    }
+    return mapping.get(severity, 50)
 
 def map_sse_event_type(analysis_type: str) -> str:
     """Map analysis event types to SSE escalation event types."""
