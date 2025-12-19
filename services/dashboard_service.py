@@ -147,8 +147,12 @@ def get_candidates(restaurant_id: int) -> list:
 
 
 def get_escalations(restaurant_id: int) -> list:
-    """Get active escalations."""
-    result = supabase.table("sse_escalation_events").select("*").eq("restaurant_id", restaurant_id).in_("status", ["active", "monitoring"]).execute()
+    """Get active escalations with staff info."""
+    result = supabase.table("sse_escalation_events") \
+        .select("*, primary_staff:primary_staff_id(full_name, position)") \
+        .eq("restaurant_id", restaurant_id) \
+        .in_("status", ["active", "monitoring"]) \
+        .execute()
     return result.data or []
 
 
@@ -726,23 +730,39 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             }
             event_label = event_labels.get(event_type, event_type.replace("_", " ").title())
 
-            # Get staff name if available
-            staff_id = esc.get("primary_staff_id")
+            # Extract staff info from joined data
+            primary_staff = esc.get("primary_staff") or {}
+            staff_name = primary_staff.get("full_name")
+            staff_position = primary_staff.get("position")
+            
             trigger = esc.get("trigger_reason", "")
             
-            # Description
-            desc = trigger[:100] if trigger else f"Step {current_step} - Review needed"
+            # Build context-rich description
+            if staff_name:
+                desc = f"{staff_name} ({staff_position})" if staff_position else staff_name
+            else:
+                desc = "Multiple staff affected"
 
             items.append({
                 "id": esc.get("id"),
                 "type": "escalation",
-                "priority": "critical",
+                "priority": "critical" if current_step >= 4 else "high",
                 "title": event_label,
                 "description": desc,
-                "time_ago": _time_ago(esc.get("created_at")) if esc.get("created_at") else "Active",
-                "action": "Review",
-                "secondary_action": None,
-                "smm_boost": 2
+                "time_ago": _time_ago(esc.get("triggered_at")) if esc.get("triggered_at") else "Active",
+                "action": "Done",
+                "secondary_action": "Dismiss",
+                "smm_boost": 2,
+                # Rich context for frontend
+                "escalation_context": {
+                    "staff_name": staff_name,
+                    "staff_position": staff_position,
+                    "current_step": current_step,
+                    "max_steps": 7,
+                    "event_type": event_type,
+                    "trigger_reason": trigger,
+                    "severity": esc.get("severity", "moderate")
+                }
             })
 
     # ═══════════════════════════════════════════════════════════════════
