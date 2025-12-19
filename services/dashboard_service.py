@@ -882,7 +882,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # ═══════════════════════════════════════════════════════════════════
     # INJECT WEEKLY SCHEDULE SUMMARY (ALWAYS AT BOTTOM)
     # ═══════════════════════════════════════════════════════════════════
-    is_report_day = date.today().weekday() in [0, 1, 4]  # Monday = 0, Tuesday = 1, Friday = 4 for testing
+    is_report_day = date.today().weekday() in [0, 1, 4]  # Monday = 0, Tuesday = 1, Friday = 4 for testing  
     if is_report_day and schedule_analysis and schedule_analysis.get("status") == "completed":
         analysis = schedule_analysis.get("analysis_result") or {}
         week_of = schedule_analysis.get("week_of", "")
@@ -959,9 +959,24 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     items.sort(key=lambda x: priority_order.get(x["priority"], 3))
     
+    # Separate summary from actionable items
+    summary_item = None
+    actionable_items = []
+    
+    for item in items:
+        if item.get("type") == "schedule_summary":
+            summary_item = item
+        else:
+            actionable_items.append(item)
+    
+    # Return top 10 actionable + summary (if exists)
+    final_items = actionable_items[:10]
+    if summary_item:
+        final_items.append(summary_item)
+    
     return {
         "total_items": len(items),
-        "items": items[:10]  # Top 10
+        "items": final_items
     }
 def compute_mood_heatmap(checkins_7d: list) -> dict:
     """
