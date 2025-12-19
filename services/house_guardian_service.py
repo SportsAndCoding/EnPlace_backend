@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional, Dict, List, Any
 from collections import Counter
 from uuid import uuid4
+from services.house_guardian_weekly import generate_weekly_report
 
 from openai import AsyncOpenAI
 from supabase import create_client, Client
@@ -649,6 +650,13 @@ async def scan_restaurant(restaurant_id: int) -> Dict[str, int]:
     
     # Log scan completion
     log_scan(restaurant_id, stats["notes_scanned"], stats["signals_found"], stats["alerts_created"])
+    
+    # Generate weekly report
+    try:
+        from services.house_guardian_weekly import generate_weekly_report
+        generate_weekly_report(restaurant_id)
+    except Exception as e:
+        logger.error(f"Failed to generate weekly report for restaurant {restaurant_id}: {e}")
     
     return stats
 
