@@ -105,3 +105,46 @@ async def update_operating_settings(
         .execute()
     
     return {'success': True, 'data': result.data[0]}
+
+@router.get("/{restaurant_id}/modules")
+async def get_restaurant_modules(
+    restaurant_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get enabled modules for a restaurant"""
+    if current_user['restaurant_id'] != restaurant_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    supabase = get_supabase()
+    
+    try:
+        result = supabase.table("restaurant_modules") \
+            .select("module_key, is_enabled") \
+            .eq("restaurant_id", restaurant_id) \
+            .execute()
+        
+        modules = {}
+        for row in (result.data or []):
+            modules[row['module_key']] = row['is_enabled']
+        
+        if not modules:
+            modules = {
+                'openShifts': True,
+                'shiftSwap': True,
+                'schedule': True,
+                'aime': True,
+                'stableHire': True,
+                'houseGuardian': True
+            }
+        
+        return {
+            "success": True,
+            "restaurant_id": restaurant_id,
+            "modules": modules
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch modules: {str(e)}"
+        )
