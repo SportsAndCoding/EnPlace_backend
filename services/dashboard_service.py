@@ -882,7 +882,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # ═══════════════════════════════════════════════════════════════════
     # INJECT WEEKLY SCHEDULE SUMMARY (ALWAYS AT BOTTOM)
     # ═══════════════════════════════════════════════════════════════════
-    is_report_day = date.today().weekday() in [0, 1]  # Monday = 0, Tuesday = 1
+    is_report_day = date.today().weekday() in [0, 1, 4]  # Monday = 0, Tuesday = 1, Friday = 4 for testing
     if is_report_day and schedule_analysis and schedule_analysis.get("status") == "completed":
         analysis = schedule_analysis.get("analysis_result") or {}
         week_of = schedule_analysis.get("week_of", "")
