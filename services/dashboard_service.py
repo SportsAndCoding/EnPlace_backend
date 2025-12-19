@@ -784,16 +784,22 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             category = alert.get("category", "concern")
             label = category_labels.get(category, category.title() + " Signal")
             
+            # Build description with signal strength
+            source_count = alert.get("source_count", 1)
+            signal_strength = alert.get("signal_strength", "MEDIUM")
+            description = f"{source_count} source{'s' if source_count > 1 else ''} · {signal_strength} signal"
+
             items.append({
                 "id": alert.get("id"),
                 "type": "house_guardian",
                 "priority": "critical",
                 "title": label,
-                "description": f"{alert.get('source_count', 1)} source(s) - {alert.get('confidence', 0):.0%} confidence",
+                "description": description,
                 "time_ago": _time_ago(alert.get("created_at")),
-                "action": "Investigate",
+                "action": "Done",
                 "secondary_action": "Dismiss",
-                "smm_boost": 2
+                "smm_boost": 2,
+                "event_id": alert.get("sse_event_id")  # For Review button
             })
 
     # ═══════════════════════════════════════════════════════════════════
@@ -836,11 +842,15 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             # Open shift = no staff assigned
             if shift.get("staff_id"):
                 continue
+            
+            # Skip already assigned/closed shifts
+            shift_status = shift.get("status", "posted")
+            if shift_status == "assigned":
+                continue
                 
             shift_date_str = shift.get("shift_date")
             if not shift_date_str:
                 continue
-                
             try:
                 shift_date = date.fromisoformat(shift_date_str)
             except:
@@ -865,25 +875,71 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             shift_type = shift.get("position") or shift.get("shift_type") or "Shift"
             day_name = shift_date.strftime("%a")
             start_time = ""
+            end_time = ""
+            
             if shift.get("scheduled_start"):
                 try:
                     from datetime import datetime as dt
                     start_dt = dt.fromisoformat(shift.get("scheduled_start").replace("Z", "+00:00"))
-                    start_time = f" {start_dt.strftime('%-I%p').lower()}"
+                    start_time = start_dt.strftime("%-I:%M%p").lower()
                 except:
                     pass
             
-            items.append({
-                "id": shift.get("id"),
-                "type": "coverage_gap",
-                "priority": "critical",
-                "title": f"{urgency}: {shift_type} shift uncovered",
-                "description": f"{day_name}{start_time} - needs immediate coverage",
-                "time_ago": "Open",
-                "action": "Find Coverage",
-                "secondary_action": None,
-                "smm_boost": 2
-            })
+            if shift.get("scheduled_end"):
+                try:
+                    from datetime import datetime as dt
+                    end_dt = dt.fromisoformat(shift.get("scheduled_end").replace("Z", "+00:00"))
+                    end_time = end_dt.strftime("%-I:%M%p").lower()
+                except:
+                    pass
+            
+            # Different handling based on status
+            volunteer_count = shift.get("volunteer_count", 0)
+            
+            if shift_status == "review" or volunteer_count > 0:
+                # Has volunteers - needs selection
+                items.append({
+                    "id": shift.get("id"),
+                    "type": "open_shift_review",
+                    "priority": "critical",
+                    "title": f"{urgency}: {shift_type} - {volunteer_count} volunteer{'s' if volunteer_count != 1 else ''}!",
+                    "description": f"{day_name} {start_time} - Select who gets it",
+                    "time_ago": "Action needed",
+                    "action": "Select Volunteer",
+                    "secondary_action": None,
+                    "smm_boost": 2,
+                    "shift_context": {
+                        "shift_id": shift.get("id"),
+                        "position": shift_type,
+                        "shift_date": shift_date_str,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "reason": shift.get("reason"),
+                        "volunteer_count": volunteer_count
+                    }
+                })
+            else:
+                # Posted but no volunteers yet, or needs to be sent to marketplace
+                items.append({
+                    "id": shift.get("id"),
+                    "type": "open_shift_posted",
+                    "priority": "critical",
+                    "title": f"{urgency}: {shift_type} shift uncovered",
+                    "description": f"{day_name} {start_time} - Waiting for volunteers",
+                    "time_ago": "Open",
+                    "action": "Create Open Shift",
+                    "secondary_action": "Dismiss",
+                    "smm_boost": 2,
+                    "shift_context": {
+                        "shift_id": shift.get("id"),
+                        "position": shift_type,
+                        "shift_date": shift_date_str,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "reason": shift.get("reason"),
+                        "original_staff_id": shift.get("original_staff_id")
+                    }
+                })
     
     # ═══════════════════════════════════════════════════════════════════
     # ADD NOTIFICATION-BASED ITEMS

@@ -328,7 +328,7 @@ def create_or_update_alert(alert_data: Dict) -> str:
         alert_data["category"],
         alert_data["location_context"]
     )
-    
+
     if existing:
         # Update existing alert
         update_data = {
@@ -338,21 +338,86 @@ def create_or_update_alert(alert_data: Dict) -> str:
             "timeframe_end": alert_data["timeframe_end"],
             "signal_ids": list(set(existing.get("signal_ids", []) + alert_data["signal_ids"]))
         }
-        
+
         supabase.table("house_guardian_alerts") \
             .update(update_data) \
             .eq("id", existing["id"]) \
             .execute()
-        
+
         return existing["id"]
     else:
         # Create new alert
-        alert_data["id"] = str(uuid4())
+        alert_id = str(uuid4())
+        alert_data["id"] = alert_id
         alert_data["status"] = "active"
         alert_data["created_at"] = datetime.utcnow().isoformat()
-        
+
+        # Create corresponding SSE event for Event Manager
+        sse_event_id = create_sse_event_for_alert(alert_data)
+        alert_data["sse_event_id"] = sse_event_id
+
         supabase.table("house_guardian_alerts").insert(alert_data).execute()
-        return alert_data["id"]
+        return alert_id
+
+
+def create_sse_event_for_alert(alert_data: Dict) -> str:
+    """Create an SSE escalation event for a House Guardian alert."""
+    
+    # Map signal strength to severity
+    strength_to_severity = {
+        "HIGH": "critical",
+        "MEDIUM": "high",
+        "LOW": "medium"
+    }
+    severity = strength_to_severity.get(alert_data.get("signal_strength", "MEDIUM"), "medium")
+    
+    # Map severity to score
+    severity_scores = {
+        "critical": 100,
+        "high": 75,
+        "medium": 50,
+        "low": 25
+    }
+    
+    # Build trigger reason
+    category_labels = {
+        "harassment": "Harassment signals detected",
+        "theft": "Theft indicators detected", 
+        "drugs": "Substance abuse concerns detected",
+        "threats": "Safety threat signals detected",
+        "bullying": "Hostile behavior patterns detected"
+    }
+    category = alert_data.get("category", "concern")
+    trigger = category_labels.get(category, f"{category.title()} signals detected")
+    
+    location = alert_data.get("location_context", "")
+    if location:
+        trigger += f" - {location}"
+    
+    source_count = alert_data.get("source_count", 1)
+    trigger += f" ({source_count} source{'s' if source_count > 1 else ''})"
+
+    event_data = {
+        "restaurant_id": alert_data["restaurant_id"],
+        "event_type": f"house_guardian_{category}",
+        "severity": severity,
+        "severity_score": severity_scores.get(severity, 50),
+        "status": "active",
+        "current_step": 1,
+        "primary_staff_id": None,  # HG is anonymous
+        "affected_role": alert_data.get("location_context", "General"),
+        "trigger_reason": trigger,
+        "triggered_at": datetime.utcnow().isoformat(),
+        "auto_created": True,
+        "source_type": "house_guardian"
+    }
+    
+    result = supabase.table("sse_escalation_events").insert(event_data).execute()
+    
+    if result.data and len(result.data) > 0:
+        return result.data[0]["id"]
+    
+    return None
 
 
 def mark_signals_processed(signal_ids: List[str]):

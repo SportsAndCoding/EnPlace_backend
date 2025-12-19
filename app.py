@@ -144,6 +144,8 @@ from routes.schedule import router as schedule_router
 app.include_router(schedule_router)
 from routes.staff_portal import router as staff_portal_router
 app.include_router(staff_portal_router)
+from routes.onboarding import router as onboarding_router
+app.include_router(onboarding_router)
 
 
 @app.get("/")
