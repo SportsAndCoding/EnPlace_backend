@@ -547,3 +547,163 @@ async def cancel_swap_request(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel swap: {str(e)}"
         )
+    
+# ═══════════════════════════════════════════════════════════════════
+# NUDGES (Staff requesting features)
+# ═══════════════════════════════════════════════════════════════════
+
+class NudgeRequest(BaseModel):
+    module_key: str
+    message: Optional[str] = None
+
+
+@router.post("/nudges")
+async def create_nudge(
+    request: NudgeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Staff nudges manager to enable a feature"""
+    from database.supabase_client import get_supabase
+    from datetime import datetime, timedelta
+    
+    valid_modules = ['openShifts', 'shiftSwap', 'schedule', 'aime', 'stableHire', 'houseGuardian']
+    if request.module_key not in valid_modules:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid module. Must be one of: {valid_modules}"
+        )
+    
+    supabase = get_supabase()
+    
+    try:
+        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        
+        existing = supabase.table("nudges") \
+            .select("id") \
+            .eq("staff_id", current_user['staff_id']) \
+            .eq("module_key", request.module_key) \
+            .gte("created_at", week_ago) \
+            .execute()
+        
+        if existing.data and len(existing.data) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You've already requested this feature recently"
+            )
+        
+        payload = {
+            "staff_id": current_user['staff_id'],
+            "restaurant_id": current_user['restaurant_id'],
+            "module_key": request.module_key,
+            "message": request.message,
+            "status": "pending"
+        }
+        
+        result = supabase.table("nudges") \
+            .insert(payload) \
+            .execute()
+        
+        try:
+            service = StaffPortalService()
+            await service.award_points(
+                staff_id=current_user['staff_id'],
+                restaurant_id=current_user['restaurant_id'],
+                points=5,
+                transaction_type="nudgeBoss",
+                description=f"Requested {request.module_key} feature"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to award nudge SP: {e}")
+        
+        return {
+            "success": True,
+            "nudge": result.data[0] if result.data else None,
+            "message": "Your request has been sent to management!",
+            "sp_awarded": 5
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create nudge: {str(e)}"
+        )
+
+
+@router.get("/nudges")
+async def get_nudges_for_manager(
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get nudges for manager's restaurant (Action Board)"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can view nudges"
+        )
+    
+    from database.supabase_client import get_supabase
+    supabase = get_supabase()
+    
+    try:
+        query = supabase.table("nudges") \
+            .select("*, staff:staff_id(full_name, position)") \
+            .eq("restaurant_id", current_user['restaurant_id']) \
+            .order("created_at", desc=True)
+        
+        if status_filter:
+            query = query.eq("status", status_filter)
+        
+        result = query.limit(50).execute()
+        
+        return {
+            "success": True,
+            "nudges": result.data or [],
+            "count": len(result.data or [])
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch nudges: {str(e)}"
+        )
+
+
+@router.put("/nudges/{nudge_id}/acknowledge")
+async def acknowledge_nudge(
+    nudge_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Manager acknowledges a nudge"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can acknowledge nudges"
+        )
+    
+    from database.supabase_client import get_supabase
+    from datetime import datetime, timezone
+    supabase = get_supabase()
+    
+    try:
+        result = supabase.table("nudges") \
+            .update({
+                "status": "acknowledged",
+                "viewed_at": datetime.now(timezone.utc).isoformat(),
+                "viewed_by": current_user['staff_id']
+            }) \
+            .eq("id", nudge_id) \
+            .eq("restaurant_id", current_user['restaurant_id']) \
+            .execute()
+        
+        return {
+            "success": True,
+            "nudge": result.data[0] if result.data else None
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to acknowledge nudge: {str(e)}"
+        )
