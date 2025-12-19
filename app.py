@@ -142,6 +142,8 @@ from routes.shift_swaps import router as shift_swaps_router
 app.include_router(shift_swaps_router)
 from routes.schedule import router as schedule_router
 app.include_router(schedule_router)
+from routes.staff_portal import router as staff_portal_router
+app.include_router(staff_portal_router)
 
 
 @app.get("/")
