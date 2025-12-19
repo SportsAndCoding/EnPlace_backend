@@ -49,6 +49,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     notifications = get_notifications(restaurant_id)
     house_guardian_alerts = get_house_guardian_alerts(restaurant_id)
     pending_swaps = get_pending_swaps(restaurant_id)
+    latest_schedule = get_latest_schedule_analysis(restaurant_id)
     
     # Compute each section
     smm = compute_smm(checkins_7d, checkins_28d, manager_logs)
@@ -57,7 +58,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
     
@@ -175,6 +176,20 @@ def get_pending_swaps(restaurant_id: int) -> list:
     except Exception as e:
         logger.error(f"Error fetching swaps: {e}")
         return []
+    
+def get_latest_schedule_analysis(restaurant_id: int) -> dict:
+    """Get latest completed schedule analysis."""
+    try:
+        result = supabase.table("schedule_uploads") \
+            .select("*") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("status", "completed") \
+            .order("processed_at", desc=True) \
+            .limit(1) \
+            .execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        return None
 
 # ═══════════════════════════════════════════════════════════════════
 # COMPUTATION FUNCTIONS
@@ -650,7 +665,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -660,16 +675,20 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         "coverage_gap": {"icon": "⚠️", "action": "Find Coverage", "secondary": None, "boost": 2},
         "pto_request": {"icon": "🏖️", "action": "Review", "secondary": None, "boost": 1},
         "escalation": {"icon": "🚨", "action": "Review", "secondary": None, "boost": 2},
+        "schedule_issue": {"icon": "📅", "action": "Review", "secondary": None, "boost": 1},
+        "schedule_summary": {"icon": "📊", "action": "View Report", "secondary": None, "boost": 0},
         "system": {"icon": "📋", "action": "View", "secondary": None, "boost": 1}
     }
     priority_mapping = {
         "escalation": "critical",
         "coverage_gap": "critical",
         "swap_request": "high",
+        "schedule_issue": "high",
         "pto_request": "medium",
-        "system": "low"
+        "system": "low",
+        "schedule_summary": "info"
     }
-    
+
     items = []
 
     # ═══════════════════════════════════════════════════════════════════
@@ -682,24 +701,28 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 continue
 
             event_type = esc.get("event_type", "issue")
-            affected_count = esc.get("affected_staff_count", 1)
             current_step = esc.get("current_step", 1)
-            
+
             # Format title based on event type
             event_labels = {
                 "burnout": "Burnout Risk",
-                "fairness": "Fairness Issue", 
+                "burnout_risk": "Burnout Risk",
+                "fairness": "Fairness Issue",
+                "fairness_issue": "Fairness Issue",
                 "retention": "Retention Risk",
                 "alignment": "Alignment Gap",
-                "mood_drop": "Mood Alert"
+                "mood_drop": "Mood Alert",
+                "preference_drift": "Preference Drift",
+                "scheduling_conflict": "Schedule Conflict"
             }
             event_label = event_labels.get(event_type, event_type.replace("_", " ").title())
+
+            # Get staff name if available
+            staff_id = esc.get("primary_staff_id")
+            trigger = esc.get("trigger_reason", "")
             
-            # Description based on affected count (anonymized)
-            if affected_count > 1:
-                desc = f"{affected_count} staff affected - Step {current_step}"
-            else:
-                desc = f"Staff member needs attention - Step {current_step}"
+            # Description
+            desc = trigger[:100] if trigger else f"Step {current_step} - Review needed"
 
             items.append({
                 "id": esc.get("id"),
@@ -720,7 +743,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         for alert in hg_alerts:
             if alert.get("status") != "active":
                 continue
-            
+
             category_labels = {
                 "harassment": "Harassment Signal",
                 "theft": "Theft Signal",
@@ -728,23 +751,19 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "threats": "Safety Threat",
                 "bullying": "Hostile Behavior"
             }
-            
+
             category = alert.get("category", "concern")
             label = category_labels.get(category, category.title() + " Signal")
-            strength = alert.get("signal_strength", "MEDIUM")
-            source_count = alert.get("source_count", 1)
-            location = alert.get("location_context", "General")
             
             items.append({
                 "id": alert.get("id"),
                 "type": "house_guardian",
-                "priority": "critical" if strength == "HIGH" else "high",
+                "priority": "critical",
                 "title": label,
-                "description": f"{location} • {source_count} source{'s' if source_count != 1 else ''}",
-                "signal_strength": strength,
-                "time_ago": _time_ago(alert.get("created_at")) if alert.get("created_at") else "Recent",
-                "action": "Review",
-                "secondary_action": None,
+                "description": f"{alert.get('source_count', 1)} source(s) - {alert.get('confidence', 0):.0%} confidence",
+                "time_ago": _time_ago(alert.get("created_at")),
+                "action": "Investigate",
+                "secondary_action": "Dismiss",
                 "smm_boost": 2
             })
 
@@ -757,12 +776,11 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             shift_date = shift.get("shift_date", "")
             position = shift.get("position") or shift.get("shift_type") or "Shift"
             
-            # Format date
+            # Format date nicely
             if shift_date:
-                from datetime import datetime as dt
                 try:
-                    d = dt.fromisoformat(shift_date)
-                    date_str = d.strftime("%a %b %d")
+                    dt = date.fromisoformat(shift_date)
+                    date_str = dt.strftime("%a %b %d")
                 except:
                     date_str = shift_date
             else:
@@ -774,58 +792,60 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "priority": "high",
                 "title": f"Swap Request: {position}",
                 "description": f"{date_str} - {swap.get('reason', 'No reason given')}",
-                "time_ago": _time_ago(swap.get("created_at")) if swap.get("created_at") else "Recently",
+                "time_ago": _time_ago(swap.get("created_at")),
                 "action": "Approve",
                 "secondary_action": "Deny",
                 "smm_boost": 1
             })
 
-    # Inject critical coverage gaps from open shifts (today/tomorrow)
+    # ═══════════════════════════════════════════════════════════════════
+    # INJECT OPEN SHIFTS (COVERAGE GAPS)
+    # ═══════════════════════════════════════════════════════════════════
     if shifts_week:
         today = date.today()
-        tomorrow = today + timedelta(days=1)
-        
         for shift in shifts_week:
-            # Only open shifts (no staff assigned)
+            # Open shift = no staff assigned
             if shift.get("staff_id"):
                 continue
-            
+                
             shift_date_str = shift.get("shift_date")
             if not shift_date_str:
                 continue
-            
+                
             try:
-                shift_date = date.fromisoformat(str(shift_date_str)[:10])
+                shift_date = date.fromisoformat(shift_date_str)
             except:
                 continue
             
-            # Only critical = today or tomorrow
-            if shift_date > tomorrow:
+            # Only show upcoming open shifts
+            if shift_date < today:
                 continue
             
-            # Format the shift for display
-            shift_type = shift.get("shift_type", "Shift")
-            day_name = shift_date.strftime("%A")
+            days_until = (shift_date - today).days
             
-            # Get time from scheduled_start if available
+            # Urgency
+            if days_until == 0:
+                urgency = "TODAY"
+            elif days_until == 1:
+                urgency = "TOMORROW"
+            elif days_until <= 3:
+                urgency = f"In {days_until} days"
+            else:
+                continue  # Don't show if more than 3 days out
+            
+            shift_type = shift.get("position") or shift.get("shift_type") or "Shift"
+            day_name = shift_date.strftime("%a")
             start_time = ""
             if shift.get("scheduled_start"):
                 try:
-                    start_str = str(shift.get("scheduled_start"))
-                    if "T" in start_str:
-                        hour = int(start_str.split("T")[1][:2])
-                        am_pm = "AM" if hour < 12 else "PM"
-                        display_hour = hour if hour <= 12 else hour - 12
-                        if display_hour == 0:
-                            display_hour = 12
-                        start_time = f" {display_hour}{am_pm}"
+                    from datetime import datetime as dt
+                    start_dt = dt.fromisoformat(shift.get("scheduled_start").replace("Z", "+00:00"))
+                    start_time = f" {start_dt.strftime('%-I%p').lower()}"
                 except:
                     pass
             
-            urgency = "TODAY" if shift_date == today else "TOMORROW"
-            
             items.append({
-                "id": f"gap_{shift.get('id', 0)}",
+                "id": shift.get("id"),
                 "type": "coverage_gap",
                 "priority": "critical",
                 "title": f"{urgency}: {shift_type} shift uncovered",
@@ -836,7 +856,9 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "smm_boost": 2
             })
     
-    # Add notification-based items
+    # ═══════════════════════════════════════════════════════════════════
+    # ADD NOTIFICATION-BASED ITEMS
+    # ═══════════════════════════════════════════════════════════════════
     for notif in notifications:
         notif_type = notif.get("type", "system")
         mapping = type_mapping.get(notif_type, type_mapping["system"])
@@ -853,19 +875,94 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             "description": notif.get("message", ""),
             "time_ago": time_ago,
             "action": mapping["action"],
-            "secondary_action": mapping["secondary"],
+            "secondary_action": mapping.get("secondary"),
             "smm_boost": mapping["boost"]
         })
     
-    # Sort by priority
-    priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    # ═══════════════════════════════════════════════════════════════════
+    # INJECT WEEKLY SCHEDULE SUMMARY (ALWAYS AT BOTTOM)
+    # ═══════════════════════════════════════════════════════════════════
+    is_report_day = date.today().weekday() in [0, 1]  # Monday = 0, Tuesday = 1
+    if is_report_day and schedule_analysis and schedule_analysis.get("status") == "completed":
+        analysis = schedule_analysis.get("analysis_result") or {}
+        week_of = schedule_analysis.get("week_of", "")
+        stability_score = schedule_analysis.get("stability_score", 0)
+        issues_found = schedule_analysis.get("issues_found", 0)
+        critical_issues = schedule_analysis.get("critical_issues", 0)
+        
+        # Format week label
+        if week_of:
+            try:
+                dt = date.fromisoformat(week_of)
+                week_label = dt.strftime("Week of %b %d")
+            except:
+                week_label = f"Week of {week_of}"
+        else:
+            week_label = "Recent Schedule"
+        
+        # Generate strategic summary
+        summary_lines = []
+        
+        # Pull insights from analysis
+        priority_fixes = analysis.get("priorityFixes", [])
+        staff_impact = analysis.get("staffImpact", [])
+        emotional_fallout = analysis.get("emotionalFallout", {})
+        
+        # Find overworked staff
+        for staff in staff_impact[:2]:
+            if staff.get("riskLevel") == "high":
+                summary_lines.append(f"{staff.get('name', 'Staff member')} at risk - {staff.get('mainIssue', 'needs attention')}")
+        
+        # Find preference drift
+        drift_fixes = [f for f in priority_fixes if f.get("type") == "preference" and "drift" in f.get("title", "").lower()]
+        for fix in drift_fixes[:1]:
+            affected = fix.get("affectedStaff", [])
+            if affected:
+                summary_lines.append(f"{affected[0]} has ongoing preference mismatch")
+        
+        # Build description
+        if summary_lines:
+            description = " • ".join(summary_lines[:2])
+        elif critical_issues > 0:
+            description = f"{critical_issues} critical issue{'s' if critical_issues > 1 else ''} identified"
+        elif issues_found > 0:
+            description = f"{issues_found} scheduling consideration{'s' if issues_found > 1 else ''} flagged"
+        else:
+            description = "No major issues detected"
+        
+        # Score interpretation
+        if stability_score >= 80:
+            title = f"📊 {week_label}: Strong Schedule"
+        elif stability_score >= 65:
+            title = f"📊 {week_label}: Schedule Review"
+        else:
+            title = f"📊 {week_label}: Schedule Concerns"
+        
+        items.append({
+            "id": f"schedule_summary_{schedule_analysis.get('id')}",
+            "type": "schedule_summary",
+            "priority": "info",
+            "title": title,
+            "description": description,
+            "time_ago": _time_ago(schedule_analysis.get("processed_at")),
+            "action": "View Report",
+            "secondary_action": None,
+            "smm_boost": 0,
+            "metadata": {
+                "upload_id": schedule_analysis.get("id"),
+                "stability_score": stability_score,
+                "week_of": week_of
+            }
+        })
+    
+    # Sort by priority (info always at bottom)
+    priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     items.sort(key=lambda x: priority_order.get(x["priority"], 3))
     
     return {
         "total_items": len(items),
         "items": items[:10]  # Top 10
     }
-
 def compute_mood_heatmap(checkins_7d: list) -> dict:
     """
     Compute mood heatmap by day and shift (AM/PM).
