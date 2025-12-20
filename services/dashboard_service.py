@@ -178,10 +178,10 @@ def get_house_guardian_weekly_report(restaurant_id: int) -> dict:
         return None
     
 def get_pending_swaps(restaurant_id: int) -> list:
-    """Get pending shift swap requests."""
+    """Get pending shift swap requests with staff names."""
     try:
         result = supabase.table("shift_swaps") \
-            .select("*, sse_shifts(shift_date, scheduled_start, position, shift_type)") \
+            .select("*, sse_shifts(shift_date, scheduled_start, position, shift_type), requester:requesting_staff_id(full_name), target:target_staff_id(full_name)") \
             .eq("restaurant_id", restaurant_id) \
             .eq("status", "pending") \
             .execute()
@@ -821,16 +821,27 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             else:
                 date_str = "Upcoming"
             
+            # Extract staff names from joined data
+            requester_name = (swap.get("requester") or {}).get("full_name", "Staff")
+            target_name = (swap.get("target") or {}).get("full_name", "Staff")
+            
             items.append({
                 "id": swap.get("id"),
                 "type": "swap_request",
                 "priority": "high",
                 "title": f"Swap Request: {position}",
-                "description": f"{date_str} - {swap.get('reason', 'No reason given')}",
+                "description": f"{requester_name} → {target_name} · {date_str}",
                 "time_ago": _time_ago(swap.get("created_at")),
                 "action": "Approve",
                 "secondary_action": "Deny",
-                "smm_boost": 1
+                "smm_boost": 1,
+                "swap_context": {
+                    "requester_name": requester_name,
+                    "target_name": target_name,
+                    "shift_date": date_str,
+                    "position": position,
+                    "reason": swap.get("reason", "No reason given")
+                }
             })
 
     # ═══════════════════════════════════════════════════════════════════
