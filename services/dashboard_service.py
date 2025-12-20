@@ -834,14 +834,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "time_ago": _time_ago(swap.get("created_at")),
                 "action": "Approve",
                 "secondary_action": "Deny",
-                "smm_boost": 1,
-                "swap_context": {
-                    "requester_name": requester_name,
-                    "target_name": target_name,
-                    "shift_date": date_str,
-                    "position": position,
-                    "reason": swap.get("reason", "No reason given")
-                }
+                "smm_boost": 1
             })
 
     # ═══════════════════════════════════════════════════════════════════
