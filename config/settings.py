@@ -11,6 +11,8 @@ JWT_EXPIRATION_HOURS = 24
 
 # CORS
 ALLOWED_ORIGINS = [
+    "https://www.en-place.ai",
+    "https://en-place.ai",
     "https://app.en-place.ai",
     "https://enplaceappv2.vercel.app",
     "http://localhost:3000",
