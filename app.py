@@ -146,6 +146,11 @@ from routes.staff_portal import router as staff_portal_router
 app.include_router(staff_portal_router)
 from routes.onboarding import router as onboarding_router
 app.include_router(onboarding_router)
+from routes.stripe_checkout import router as stripe_router
+app.include_router(stripe_router)
+from routes.registration import router as registration_router
+app.include_router(registration_router)
+
 
 
 @app.get("/")
