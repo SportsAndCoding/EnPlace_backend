@@ -11,6 +11,7 @@ import secrets
 import string
 from services.auth_service import verify_jwt_token as get_current_user
 from database.supabase_client import get_supabase
+from services.team_import_service import extract_team_from_text
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -556,3 +557,68 @@ async def complete_onboarding(current_user: dict = Depends(get_current_user)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to complete onboarding: {str(e)}")
+
+class ParseTeamRequest(BaseModel):
+    raw_text: Optional[str] = None
+    csv_content: Optional[str] = None
+
+
+class ParsedStaffMember(BaseModel):
+    name: str
+    first_name: str
+    last_name: str
+    position: str
+    confidence: str  # high, medium, low
+    duplicate_warning: bool = False
+
+
+class ParseTeamResponse(BaseModel):
+    success: bool
+    error: Optional[str] = None
+    staff: List[ParsedStaffMember] = []
+    stats: dict = {}
+
+
+# 3. Add this endpoint (put it before /staff or /staff/bulk endpoints):
+
+@router.post("/parse-team", response_model=ParseTeamResponse)
+async def parse_team(
+    data: ParseTeamRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Parse pasted schedule or CSV to extract staff names and positions.
+    
+    Used in onboarding Step 2 "Magic Import" feature.
+    
+    Accepts:
+    - raw_text: Pasted schedule (any format - 7shifts, HotSchedules, plain text, etc.)
+    - csv_content: CSV file content as string
+    
+    Returns:
+    - staff: List of {name, first_name, last_name, position, confidence, duplicate_warning}
+    - stats: {total, high_confidence, medium_confidence, low_confidence, duplicates_flagged}
+    
+    Frontend should then pass results to /staff/bulk with is_manager flags added.
+    """
+    try:
+        if not data.raw_text and not data.csv_content:
+            return ParseTeamResponse(
+                success=False,
+                error="Please paste a schedule or upload a file"
+            )
+        
+        result = await extract_team_from_text(
+            raw_text=data.raw_text,
+            csv_content=data.csv_content,
+            use_llm_fallback=True
+        )
+        
+        return ParseTeamResponse(**result)
+    
+    except Exception as e:
+        logger.error(f"Team parsing error: {e}")
+        return ParseTeamResponse(
+            success=False,
+            error="Failed to parse. Try a different format or add manually."
+        )

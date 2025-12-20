@@ -402,7 +402,7 @@ def create_sse_event_for_alert(alert_data: Dict) -> str:
         "event_type": f"house_guardian_{category}",
         "severity": severity,
         "severity_score": severity_scores.get(severity, 50),
-        "status": "active",
+        "status": "actionable",
         "current_step": 1,
         "primary_staff_id": None,  # HG is anonymous
         "affected_role": alert_data.get("location_context", "General"),
