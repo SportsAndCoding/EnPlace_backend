@@ -172,8 +172,6 @@ async def register(request: RegisterRequest):
             "email": request.owner_email,
             "password_hash": password_hash,
             "full_name": full_name,
-            "first_name": request.owner_first_name,
-            "last_name": request.owner_last_name,
             "phone": request.owner_phone,
             "position": "Owner",
             "portal_access": "manager",
