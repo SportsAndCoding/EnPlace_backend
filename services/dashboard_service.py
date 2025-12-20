@@ -688,7 +688,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         "coverage_gap": {"icon": "⚠️", "action": "Find Coverage", "secondary": None, "boost": 2},
         "pto_request": {"icon": "🏖️", "action": "Review", "secondary": None, "boost": 1},
         "escalation": {"icon": "🚨", "action": "Review", "secondary": None, "boost": 2},
-        "schedule_issue": {"icon": "📅", "action": "Review", "secondary": None, "boost": 1},
+        "schedule_issue": {"icon": "📅", "action": "Done", "secondary": "Dismiss", "boost": 2},
         "schedule_summary": {"icon": "📊", "action": "View Report", "secondary": None, "boost": 0},
         "system": {"icon": "📋", "action": "View", "secondary": None, "boost": 1}
     }

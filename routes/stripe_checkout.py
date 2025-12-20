@@ -33,7 +33,7 @@ PRICE_IDS = {
 }
 
 # Frontend URLs
-SUCCESS_URL = "https://enplace.app/register?session_id={CHECKOUT_SESSION_ID}"
+SUCCESS_URL = "https://en-place.ai/register?session_id={CHECKOUT_SESSION_ID}"
 CANCEL_URL = "https://en-place.ai/pricing"
 
 
