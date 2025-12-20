@@ -49,6 +49,7 @@ POSITION_KEYWORDS = {
     "busser": "Busser",
     "busboy": "Busser",
     "bus": "Busser",
+    "bssr": "Busser",
     "runner": "Food Runner",
     "food runner": "Food Runner",
     "fr": "Food Runner",
@@ -90,6 +91,7 @@ POSITION_KEYWORDS = {
     # Management
     "manager": "Manager",
     "mgr": "Manager",
+    "mod": "Manager",
     "gm": "General Manager",
     "general manager": "General Manager",
     "agm": "Assistant Manager",
@@ -190,6 +192,9 @@ def fuzzy_match_position(text: str, threshold: float = 0.7) -> Optional[str]:
 def is_likely_name(text: str) -> bool:
     """Check if text looks like a person's name."""
     text = text.strip()
+    # Remove quotes that might wrap CSV values
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1].strip()
     
     if len(text) < 2 or len(text) > 50:
         return False
@@ -206,15 +211,31 @@ def is_likely_name(text: str) -> bool:
     if text.lower() in skip_words:
         return False
     
+    # First char should be a letter (including unicode letters)
     if not text[0].isalpha():
+        return False
+    
+    # Should contain mostly letters, spaces, and name punctuation (apostrophes, hyphens, periods)
+    # Allow unicode letters for names like Rodríguez
+    clean = re.sub(r"['\-.\s''`]", '', text)
+    if not all(c.isalpha() for c in clean):
         return False
     
     return True
 
 
 def normalize_name(name: str) -> str:
-    """Normalize a name to Title Case."""
+    """Normalize a name to Title Case and clean up."""
+    # Remove surrounding quotes
+    if name.startswith('"') and name.endswith('"'):
+        name = name[1:-1]
+    
+    # Normalize whitespace
     name = ' '.join(name.split())
+    
+    # Normalize apostrophes and quotes
+    name = name.replace(''', "'").replace(''', "'").replace('`', "'")
+    
     parts = name.split()
     normalized_parts = []
     
@@ -308,10 +329,20 @@ def parse_line_for_staff(line: str, section_context: Optional[str] = None) -> Op
 
 def extract_from_text(raw_text: str) -> List[Dict]:
     """Extract name-position pairs from raw text."""
+    
+    # Check if this looks like CSV content (has commas and consistent structure)
+    lines = raw_text.strip().split('\n')
+    if len(lines) > 1:
+        first_line_commas = lines[0].count(',')
+        if first_line_commas >= 2:
+            # Likely CSV - check if most lines have similar comma count
+            csv_like = sum(1 for line in lines[1:5] if abs(line.count(',') - first_line_commas) <= 1)
+            if csv_like >= min(2, len(lines) - 1):
+                # Parse as CSV
+                return extract_from_csv(raw_text)
+    
     results = []
     current_section_context = None
-    
-    lines = raw_text.split('\n')
     
     for line in lines:
         line = line.strip()
@@ -348,24 +379,72 @@ def extract_from_csv(csv_text: str) -> List[Dict]:
         first_name_col = None
         last_name_col = None
         
-        name_candidates = ['name', 'full name', 'fullname', 'employee', 'employee name', 
-                          'staff', 'staff name', 'team member']
+        # Comprehensive list of possible name column headers
+        name_candidates = [
+            # Canonical
+            "name", "full name", "fullname", "full_name",
+            
+            # Employee variants
+            "employee", "employee name", "employee_name", "employee full name", "employee fullname",
+            "employeename", "emp name", "emp_name", "emp",
+            "employeeid", "employee id", "employee_id", "employee_number", "employee_no",
+            "emp_no", "empno",
+            
+            # Staff/team variants
+            "staff", "staff name", "staff_name", "staffname", "staff member", "staffmember", "staff_member",
+            "team", "team member", "team_member", "teammember",
+            "crew", "crew member", "crew_member", "crewmember", "crewname", "crew_name", "crew name",
+            "associate", "associate name", "associate_name", "associatename",
+            "worker", "worker name", "worker_name", "workername",
+            
+            # Person/user/contact variants
+            "person", "person name", "person_name", "personname",
+            "contact", "contact name", "contact_name", "contactname",
+            "member", "member name", "member_name", "membername",
+            "user", "user name", "username", "user_name",
+            "display name", "display_name", "displayname",
+            "preferred name", "preferred_name",
+            "legal name", "legal_name",
+            "nickname",
+            
+            # Manager/supervisor (common in org charts)
+            "manager", "manager name", "manager_name", "managername",
+            "supervisor", "supervisor name", "supervisor_name", "supervisorname",
+            
+            # Common shorthand/mislabels
+            "employee full", "staff full",
+            
+            # Generic but sometimes used
+            "id",
+        ]
         for candidate in name_candidates:
             if candidate in headers:
                 name_col = headers[candidate]
                 break
         
-        position_candidates = ['position', 'role', 'title', 'job', 'job title', 'department']
+        position_candidates = ['position', 'role', 'title', 'job', 'job title', 'job_title', 
+                               'jobtitle', 'department', 'dept', 'classification']
         for candidate in position_candidates:
             if candidate in headers:
                 position_col = headers[candidate]
                 break
         
-        for key in headers:
-            if 'first' in key and 'name' in key:
-                first_name_col = headers[key]
-            if 'last' in key and 'name' in key:
-                last_name_col = headers[key]
+        # First name column detection
+        first_name_candidates = ['first name', 'firstname', 'first_name', 'given name', 
+                                 'given_name', 'givenname', 'fname', 'f_name', 'first']
+        for candidate in first_name_candidates:
+            if candidate in headers:
+                first_name_col = headers[candidate]
+                break
+        
+        # Last name column detection  
+        last_name_candidates = ['last name', 'lastname', 'last_name', 'surname', 
+                                'family name', 'family_name', 'familyname', 'lname', 
+                                'l_name', 'last']
+        for candidate in last_name_candidates:
+            if candidate in headers:
+                last_name_col = headers[candidate]
+                break
         
         for row in reader:
             # Build name
@@ -457,6 +536,70 @@ position2
 # DUPLICATE DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEDUPLICATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def normalize_name_for_dedup(name: str) -> str:
+    """Normalize name for deduplication matching."""
+    # Remove extra whitespace, lowercase, strip punctuation variations
+    name = ' '.join(name.lower().split())
+    # Normalize apostrophes
+    name = name.replace(''', "'").replace(''', "'")
+    # Remove suffixes for matching
+    for suffix in [' jr.', ' jr', ' sr.', ' sr', ' ii', ' iii', ' iv']:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+    return name.strip()
+
+
+def deduplicate_staff(staff_list: List[Dict]) -> List[Dict]:
+    """
+    Deduplicate staff entries from schedules.
+    
+    Schedules have the same person on multiple days/shifts.
+    We want unique people, keeping the best position match.
+    """
+    # Group by normalized name
+    name_groups: Dict[str, List[Dict]] = {}
+    
+    for staff in staff_list:
+        key = normalize_name_for_dedup(staff['name'])
+        if not key:
+            continue
+        if key not in name_groups:
+            name_groups[key] = []
+        name_groups[key].append(staff)
+    
+    # For each group, pick the best entry
+    confidence_rank = {'high': 3, 'medium': 2, 'low': 1}
+    deduplicated = []
+    
+    for key, entries in name_groups.items():
+        if len(entries) == 1:
+            deduplicated.append(entries[0])
+        else:
+            # Sort by confidence (highest first), then by position specificity
+            entries.sort(key=lambda x: (
+                confidence_rank.get(x.get('confidence', 'low'), 0),
+                0 if x.get('position') == 'Team Member' else 1  # Prefer specific positions
+            ), reverse=True)
+            
+            best = entries[0]
+            
+            # Check if there are conflicting positions (different high-confidence positions)
+            positions = set(e['position'] for e in entries if e.get('confidence') == 'high')
+            if len(positions) > 1:
+                # Multiple valid positions - might be different people or multi-role
+                # Keep the most common one
+                position_counts = Counter(e['position'] for e in entries)
+                best['position'] = position_counts.most_common(1)[0][0]
+            
+            deduplicated.append(best)
+    
+    return deduplicated
+
+
 def detect_duplicates(staff_list: List[Dict]) -> List[Dict]:
     """Flag potential duplicates based on name matching."""
     name_counts = Counter(s['name'].lower() for s in staff_list)
@@ -509,6 +652,9 @@ async def extract_team_from_text(
             'staff': [],
             'stats': {}
         }
+    
+    # Deduplicate - schedules have same person on multiple days
+    staff_list = deduplicate_staff(staff_list)
     
     # LLM fallback for unmatched roles
     if use_llm_fallback:
