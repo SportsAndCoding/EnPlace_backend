@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Weekly Stability Report</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #F7F3E9;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+        style="background-color: #F7F3E9; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+                    style="max-width: 540px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(88, 24, 69, 0.12);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color: #581845; padding: 32px 40px;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td>
+                                        <img src="{{logo_url}}" alt="En Place" width="32" height="32"
+                                            style="display: block; margin-bottom: 8px;">
+                                        <p
+                                            style="margin: 0 0 4px 0; color: #D4AF37; font-size: 12px; font-weight: 600; letter-spacing: 1px;">
+                                            WEEKLY REPORT</p>
+                                        <h1
+                                            style="margin: 0; color: #F7F3E9; font-size: 20px; font-weight: 600; font-family: Georgia, serif;">
+                                            {{restaurant_name}}</h1>
+                                    </td>
+                                    <td align="right" valign="bottom">
+                                        <p style="margin: 0; color: rgba(247, 243, 233, 0.7); font-size: 13px;">
+                                            {{week_range}}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Stability Score Hero -->
+                    <tr>
+                        <td
+                            style="padding: 32px 40px; text-align: center; border-bottom: 1px solid rgba(88, 24, 69, 0.1);">
+                            <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 14px;">Team Stability Score</p>
+                            <p
+                                style="margin: 0 0 8px 0; color: {{score_color}}; font-size: 56px; font-weight: 700; line-height: 1; font-family: Georgia, serif;">
+                                {{stability_score}}</p>
+                            <p style="margin: 0; color: {{trend_color}}; font-size: 14px; font-weight: 500;">
+                                {{trend_indicator}} {{trend_text}} from last week</p>
+                        </td>
+                    </tr>
+
+                    <!-- Key Metrics -->
+                    <tr>
+                        <td style="padding: 28px 40px;">
+                            <p style="margin: 0 0 20px 0; color: #581845; font-size: 16px; font-weight: 600;">This
+                                Week's Numbers</p>
+
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td width="33%"
+                                        style="text-align: center; padding: 16px 8px; background-color: #F7F3E9; border-radius: 8px 0 0 8px;">
+                                        <p
+                                            style="margin: 0 0 4px 0; color: #581845; font-size: 28px; font-weight: 700;">
+                                            {{checkin_rate}}%</p>
+                                        <p style="margin: 0; color: #6b7280; font-size: 12px;">Check-in Rate</p>
+                                    </td>
+                                    <td width="33%"
+                                        style="text-align: center; padding: 16px 8px; background-color: #F7F3E9; border-left: 1px solid rgba(88, 24, 69, 0.1); border-right: 1px solid rgba(88, 24, 69, 0.1);">
+                                        <p
+                                            style="margin: 0 0 4px 0; color: #581845; font-size: 28px; font-weight: 700;">
+                                            {{avg_mood}}</p>
+                                        <p style="margin: 0; color: #6b7280; font-size: 12px;">Avg Mood</p>
+                                    </td>
+                                    <td width="33%"
+                                        style="text-align: center; padding: 16px 8px; background-color: #F7F3E9; border-radius: 0 8px 8px 0;">
+                                        <p
+                                            style="margin: 0 0 4px 0; color: #581845; font-size: 28px; font-weight: 700;">
+                                            {{shifts_covered}}</p>
+                                        <p style="margin: 0; color: #6b7280; font-size: 12px;">Shifts Covered</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Alerts Summary -->
+                    <tr>
+                        <td style="padding: 0 40px 28px 40px;">
+                            <div style="background-color: {{alerts_bg}}; border-radius: 8px; padding: 20px;">
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                    <tr>
+                                        <td>
+                                            <p
+                                                style="margin: 0 0 4px 0; color: {{alerts_text}}; font-size: 14px; font-weight: 600;">
+                                                {{alerts_count}} Alert(s) This Week</p>
+                                            <p style="margin: 0; color: {{alerts_subtext}}; font-size: 13px;">
+                                                {{alerts_summary}}</p>
+                                        </td>
+                                        <td width="80" align="right">
+                                            <a href="{{alerts_link}}"
+                                                style="color: #581845; font-size: 13px; font-weight: 500; text-decoration: none;">View
+                                                →</a>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Insight of the Week -->
+                    <tr>
+                        <td style="padding: 0 40px 32px 40px;">
+                            <div style="border-left: 4px solid #D4AF37; padding-left: 20px;">
+                                <p
+                                    style="margin: 0 0 4px 0; color: #D4AF37; font-size: 11px; font-weight: 600; letter-spacing: 1px;">
+                                    INSIGHT</p>
+                                <p style="margin: 0; color: #2C3E50; font-size: 14px; line-height: 1.6;">
+                                    {{weekly_insight}}</p>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- CTA -->
+                    <tr>
+                        <td style="padding: 0 40px 32px 40px; text-align: center;">
+                            <a href="{{dashboard_link}}"
+                                style="display: inline-block; background-color: #D4AF37; color: #581845; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 32px; border-radius: 8px;">View
+                                Full Dashboard</a>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #F7F3E9; padding: 24px 40px; border-top: 1px solid rgba(88, 24, 69, 0.1);">
+                            <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 12px; text-align: center;">
+                                Sent every Monday at 8:00 AM · <a href="{{settings_link}}"
+                                    style="color: #581845; text-decoration: none;">Change delivery time</a>
+                            </p>
+                            <p style="margin: 0; color: #9ca3af; font-size: 12px; text-align: center;">
+                                © 2025 En Place
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

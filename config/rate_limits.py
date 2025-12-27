@@ -1,5 +1,4 @@
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 def get_identifier(request):
     """Get rate limit key: user ID if authenticated, IP if not"""
@@ -14,7 +13,16 @@ def get_identifier(request):
             return f"user:{payload.get('staff_id')}"
         except:
             pass
-    return f"ip:{get_remote_address(request)}"
+    
+    # Get real IP from Heroku's X-Forwarded-For header
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        # X-Forwarded-For can be comma-separated, first one is the real client
+        real_ip = forwarded.split(",")[0].strip()
+        return f"ip:{real_ip}"
+    
+    # Fallback to direct client IP
+    return f"ip:{request.client.host}"
 
 limiter = Limiter(key_func=get_identifier)
 
@@ -22,6 +30,6 @@ limiter = Limiter(key_func=get_identifier)
 LIMITS = {
     "auth": "5/minute",        # Brute force protection
     "write": "30/minute",      # POST/PUT/DELETE
-    "read": "100/minute",      # GET endpoints
+    "read": "100/minute",      # GET endpoints  
     "public": "60/minute",     # Health, root
 }
