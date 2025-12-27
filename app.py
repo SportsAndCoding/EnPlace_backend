@@ -15,6 +15,11 @@ from config.settings import ALLOWED_ORIGINS, SUPABASE_URL, SUPABASE_KEY, JWT_SEC
 from routes import staff
 from services.auth_service import verify_jwt_token
 from routes.staff import router as staff_router
+from fastapi import Request
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from config.rate_limits import limiter, LIMITS
+
 
 
 
@@ -39,6 +44,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.options("/{rest_of_path:path}")
 async def preflight_handler(rest_of_path: str):
@@ -181,10 +190,11 @@ async def health_check():
         }
 
 @app.post("/auth/login")
-async def login(request: LoginRequest):
+@limiter.limit(LIMITS["auth"])
+async def login(request: Request, login_data: LoginRequest):
     """Staff login endpoint"""
     try:
-        staff_data = await authenticate_staff_db(request.email)
+        staff_data = await authenticate_staff_db(login_data.email)
         
         if not staff_data:
             return {
@@ -192,7 +202,7 @@ async def login(request: LoginRequest):
                 "error": "Invalid email or password"
             }
         
-        if not verify_password(request.password, staff_data['password_hash']):
+        if not verify_password(login_data.password, staff_data['password_hash']):
             return {
                 "success": False, 
                 "error": "Invalid email or password"
