@@ -159,7 +159,8 @@ from routes.stripe_checkout import router as stripe_router
 app.include_router(stripe_router)
 from routes.registration import router as registration_router
 app.include_router(registration_router)
-
+from routes.recruiting import router as recruiting_router
+app.include_router(recruiting_router)
 
 
 @app.get("/")
