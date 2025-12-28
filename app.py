@@ -74,6 +74,7 @@ class LoginRequest(BaseModel):
     password: str
 
 class ChangePasswordRequest(BaseModel):
+    email: EmailStr
     current_password: str
     new_password: str
 
@@ -293,25 +294,25 @@ async def logout():
     }
 
 @app.post("/auth/change-password")
-async def change_password(
-    request: ChangePasswordRequest,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
-):
-    """Change password for authenticated staff"""
+async def change_password(request: ChangePasswordRequest):
+    """Change password using email + current password verification (no JWT required)"""
     try:
-        # Get current password hash from database
-        result = supabase.table('staff').select('password_hash').eq(
-            'staff_id', current_staff['staff_id']
+        # Get staff by email
+        result = supabase.table('staff').select('staff_id, password_hash').eq(
+            'email', request.email
         ).single().execute()
         
         if not result.data:
-            raise HTTPException(status_code=404, detail="Staff not found")
+            return {
+                "success": False,
+                "error": "Invalid email or password"
+            }
         
         # Verify current password
         if not verify_password(request.current_password, result.data['password_hash']):
             return {
                 "success": False,
-                "error": "Current password is incorrect"
+                "error": "Invalid email or password"
             }
         
         # Validate new password
@@ -325,15 +326,13 @@ async def change_password(
         new_hash = hash_password(request.new_password)
         supabase.table('staff').update({
             'password_hash': new_hash
-        }).eq('staff_id', current_staff['staff_id']).execute()
+        }).eq('staff_id', result.data['staff_id']).execute()
         
         return {
             "success": True,
             "message": "Password changed successfully"
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Change password error: {e}")
         return {
