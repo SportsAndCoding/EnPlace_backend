@@ -23,6 +23,11 @@ def get_identifier(request):
 
 # Use Redis for shared state across workers, fallback to memory for local dev
 REDIS_URL = os.getenv("REDIS_URL", "memory://")
+
+# Heroku Redis uses rediss:// (SSL) - need to add ssl params
+if REDIS_URL.startswith("rediss://"):
+    REDIS_URL = f"{REDIS_URL}?ssl_cert_reqs=none"
+
 limiter = Limiter(key_func=get_identifier, storage_uri=REDIS_URL)
 
 LIMITS = {
