@@ -15,6 +15,8 @@ from config.settings import ALLOWED_ORIGINS, SUPABASE_URL, SUPABASE_KEY, JWT_SEC
 from routes import staff
 from services.auth_service import verify_jwt_token
 from routes.staff import router as staff_router
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 from fastapi import Request
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -29,6 +31,19 @@ logger = logging.getLogger(__name__)
 
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Initialize Sentry error monitoring
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=0.1,  # 10% of requests for performance
+        environment=os.getenv("ENVIRONMENT", "production"),
+        release=f"enplace-api@3.0.0",
+        send_default_pii=False,  # Don't send personal info
+    )
+    logger.info("Sentry error monitoring initialized")
 
 # Initialize FastAPI
 app = FastAPI(
@@ -283,6 +298,15 @@ async def get_my_schedule(current_staff: Dict[str, Any] = Depends(verify_jwt_tok
         "success": True,
         "schedule": []
     }
+
+@app.get("/debug/sentry-test")
+async def trigger_sentry_test():
+    """Test endpoint to verify Sentry integration - remove in production"""
+    try:
+        division_by_zero = 1 / 0
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+        return {"message": "Test error sent to Sentry"}
 
 if __name__ == "__main__":
     import uvicorn
