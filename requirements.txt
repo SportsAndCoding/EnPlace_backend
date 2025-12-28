@@ -12,3 +12,4 @@ stripe>=7.0.0
 slowapi==0.1.9
 redis
 sentry-sdk[fastapi]>=2.0.0
+twilio>=8.0.0

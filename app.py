@@ -175,7 +175,10 @@ app.include_router(stripe_router)
 from routes.registration import router as registration_router
 app.include_router(registration_router)
 from routes.recruiting import router as recruiting_router
-app.include_router(recruiting_router)
+app.include_router(recruiting_router
+)
+from routes.sms import router as sms_router
+app.include_router(sms_router)
 
 
 @app.get("/")
@@ -298,15 +301,6 @@ async def get_my_schedule(current_staff: Dict[str, Any] = Depends(verify_jwt_tok
         "success": True,
         "schedule": []
     }
-
-@app.get("/debug/sentry-test")
-async def trigger_sentry_test():
-    """Test endpoint to verify Sentry integration - remove in production"""
-    try:
-        division_by_zero = 1 / 0
-    except Exception as e:
-        sentry_sdk.capture_exception(e)
-        return {"message": "Test error sent to Sentry"}
 
 if __name__ == "__main__":
     import uvicorn
