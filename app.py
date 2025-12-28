@@ -73,6 +73,11 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 # ===== UTILITY FUNCTIONS (MUST BE BEFORE ENDPOINTS) =====
 
 def hash_password(password: str) -> str:
@@ -130,6 +135,7 @@ async def authenticate_staff_db(email: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Database authentication error: {e}")
         return None
+
 
 async def update_last_login_db(staff_id: str) -> bool:
     """Update staff last login timestamp"""
@@ -285,6 +291,56 @@ async def logout():
         "success": True,
         "message": "Logged out successfully"
     }
+
+@app.post("/auth/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """Change password for authenticated staff"""
+    try:
+        # Get current password hash from database
+        result = supabase.table('staff').select('password_hash').eq(
+            'staff_id', current_staff['staff_id']
+        ).single().execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Staff not found")
+        
+        # Verify current password
+        if not verify_password(request.current_password, result.data['password_hash']):
+            return {
+                "success": False,
+                "error": "Current password is incorrect"
+            }
+        
+        # Validate new password
+        if len(request.new_password) < 8:
+            return {
+                "success": False,
+                "error": "New password must be at least 8 characters"
+            }
+        
+        # Hash and update new password
+        new_hash = hash_password(request.new_password)
+        supabase.table('staff').update({
+            'password_hash': new_hash
+        }).eq('staff_id', current_staff['staff_id']).execute()
+        
+        return {
+            "success": True,
+            "message": "Password changed successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Change password error: {e}")
+        return {
+            "success": False,
+            "error": "An error occurred while changing password"
+        }
+
 
 @app.get("/api/notifications")
 async def get_notifications(current_staff: Dict[str, Any] = Depends(verify_jwt_token)):
