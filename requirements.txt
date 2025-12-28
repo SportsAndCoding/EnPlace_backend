@@ -10,3 +10,4 @@ scipy
 openai>=1.0.0
 stripe>=7.0.0
 slowapi==0.1.9
+redis
