@@ -96,6 +96,10 @@ async def update_staff_member(
         "can_edit_staff": staff_data.can_edit_staff
     }
     
+    # Only update phone if provided
+    if hasattr(staff_data, 'phone') and staff_data.phone is not None:
+        update_data["phone"] = staff_data.phone
+    
     # Only update hourly_rate if payRate was explicitly provided
     if hasattr(staff_data, "payRate") and staff_data.payRate is not None:
         update_data["hourly_rate"] = staff_data.payRate
