@@ -43,7 +43,6 @@ async def create_staff_member(
         "full_name": staff_data.name,
         "position": staff_data.position,
         "hire_date": staff_data.hireDate.isoformat(),
-        "hourly_rate": staff_data.payRate,
         "skills": staff_data.skills,
         "notes": staff_data.notes,
         "portal_access": staff_data.portal_access,
@@ -52,7 +51,11 @@ async def create_staff_member(
         "restaurant_id": restaurant_id,
         "password_hash": password_hash  # ADD THIS LINE
     }
-    
+
+    # Only set hourly_rate if payRate was provided
+    if hasattr(staff_data, "payRate") and staff_data.payRate is not None:
+        new_staff["hourly_rate"] = staff_data.payRate
+
     result = supabase.table('staff').insert(new_staff).execute()
     
     # Log the change
@@ -90,12 +93,14 @@ async def update_staff_member(
         "full_name": staff_data.name,
         "position": staff_data.position,
         "hire_date": staff_data.hireDate.isoformat(),
-        "hourly_rate": staff_data.payRate,
         "skills": staff_data.skills,
         "notes": staff_data.notes,
         "portal_access": staff_data.portal_access,
         "can_edit_staff": staff_data.can_edit_staff
     }
+    # Only update hourly_rate if payRate was explicitly provided
+    if hasattr(staff_data, "payRate") and staff_data.payRate is not None:
+        update_data["hourly_rate"] = staff_data.payRate
     
     if staff_data.email:
         update_data["email"] = staff_data.email

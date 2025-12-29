@@ -6,7 +6,7 @@ class StaffBase(BaseModel):
     name: str
     position: str
     hireDate: date
-    payRate: float
+    payRate: Optional[float] = None
     skills: List[str] = []
     notes: Optional[str] = None
     portal_access: str = "none"
