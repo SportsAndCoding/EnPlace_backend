@@ -1170,11 +1170,11 @@ def compute_mood_heatmap(checkins_7d: list) -> dict:
     
     return {
         "local": {
-            "insight": f"{worst_spot} worse than usual by 22%" if worst_spot else "Stable mood across all shifts",
+            "insight": f"⚠️ {worst_spot} is running 22% below your team's usual energy. Consider checking in with that shift." if worst_spot else "✨ Mood is steady across all shifts. Your team feels consistent.",
             "data": local_data
         },
         "network": {
-            "insight": f"{worst_spot} better than 64% of restaurants" if worst_spot else "On par with network",
+            "insight": f"🏆 Your {worst_spot} outperforms 64% of restaurants in the network. Whatever you're doing there, keep it up." if worst_spot else "📊 Your mood patterns match the network average. Room to stand out.",
             "data": network_data
         }
     }
