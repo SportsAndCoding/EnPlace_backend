@@ -98,6 +98,7 @@ async def update_staff_member(
         "portal_access": staff_data.portal_access,
         "can_edit_staff": staff_data.can_edit_staff
     }
+    
     # Only update hourly_rate if payRate was explicitly provided
     if hasattr(staff_data, "payRate") and staff_data.payRate is not None:
         update_data["hourly_rate"] = staff_data.payRate
