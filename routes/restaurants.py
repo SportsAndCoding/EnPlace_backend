@@ -1,6 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
-from services.auth_service import verify_jwt_token as get_current_user
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
+from services.auth_service import verify_jwt_token as get_current_user, require_edit_permission
 from database.supabase_client import get_supabase
+
+
+class RestaurantUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    timezone: Optional[str] = None
+    operating_hours: Optional[Dict[str, Any]] = None
+    pay_frequency: Optional[str] = None
+    next_pay_date: Optional[str] = None
 
 router = APIRouter(prefix="/api/restaurants", tags=["restaurants"])
 
@@ -37,7 +49,63 @@ async def get_restaurant(
             status_code=500,
             detail=f"Failed to fetch restaurant: {str(e)}"
         )
-    
+
+
+@router.put("/{restaurant_id}")
+async def update_restaurant(
+    restaurant_id: int,
+    update_data: RestaurantUpdate,
+    current_user: dict = Depends(require_edit_permission)
+):
+    """Update restaurant settings"""
+    if current_user['restaurant_id'] != restaurant_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    supabase = get_supabase()
+
+    try:
+        updates = {}
+        if update_data.name is not None:
+            updates['name'] = update_data.name
+        if update_data.address is not None:
+            updates['address'] = update_data.address
+        if update_data.phone is not None:
+            updates['phone'] = update_data.phone
+        if update_data.timezone is not None:
+            updates['timezone'] = update_data.timezone
+        if update_data.operating_hours is not None:
+            updates['operating_hours'] = update_data.operating_hours
+        if update_data.pay_frequency is not None:
+            updates['pay_frequency'] = update_data.pay_frequency
+        if update_data.next_pay_date is not None:
+            updates['next_pay_date'] = update_data.next_pay_date
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        response = supabase.from_('restaurants') \
+            .update(updates) \
+            .eq('id', restaurant_id) \
+            .execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Restaurant not found")
+
+        return {
+            "success": True,
+            "message": "Restaurant settings updated",
+            "restaurant": response.data[0]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update restaurant: {str(e)}"
+        )
+
+
 @router.get("/restaurants/{restaurant_id}/operating-settings")
 async def get_operating_settings(
     restaurant_id: int,
