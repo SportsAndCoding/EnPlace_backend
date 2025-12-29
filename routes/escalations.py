@@ -430,7 +430,7 @@ async def resolve_escalation(
         }).execute()
         
         updated = supabase.table("sse_escalation_events") \
-            .select("*, primary_staff:primary_staff_id(full_name, position)") \
+            .select("*") \
             .eq("id", escalation_id) \
             .single() \
             .execute()
