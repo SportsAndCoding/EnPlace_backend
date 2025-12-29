@@ -8,14 +8,11 @@ from services.audit_service import log_staff_change
 logger = logging.getLogger(__name__)
 
 async def get_staff_list(restaurant_id: int) -> List[Dict[str, Any]]:
-    """Get all staff for a restaurant"""
-    supabase = get_supabase()
-    
+    supabase = get_supabase()  # Fresh client
     result = supabase.table('staff').select(
         'staff_id, email, full_name, position, hourly_rate, hire_date, status, '
         'portal_access, can_edit_staff, skills, notes'
     ).eq('restaurant_id', restaurant_id).execute()
-    
     return result.data
 
 async def create_staff_member(
