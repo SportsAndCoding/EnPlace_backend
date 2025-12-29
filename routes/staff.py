@@ -126,7 +126,7 @@ async def reactivate_staff(
         
         # Update status to Active
         response = supabase.table('staff') \
-            .update({'status': 'Active'}) \
+            .update({'status': 'active'}) \
             .eq('staff_id', staff_id) \
             .eq('restaurant_id', current_staff["restaurant_id"]) \
             .execute()
@@ -140,7 +140,7 @@ async def reactivate_staff(
             action='REACTIVATE',
             changed_by=current_staff["staff_id"],
             restaurant_id=current_staff["restaurant_id"],
-            changed_fields={'status': {'old': 'Inactive', 'new': 'Active'}},
+            changed_fields={'status': {'old': 'inactive', 'new': 'active'}},
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent")
         )
