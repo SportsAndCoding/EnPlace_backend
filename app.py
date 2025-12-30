@@ -9,6 +9,8 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from supabase import create_client, Client
+import secrets
+
 
 # Import modular components
 from config.settings import ALLOWED_ORIGINS, SUPABASE_URL, SUPABASE_KEY, JWT_SECRET, JWT_ALGORITHM
@@ -76,6 +78,13 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     email: EmailStr
     current_password: str
+    new_password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
     new_password: str
 
 
@@ -339,6 +348,120 @@ async def change_password(request: ChangePasswordRequest):
             "success": False,
             "error": "An error occurred while changing password"
         }
+
+@app.post("/auth/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest):
+    """
+    Generate password reset token and return reset link.
+    In production, this would send an email instead of returning the link.
+    """
+    try:
+        # Check if email exists
+        result = supabase.table('staff').select('staff_id, email, full_name').eq(
+            'email', request.email
+        ).single().execute()
+        
+        if not result.data:
+            # Don't reveal whether email exists - always return success
+            return {
+                "success": True,
+                "message": "If this email exists in our system, you will receive a password reset link."
+            }
+        
+        # Generate secure token
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)  # Token valid for 1 hour
+        
+        # Store token in database
+        supabase.table('staff').update({
+            'reset_token': reset_token,
+            'reset_token_expires': expires_at.isoformat()
+        }).eq('staff_id', result.data['staff_id']).execute()
+        
+        # Build reset URL (adjust domain for production)
+        reset_url = f"https://enplace.app/reset-password.html?token={reset_token}"
+        
+        # TODO: Send email with reset_url when SendGrid is configured
+        # For now, log it for development/testing
+        logger.info(f"Password reset requested for {request.email}")
+        logger.info(f"Reset URL: {reset_url}")
+        
+        # In dev mode, include the link in response (REMOVE IN PRODUCTION)
+        return {
+            "success": True,
+            "message": "If this email exists in our system, you will receive a password reset link.",
+            # DEV ONLY - Remove this line in production:
+            "_dev_reset_url": reset_url
+        }
+        
+    except Exception as e:
+        logger.error(f"Forgot password error: {e}")
+        return {
+            "success": False,
+            "error": "An error occurred. Please try again."
+        }
+
+
+@app.post("/auth/reset-password")
+async def reset_password(request: ResetPasswordRequest):
+    """
+    Reset password using valid token.
+    """
+    try:
+        # Find staff with this token
+        result = supabase.table('staff').select(
+            'staff_id, reset_token, reset_token_expires'
+        ).eq('reset_token', request.token).single().execute()
+        
+        if not result.data:
+            return {
+                "success": False,
+                "error": "Invalid or expired reset link. Please request a new one."
+            }
+        
+        # Check if token is expired
+        expires_at = datetime.fromisoformat(result.data['reset_token_expires'].replace('Z', '+00:00'))
+        if datetime.now(expires_at.tzinfo) > expires_at:
+            # Clear expired token
+            supabase.table('staff').update({
+                'reset_token': None,
+                'reset_token_expires': None
+            }).eq('staff_id', result.data['staff_id']).execute()
+            
+            return {
+                "success": False,
+                "error": "Reset link has expired. Please request a new one."
+            }
+        
+        # Validate new password
+        if len(request.new_password) < 8:
+            return {
+                "success": False,
+                "error": "Password must be at least 8 characters."
+            }
+        
+        # Hash and update password, clear reset token
+        new_hash = hash_password(request.new_password)
+        supabase.table('staff').update({
+            'password_hash': new_hash,
+            'reset_token': None,
+            'reset_token_expires': None
+        }).eq('staff_id', result.data['staff_id']).execute()
+        
+        logger.info(f"Password reset successful for staff_id: {result.data['staff_id']}")
+        
+        return {
+            "success": True,
+            "message": "Password has been reset successfully. You can now log in with your new password."
+        }
+        
+    except Exception as e:
+        logger.error(f"Reset password error: {e}")
+        return {
+            "success": False,
+            "error": "An error occurred. Please try again."
+        }
+
 
 
 @app.get("/api/notifications")
