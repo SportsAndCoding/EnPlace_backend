@@ -56,6 +56,8 @@ class EscalationsService:
             logger.error(f"Create escalation error: {e}")
             raise e
     
+    
+    
     async def get_escalation_by_id(
         self, 
         escalation_id: str, 
@@ -77,6 +79,65 @@ class EscalationsService:
             logger.error(f"Get escalation error: {e}")
             raise e
     
+    async def complete_action(
+        self,
+        escalation_id: str,
+        restaurant_id: int,
+        action_taken: str,
+        actor_staff_id: str,
+        monitoring_days: int = 7
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Manager completed an action - enter monitoring phase.
+        System will evaluate mood data and decide next steps.
+        """
+        from datetime import timedelta, timezone
+        
+        try:
+            # Get current event
+            event = await self.get_escalation_by_id(escalation_id, restaurant_id)
+            if not event:
+                return None
+            
+            if event["status"] == "resolved":
+                raise ValueError("Cannot complete action on resolved event")
+            
+            current_step = event["current_step"]
+            now = datetime.now(timezone.utc)
+            
+            # Calculate current mood as baseline for monitoring
+            # (Will be refined by nightly job if needed)
+            baseline_mood = event.get("current_mood") or event.get("baseline_mood") or 3.0
+            
+            # Update to monitoring status
+            update_payload = {
+                "status": "monitoring",
+                "monitoring_start_date": now.isoformat(),
+                "monitoring_end_date": (now + timedelta(days=monitoring_days)).isoformat(),
+                "baseline_mood": baseline_mood,
+                "updated_at": now.isoformat()
+            }
+            
+            self.supabase.table("sse_escalation_events") \
+                .update(update_payload) \
+                .eq("id", escalation_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .execute()
+            
+            # Add history entry
+            await self.add_history_entry(
+                event_id=escalation_id,
+                step_number=current_step,
+                action_taken=action_taken,
+                actor_staff_id=actor_staff_id
+            )
+            
+            return await self.get_escalation_with_history(escalation_id, restaurant_id)
+        
+        except Exception as e:
+            logger.error(f"Complete action error: {e}")
+            raise e
+
     async def get_escalation_with_history(
         self, 
         escalation_id: str, 

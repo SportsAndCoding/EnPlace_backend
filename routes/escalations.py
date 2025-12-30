@@ -467,3 +467,47 @@ async def get_mood_history(escalation_id: str):
     except Exception as e:
         logger.error(f"Get mood history error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/{escalation_id}/complete-action")
+async def complete_escalation_action(
+    escalation_id: str,
+    action_taken: str = Query(..., description="Description of action completed"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Manager completed an action at current step.
+    Enters monitoring phase - system will evaluate and decide next steps.
+    """
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can complete actions"
+        )
+    
+    service = EscalationsService()
+    
+    try:
+        result = await service.complete_action(
+            escalation_id=escalation_id,
+            restaurant_id=current_user['restaurant_id'],
+            action_taken=action_taken,
+            actor_staff_id=current_user['staff_id']
+        )
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Escalation not found"
+            )
+        
+        return {
+            "success": True,
+            "escalation": result,
+            "message": f"Action completed. System monitoring for 7 days."
+        }
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Complete action error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

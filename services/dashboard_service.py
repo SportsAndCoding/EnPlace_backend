@@ -151,7 +151,7 @@ def get_escalations(restaurant_id: int) -> list:
     result = supabase.table("sse_escalation_events") \
         .select("*, primary_staff:primary_staff_id(full_name, position)") \
         .eq("restaurant_id", restaurant_id) \
-        .in_("status", ["active", "monitoring"]) \
+        .in_("status", ["actionable", "monitoring"]) \
         .execute()
     return result.data or []
 
@@ -710,7 +710,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     if escalations:
         for esc in escalations:
             # Only show active escalations
-            if esc.get("status") not in ["active", "monitoring"]:
+            if esc.get("status") not in ["actionable", "monitoring"]:
                 continue
 
             event_type = esc.get("event_type", "issue")
@@ -950,6 +950,10 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # ═══════════════════════════════════════════════════════════════════
     for notif in notifications:
         notif_type = notif.get("type", "system")
+        
+        # Skip escalation-type notifications - real escalations come from sse_escalation_events
+        if notif_type == "escalation":
+            continue
         mapping = type_mapping.get(notif_type, type_mapping["system"])
         
         # Calculate time ago
@@ -1174,7 +1178,7 @@ def compute_mood_heatmap(checkins_7d: list) -> dict:
             "data": local_data
         },
         "network": {
-            "insight": f"🏆 Your {worst_spot} outperforms 64% of restaurants in the network. Whatever you're doing there, keep it up." if worst_spot else "📊 Your mood patterns match the network average. Room to stand out.",
+            "insight": f"{worst_spot} better than 64% of restaurants" if worst_spot else "On par with network",
             "data": network_data
         }
     }
