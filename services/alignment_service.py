@@ -209,11 +209,11 @@ class AlignmentService:
             # We'll use the stability_score as a proxy for SMA (in production, 
             # you'd have actual SMA scores stored)
             result = self.supabase.table("synthetic_restaurants") \
-                .select("id, stability_score") \
+                .select("restaurant_id, sma_score") \
                 .execute()
-            
+
             restaurants = result.data or []
-            
+
             if len(restaurants) < 10:
                 # Not enough network data
                 return {
@@ -224,7 +224,7 @@ class AlignmentService:
                 }
             
             # Extract scores
-            network_scores = [r["stability_score"] for r in restaurants if r.get("stability_score")]
+            network_scores = [r["sma_score"] for r in restaurants if r.get("sma_score") is not None]
             
             if not network_scores:
                 return {
