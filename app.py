@@ -24,7 +24,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from config.rate_limits import limiter, LIMITS
 
-
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://app.en-place.ai')
 
 
 # Configure logging
@@ -379,7 +379,7 @@ async def forgot_password(request: ForgotPasswordRequest):
         }).eq('staff_id', result.data['staff_id']).execute()
         
         # Build reset URL (adjust domain for production)
-        reset_url = f"https://enplace.app/reset-password.html?token={reset_token}"
+        reset_url = f"https://app.en-place.ai/reset-password.html?token={reset_token}"
         
         # TODO: Send email with reset_url when SendGrid is configured
         # For now, log it for development/testing
@@ -461,8 +461,6 @@ async def reset_password(request: ResetPasswordRequest):
             "success": False,
             "error": "An error occurred. Please try again."
         }
-
-
 
 @app.get("/api/notifications")
 async def get_notifications(current_staff: Dict[str, Any] = Depends(verify_jwt_token)):
