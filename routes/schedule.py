@@ -352,3 +352,102 @@ async def update_work_profile(
     except Exception as e:
         logger.error(f"Failed to update work profile: {e}")
         raise HTTPException(status_code=500, detail="Failed to update profile")
+    
+# ═══════════════════════════════════════════════════════════════════════════
+# PREVENTED ISSUES (Manager clicked "I'll Fix This")
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PreventedIssueCreate(BaseModel):
+    week_of: str
+    schedule_upload_id: Optional[int] = None
+    issue_type: str
+    severity: str
+    title: str
+    description: Optional[str] = None
+    affected_staff_ids: Optional[List[str]] = None
+    affected_staff_names: Optional[List[str]] = None
+
+
+@router.post("/prevented")
+async def log_prevented_issue(
+    issue: PreventedIssueCreate,
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """
+    Log an issue that the manager will fix before publishing.
+    Tracks what En Place helped prevent.
+    """
+    restaurant_id = current_staff.get("restaurant_id")
+    staff_id = current_staff.get("staff_id")
+
+    if not restaurant_id:
+        raise HTTPException(status_code=400, detail="No restaurant associated with user")
+
+    try:
+        result = supabase.table("schedule_prevented_issues") \
+            .insert({
+                "restaurant_id": restaurant_id,
+                "schedule_upload_id": issue.schedule_upload_id,
+                "week_of": issue.week_of,
+                "issue_type": issue.issue_type,
+                "severity": issue.severity,
+                "title": issue.title,
+                "description": issue.description,
+                "affected_staff_ids": issue.affected_staff_ids,
+                "affected_staff_names": issue.affected_staff_names,
+                "prevented_by": staff_id
+            }) \
+            .execute()
+
+        logger.info(f"Prevented issue logged: restaurant={restaurant_id}, type={issue.issue_type}")
+
+        return {
+            "success": True,
+            "prevented_issue": result.data[0] if result.data else None,
+            "message": "Issue logged as prevented"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to log prevented issue: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to log issue: {str(e)}")
+
+
+@router.get("/prevented/stats")
+async def get_prevented_stats(
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+):
+    """
+    Get prevented issue statistics for analytics.
+    """
+    restaurant_id = current_staff.get("restaurant_id")
+
+    try:
+        result = supabase.table("schedule_prevented_issues") \
+            .select("id, issue_type, severity, prevented_at") \
+            .eq("restaurant_id", restaurant_id) \
+            .execute()
+
+        issues = result.data or []
+        total = len(issues)
+        by_type = {}
+        by_severity = {}
+
+        for issue in issues:
+            t = issue.get("issue_type", "unknown")
+            s = issue.get("severity", "unknown")
+            by_type[t] = by_type.get(t, 0) + 1
+            by_severity[s] = by_severity.get(s, 0) + 1
+
+        return {
+            "success": True,
+            "stats": {
+                "total_prevented": total,
+                "by_type": by_type,
+                "by_severity": by_severity,
+                "high_severity_prevented": by_severity.get("high", 0)
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to fetch prevented stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch stats")
