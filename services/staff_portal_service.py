@@ -154,6 +154,26 @@ class StaffPortalService:
         except Exception as e:
             logger.error(f"Update preferences error: {e}")
             raise e
+        
+    async def update_profile_photo(
+        self,
+        staff_id: str,
+        photo_url: str
+    ) -> Dict[str, Any]:
+        """Update staff profile photo URL"""
+        try:
+            result = self.supabase.table("staff") \
+                .update({"profile_photo_url": photo_url}) \
+                .eq("staff_id", staff_id) \
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            raise Exception("Update returned no data")
+
+        except Exception as e:
+            logger.error(f"Update profile photo error: {e}")
+            raise e
 
     # ═══════════════════════════════════════════════════════════════════
     # STABILITY POINTS

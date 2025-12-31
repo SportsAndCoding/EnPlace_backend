@@ -24,6 +24,10 @@ class PreferencesUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class ProfilePhotoUpdate(BaseModel):
+    photo_url: str
+
+
 class AwardPointsRequest(BaseModel):
     transaction_type: str
     points: Optional[int] = None
@@ -133,6 +137,33 @@ async def update_my_preferences(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update preferences: {str(e)}"
+        )
+
+
+@router.put("/me/photo")
+async def update_my_photo(
+    photo_data: ProfilePhotoUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update current staff member's profile photo"""
+    service = StaffPortalService()
+
+    try:
+        result = await service.update_profile_photo(
+            staff_id=current_user['staff_id'],
+            photo_url=photo_data.photo_url
+        )
+
+        return {
+            "success": True,
+            "profile": result,
+            "message": "Photo updated"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update photo: {str(e)}"
         )
 
 
