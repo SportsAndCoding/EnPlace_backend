@@ -11,8 +11,8 @@ import logging
 
 # Import your existing auth and database utilities
 # Adjust these imports based on your actual file structure
-from auth import get_current_user, require_manager
-from database import get_supabase
+from services.auth_service import verify_jwt_token
+from database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/rewards", tags=["rewards"])
