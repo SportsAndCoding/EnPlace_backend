@@ -94,8 +94,7 @@ def seed_demo_open_shifts(
     supabase_client,
     restaurant_id: int = 1,
     days_ahead: int = 7,
-    min_shifts: int = 8,
-    max_shifts: int = 12,
+    shifts_per_day: int = 2,
 ) -> Dict[str, int]:
     """
     Seed open shifts for Demo Bistro's Open Shift Marketplace.
@@ -104,8 +103,7 @@ def seed_demo_open_shifts(
         supabase_client: Initialized Supabase client
         restaurant_id: Target restaurant (default: Demo Bistro = 1)
         days_ahead: How many days into the future to seed
-        min_shifts: Minimum number of open shifts to create
-        max_shifts: Maximum number of open shifts to create
+        shifts_per_day: Number of open shifts per day (default: 2)
     
     Returns:
         Dict with stats: {"deleted": N, "created": N}
@@ -132,53 +130,30 @@ def seed_demo_open_shifts(
     stats["deleted"] += len(delete_future.data) if delete_future.data else 0
     
     # Step 2: Generate new open shifts
-    num_shifts = random.randint(min_shifts, max_shifts)
-    
-    # Distribute shifts across days (weight toward near-term)
-    # More shifts in first 3 days, fewer later
-    day_weights = [3, 3, 2, 2, 1, 1, 1]  # weights for days 0-6
-    
     shifts_to_create = []
-    positions_used_today = {}  # Track to avoid too many same-position same-day
     
-    for _ in range(num_shifts):
-        # Pick a day (weighted toward sooner)
-        day_offset = random.choices(range(days_ahead), weights=day_weights[:days_ahead])[0]
+    for day_offset in range(days_ahead):
         shift_date = today + timedelta(days=day_offset)
-        date_key = shift_date.isoformat()
         
-        # Pick a position (try to vary within same day)
-        available_positions = DEMO_POSITIONS.copy()
-        if date_key in positions_used_today:
-            # Deprioritize already-used positions for this day
-            for used_pos in positions_used_today[date_key]:
-                if used_pos in available_positions and len(available_positions) > 1:
-                    available_positions.remove(used_pos)
+        # Pick N different positions for this day
+        day_positions = random.sample(DEMO_POSITIONS, shifts_per_day)
         
-        position = random.choice(available_positions)
-        
-        # Track usage
-        if date_key not in positions_used_today:
-            positions_used_today[date_key] = []
-        positions_used_today[date_key].append(position)
-        
-        # Get shift template
-        template = _get_shift_template(position)
-        
-        # Build the shift record
-        shift_record = {
-            "restaurant_id": restaurant_id,
-            "position": position,
-            "date": shift_date.isoformat(),
-            "start_time": template["start"].strftime("%H:%M:%S"),
-            "end_time": template["end"].strftime("%H:%M:%S"),
-            "bonus_pay": _weighted_bonus(),
-            "description": template["desc"],
-            "created_by": None,
-            "status": "open",
-        }
-        
-        shifts_to_create.append(shift_record)
+        for position in day_positions:
+            template = _get_shift_template(position)
+            
+            shift_record = {
+                "restaurant_id": restaurant_id,
+                "position": position,
+                "date": shift_date.isoformat(),
+                "start_time": template["start"].strftime("%H:%M:%S"),
+                "end_time": template["end"].strftime("%H:%M:%S"),
+                "bonus_pay": _weighted_bonus(),
+                "description": template["desc"],
+                "created_by": None,
+                "status": "open",
+            }
+            
+            shifts_to_create.append(shift_record)
     
     # Step 3: Insert all shifts
     if shifts_to_create:
