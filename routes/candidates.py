@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional
 from services.auth_service import verify_jwt_token as get_current_user
 from services.candidates_service import CandidatesService
+from services.feature_gate import require_feature
 from models.candidates import (
     CandidateCreate,
     CandidateUpdate,
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/candidates", tags=["candidates"])
 @router.post("", response_model=CandidateCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_candidate(
     candidate: CandidateCreate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_feature("stable_hire"))
 ):
     """
     Create a new candidate in the hiring pipeline.

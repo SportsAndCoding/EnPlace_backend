@@ -76,11 +76,11 @@ def get_dashboard_data(restaurant_id: int) -> dict:
         "mood_heatmap": mood_heatmap,
         "quick_stats": quick_stats,
         "modules": {
-            "stable_schedule_builder": {"owned": True},
-            "stable_hire": {"owned": True},
-            "house_guardian": {"owned": True},
-            "open_shift_creator": {"owned": True},
-            "shift_swap": {"owned": True}
+            "stable_schedule_builder": {"owned": restaurant.get("has_schedule_optimizer", False)},
+            "stable_hire": {"owned": restaurant.get("has_stable_hire", False)},
+            "house_guardian": {"owned": restaurant.get("has_house_guardian", False)},
+            "open_shift_creator": {"owned": restaurant.get("has_open_shift_marketplace", False)},
+            "shift_swap": {"owned": restaurant.get("has_shift_swap", False)}
         },
         "timestamp": {
             "generated_at": datetime.utcnow().isoformat() + "Z",
@@ -94,20 +94,37 @@ def get_dashboard_data(restaurant_id: int) -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 def get_restaurant_info(restaurant_id: int) -> dict:
-    """Get restaurant basic info."""
+    """Get restaurant basic info including feature flags."""
     result = supabase.table("restaurants").select("*").eq("id", restaurant_id).single().execute()
     if result.data:
         r = result.data
         # Get staff count
         staff_result = supabase.table("staff").select("staff_id", count="exact").eq("restaurant_id", restaurant_id).eq("status", "Active").execute()
         staff_count = staff_result.count or 0
-        
+
         return {
             "name": r.get("name", "Restaurant"),
             "manager": r.get("manager_name", "Manager"),
-            "staff_count": staff_count
+            "staff_count": staff_count,
+            # Feature flags for paywall
+            "has_schedule_optimizer": r.get("has_schedule_optimizer", False),
+            "has_open_shift_marketplace": r.get("has_open_shift_marketplace", False),
+            "has_shift_swap": r.get("has_shift_swap", False),
+            "has_stable_hire": r.get("has_stable_hire", False),
+            "has_house_guardian": r.get("has_house_guardian", False),
+            "subscription_status": r.get("subscription_status", "none")
         }
-    return {"name": "Restaurant", "manager": "Manager", "staff_count": 0}
+    return {
+        "name": "Restaurant", 
+        "manager": "Manager", 
+        "staff_count": 0,
+        "has_schedule_optimizer": False,
+        "has_open_shift_marketplace": False,
+        "has_shift_swap": False,
+        "has_stable_hire": False,
+        "has_house_guardian": False,
+        "subscription_status": "none"
+    }
 
 
 def get_checkins(restaurant_id: int, start_date: date, end_date: date) -> list:

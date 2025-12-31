@@ -14,6 +14,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from services.auth_service import verify_jwt_token
+from services.feature_gate import require_feature
 from config.settings import SUPABASE_URL, SUPABASE_KEY
 from supabase import create_client
 
@@ -43,7 +44,7 @@ class AlertUpdateRequest(BaseModel):
 @router.get("/alerts")
 async def get_alerts(
     status: Optional[str] = None,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("house_guardian"))
 ):
     """
     Get House Guardian alerts for the current restaurant.

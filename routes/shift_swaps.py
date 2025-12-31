@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional
 from services.auth_service import verify_jwt_token as get_current_user
 from services.shift_swaps_service import ShiftSwapsService
+from services.feature_gate import require_feature
 
 router = APIRouter(prefix="/api/shift-swaps", tags=["shift-swaps"])
 
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/api/shift-swaps", tags=["shift-swaps"])
 async def get_shift_swaps(
     status_filter: Optional[str] = Query(default=None, alias="status"),
     include_past: bool = Query(default=False),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_feature("shift_swap"))
 ):
     """
     Get shift swap requests for the restaurant.

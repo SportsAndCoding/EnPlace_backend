@@ -18,6 +18,7 @@ from datetime import datetime, date
 from supabase import create_client, Client
 from config.settings import SUPABASE_URL, SUPABASE_KEY
 from services.auth_service import verify_jwt_token
+from services.feature_gate import require_feature
 
 import logging
 
@@ -65,7 +66,7 @@ class WorkProfileUpdate(BaseModel):
 @router.post("/upload", response_model=UploadScheduleResponse)
 async def upload_schedule(
     request: UploadScheduleRequest,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """
     Queue a schedule for overnight analysis.
@@ -158,7 +159,7 @@ async def upload_schedule(
 @router.get("/status/{upload_id}")
 async def get_upload_status(
     upload_id: int,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get status of a specific schedule upload."""
     restaurant_id = current_staff.get("restaurant_id")
@@ -201,7 +202,7 @@ async def get_upload_status(
 @router.get("/history")
 async def get_schedule_history(
     limit: int = 10,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get past schedule analyses for the restaurant."""
     restaurant_id = current_staff.get("restaurant_id")
@@ -226,7 +227,7 @@ async def get_schedule_history(
 
 @router.get("/latest")
 async def get_latest_analysis(
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get the most recent completed schedule analysis."""
     restaurant_id = current_staff.get("restaurant_id")
@@ -274,7 +275,7 @@ async def get_latest_analysis(
 
 @router.get("/profiles")
 async def get_work_profiles(
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get all staff work profiles for the restaurant."""
     restaurant_id = current_staff.get("restaurant_id")
@@ -308,7 +309,7 @@ async def get_work_profiles(
 async def update_work_profile(
     staff_id: str,
     update: WorkProfileUpdate,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Update a staff member's work profile."""
     restaurant_id = current_staff.get("restaurant_id")
@@ -371,7 +372,7 @@ class PreventedIssueCreate(BaseModel):
 @router.post("/prevented")
 async def log_prevented_issue(
     issue: PreventedIssueCreate,
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """
     Log an issue that the manager will fix before publishing.
@@ -414,7 +415,7 @@ async def log_prevented_issue(
 
 @router.get("/prevented/stats")
 async def get_prevented_stats(
-    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
+    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """
     Get prevented issue statistics for analytics.
