@@ -1140,10 +1140,14 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         })
     
     # ═══════════════════════════════════════════════════════════════════
-    # INJECT HOUSE GUARDIAN WEEKLY REPORT (MON/TUE ONLY)
+    # INJECT HOUSE GUARDIAN WEEKLY REPORT
+    # Network reports show every day (sales tool)
+    # Subscriber reports show Mon/Tue/Fri only
     # ═══════════════════════════════════════════════════════════════════
-    is_hg_report_day = date.today().weekday() in [0, 1, 4]  # Monday, Tuesday, Friday for testing
-    if is_hg_report_day and hg_weekly_report:
+    is_hg_report_day = date.today().weekday() in [0, 1, 4]  # Monday, Tuesday, Friday
+    is_network_report = hg_weekly_report and hg_weekly_report.get("is_network_report", False)
+    
+    if hg_weekly_report and (is_network_report or is_hg_report_day):
         content = hg_weekly_report.get("report_content") or {}
         week_start = hg_weekly_report.get("week_start", "")
         week_end = hg_weekly_report.get("week_end", "")
