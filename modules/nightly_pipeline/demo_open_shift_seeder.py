@@ -174,7 +174,7 @@ def seed_demo_open_shifts(
             "end_time": template["end"].strftime("%H:%M:%S"),
             "bonus_pay": _weighted_bonus(),
             "description": template["desc"],
-            "created_by": "system_nightly",
+            "created_by": None,
             "status": "open",
         }
         
@@ -233,7 +233,7 @@ def ensure_minimum_open_shifts(
             "end_time": template["end"].strftime("%H:%M:%S"),
             "bonus_pay": _weighted_bonus(),
             "description": template["desc"],
-            "created_by": "system_nightly",
+            "created_by": None,
             "status": "open",
         })
     
