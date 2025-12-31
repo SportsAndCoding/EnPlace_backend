@@ -54,7 +54,7 @@ SHIFT_TEMPLATES = {
     ],
     "Dishwasher": [
         {"start": time(10, 0), "end": time(18, 0), "desc": "Day dish - steady pace"},
-        {"start": time(16, 0), "end": time(24, 0), "desc": "Night dish - dinner rush support"},
+        {"start": time(16, 0), "end": time(0, 0), "desc": "Night dish - dinner rush support"},
     ],
     "Prep Cook": [
         {"start": time(6, 0), "end": time(14, 0), "desc": "Morning prep - sauce and stock day"},
