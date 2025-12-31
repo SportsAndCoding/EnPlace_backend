@@ -471,3 +471,104 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
     except Exception as e:
         logger.error(f"Error getting subscription status: {e}")
         raise HTTPException(status_code=500, detail="Failed to get subscription status")
+    
+    class UpdateModulesRequest(BaseModel):
+        modules: List[str]
+
+
+    @router.post("/subscription/update-modules")
+    async def update_subscription_modules(
+        request: UpdateModulesRequest,
+        current_staff: dict = Depends(verify_jwt_token)
+    ):
+        """Update subscription modules - handles both additions and removals."""
+        supabase = get_supabase()
+        restaurant_id = current_staff.get("restaurant_id")
+        
+        if not restaurant_id:
+            raise HTTPException(status_code=401, detail="No restaurant associated with this account")
+        
+        # SSE is always required
+        desired_modules = list(set(request.modules))
+        if "sse" not in desired_modules:
+            desired_modules.insert(0, "sse")
+        
+        # Validate all modules
+        invalid = [m for m in desired_modules if m not in PRICE_IDS]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Invalid modules: {invalid}")
+        
+        result = supabase.table("restaurants") \
+            .select("stripe_subscription_id, modules_enabled, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
+            .eq("id", restaurant_id) \
+            .single() \
+            .execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Restaurant not found")
+        
+        # Derive current modules from boolean flags
+        current_modules = ["sse"]
+        if result.data.get("has_stable_hire"):
+            current_modules.append("stable_hire")
+        if result.data.get("has_schedule_optimizer"):
+            current_modules.append("stable_schedule")
+        if result.data.get("has_house_guardian"):
+            current_modules.append("house_guardian")
+        if result.data.get("has_open_shift_marketplace"):
+            current_modules.append("open_shift")
+        if result.data.get("has_shift_swap"):
+            current_modules.append("shift_swap")
+        
+        # Calculate changes
+        modules_to_add = [m for m in desired_modules if m not in current_modules]
+        modules_to_remove = [m for m in current_modules if m not in desired_modules and m != "sse"]
+        
+        if not modules_to_add and not modules_to_remove:
+            return {
+                "success": True,
+                "message": "No changes to make",
+                "modules_enabled": current_modules
+            }
+        
+        # Update database (skip Stripe for now - can add later)
+        supabase.table("restaurants").update({
+            "modules_enabled": desired_modules,
+            "has_stable_hire": "stable_hire" in desired_modules,
+            "has_schedule_optimizer": "stable_schedule" in desired_modules,
+            "has_house_guardian": "house_guardian" in desired_modules,
+            "has_open_shift_marketplace": "open_shift" in desired_modules,
+            "has_shift_swap": "shift_swap" in desired_modules,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", restaurant_id).execute()
+        
+        logger.info(f"Restaurant {restaurant_id} updated modules. Added: {modules_to_add}, Removed: {modules_to_remove}")
+        
+        return {
+            "success": True,
+            "modules_added": modules_to_add,
+            "modules_removed": modules_to_remove,
+            "modules_enabled": desired_modules
+        }
+
+
+    @router.post("/subscription/cancel")
+    async def cancel_subscription(
+        current_staff: dict = Depends(verify_jwt_token)
+    ):
+        """Cancel subscription at end of billing period."""
+        supabase = get_supabase()
+        restaurant_id = current_staff.get("restaurant_id")
+        
+        if not restaurant_id:
+            raise HTTPException(status_code=401, detail="No restaurant associated with this account")
+        
+        supabase.table("restaurants").update({
+            "subscription_status": "canceling",
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", restaurant_id).execute()
+        
+        return {
+            "success": True,
+            "message": "Subscription will cancel at end of billing period"
+        }
