@@ -471,13 +471,14 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
     except Exception as e:
         logger.error(f"Error getting subscription status: {e}")
         raise HTTPException(status_code=500, detail="Failed to get subscription status")
-    
-    class UpdateModulesRequest(BaseModel):
-        modules: List[str]
 
 
-    @router.post("/subscription/update-modules")
-    async def update_subscription_modules(
+class UpdateModulesRequest(BaseModel):
+    modules: List[str]
+
+
+@router.post("/subscription/update-modules")
+async def update_subscription_modules(
         request: UpdateModulesRequest,
         current_staff: dict = Depends(verify_jwt_token)
     ):
@@ -552,8 +553,8 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
         }
 
 
-    @router.post("/subscription/cancel")
-    async def cancel_subscription(
+@router.post("/subscription/cancel")
+async def cancel_subscription(
         current_staff: dict = Depends(verify_jwt_token)
     ):
         """Cancel subscription at end of billing period."""
