@@ -60,7 +60,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
 
@@ -768,10 +768,11 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
+    House Guardian alerts only shown if has_house_guardian subscription is active.
     """
     type_mapping = {
         "swap_request": {"icon": "🔄", "action": "Approve", "secondary": "Deny", "boost": 1},
@@ -856,9 +857,9 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             })
 
     # ═══════════════════════════════════════════════════════════════════
-    # INJECT HOUSE GUARDIAN ALERTS
+    # INJECT HOUSE GUARDIAN ALERTS (subscribers only)
     # ═══════════════════════════════════════════════════════════════════
-    if hg_alerts:
+    if hg_alerts and has_house_guardian:
         for alert in hg_alerts:
             if alert.get("status") != "active":
                 continue

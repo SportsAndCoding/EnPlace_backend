@@ -420,10 +420,10 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
     
     if not restaurant_id:
         raise HTTPException(status_code=401, detail="No restaurant associated with this account")
-    
+
     try:
         result = supabase.table("restaurants") \
-            .select("stripe_subscription_id, subscription_status, modules_enabled") \
+            .select("stripe_subscription_id, subscription_status, modules_enabled, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
             .eq("id", restaurant_id) \
             .single() \
             .execute()
@@ -446,10 +446,23 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
             except:
                 pass
         
+        # Derive modules from boolean flags (source of truth)
+        modules = ["sse"]  # Always included
+        if result.data.get("has_stable_hire"):
+            modules.append("stable_hire")
+        if result.data.get("has_schedule_optimizer"):
+            modules.append("stable_schedule")
+        if result.data.get("has_house_guardian"):
+            modules.append("house_guardian")
+        if result.data.get("has_open_shift_marketplace"):
+            modules.append("open_shift")
+        if result.data.get("has_shift_swap"):
+            modules.append("shift_swap")
+        
         return {
             "success": True,
             "subscription_status": result.data.get("subscription_status"),
-            "modules_enabled": result.data.get("modules_enabled", ["sse"]),
+            "modules_enabled": modules,
             "stripe_details": subscription_details
         }
     
