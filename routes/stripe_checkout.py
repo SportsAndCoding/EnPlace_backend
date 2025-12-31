@@ -9,7 +9,7 @@ import os
 import stripe
 import logging
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Request, Header
+from fastapi import APIRouter, HTTPException, Request, Header, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from database.supabase_client import get_supabase
