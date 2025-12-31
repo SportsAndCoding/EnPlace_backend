@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request, Header
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from database.supabase_client import get_supabase
+from services.auth_service import verify_jwt_token
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,10 @@ CANCEL_URL = "https://en-place.ai/pricing"
 
 class CreateCheckoutRequest(BaseModel):
     modules: List[str]  # ["sse", "stable_hire", "shift_swap", etc.]
+
+
+class AddModulesRequest(BaseModel):
+    modules: List[str]  # ["stable_hire", "house_guardian", etc.]
     
 
 class CheckoutSessionResponse(BaseModel):
@@ -145,6 +150,85 @@ async def get_checkout_session(session_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ADD MODULES TO EXISTING SUBSCRIPTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/subscription/add-modules")
+async def add_modules_to_subscription(
+    request: AddModulesRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """
+    Add modules to an existing subscription.
+    Charges prorated amount immediately.
+    """
+    supabase = get_supabase()
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    if not restaurant_id:
+        raise HTTPException(status_code=401, detail="No restaurant associated with this account")
+    
+    result = supabase.table("restaurants") \
+        .select("stripe_subscription_id, modules_enabled") \
+        .eq("id", restaurant_id) \
+        .single() \
+        .execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    subscription_id = result.data.get("stripe_subscription_id")
+    if not subscription_id:
+        raise HTTPException(status_code=400, detail="No active subscription. Please purchase a plan first.")
+    
+    current_modules = result.data.get("modules_enabled") or ["sse"]
+    modules_to_add = [m for m in request.modules if m not in current_modules and m in PRICE_IDS]
+    
+    if not modules_to_add:
+        raise HTTPException(status_code=400, detail="No new modules to add")
+    
+    try:
+        subscription = stripe.Subscription.retrieve(subscription_id)
+        current_items = [{"id": item.id} for item in subscription["items"]["data"]]
+        
+        for module in modules_to_add:
+            current_items.append({"price": PRICE_IDS[module]})
+        
+        stripe.Subscription.modify(
+            subscription_id,
+            items=current_items,
+            proration_behavior="always_invoice",
+            payment_behavior="error_if_incomplete",
+        )
+        
+        new_modules = current_modules + modules_to_add
+        supabase.table("restaurants").update({
+            "modules_enabled": new_modules,
+            "has_stable_hire": "stable_hire" in new_modules,
+            "has_schedule_optimizer": "stable_schedule" in new_modules,
+            "has_house_guardian": "house_guardian" in new_modules,
+            "has_open_shift_marketplace": "open_shift" in new_modules,
+            "has_shift_swap": "shift_swap" in new_modules,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("id", restaurant_id).execute()
+        
+        logger.info(f"Restaurant {restaurant_id} added modules: {modules_to_add}")
+        
+        return {
+            "success": True,
+            "modules_added": modules_to_add,
+            "modules_enabled": new_modules
+        }
+        
+    except stripe.error.CardError as e:
+        logger.error(f"Card error adding modules: {e}")
+        raise HTTPException(status_code=402, detail=f"Payment failed: {e.user_message}")
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error adding modules: {e}")
+        raise HTTPException(status_code=500, detail="Payment processing error")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # WEBHOOK HANDLER
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -232,26 +316,43 @@ async def handle_checkout_completed(session):
 
 
 async def handle_subscription_updated(subscription):
-    """Subscription was updated (plan change, etc.)"""
+    """Subscription was updated (plan change, module add/remove, etc.)"""
     supabase = get_supabase()
-    
+
     try:
-        # Find restaurant by subscription ID
         result = supabase.table("restaurants") \
             .select("id") \
             .eq("stripe_subscription_id", subscription.id) \
             .single() \
             .execute()
-        
+
         if result.data:
-            # Update subscription status
+            restaurant_id = result.data["id"]
+            
+            modules = []
+            for item in subscription["items"]["data"]:
+                price_id = item["price"]["id"]
+                for module_name, pid in PRICE_IDS.items():
+                    if pid == price_id:
+                        modules.append(module_name)
+                        break
+            
+            if "sse" not in modules:
+                modules.insert(0, "sse")
+            
             supabase.table("restaurants").update({
                 "subscription_status": subscription.status,
+                "modules_enabled": modules,
+                "has_stable_hire": "stable_hire" in modules,
+                "has_schedule_optimizer": "stable_schedule" in modules,
+                "has_house_guardian": "house_guardian" in modules,
+                "has_open_shift_marketplace": "open_shift" in modules,
+                "has_shift_swap": "shift_swap" in modules,
                 "updated_at": datetime.utcnow().isoformat()
-            }).eq("id", result.data["id"]).execute()
-            
-            logger.info(f"Updated subscription status for restaurant {result.data['id']}")
-    
+            }).eq("id", restaurant_id).execute()
+
+            logger.info(f"Synced modules for restaurant {restaurant_id}: {modules}")
+
     except Exception as e:
         logger.error(f"Error handling subscription update: {e}")
 
@@ -312,9 +413,13 @@ async def handle_payment_failed(invoice):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/subscription/status")
-async def get_subscription_status(restaurant_id: int):
+async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token)):
     """Get current subscription status for a restaurant"""
     supabase = get_supabase()
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    if not restaurant_id:
+        raise HTTPException(status_code=401, detail="No restaurant associated with this account")
     
     try:
         result = supabase.table("restaurants") \
