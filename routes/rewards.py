@@ -5,7 +5,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
@@ -16,6 +16,13 @@ from database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/rewards", tags=["rewards"])
+
+
+def require_manager(current_staff: Dict[str, Any] = Depends(verify_jwt_token)) -> Dict[str, Any]:
+    """Dependency that requires manager portal access"""
+    if current_staff.get("portal_access") != "manager":
+        raise HTTPException(status_code=403, detail="Manager access required")
+    return current_staff
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -58,7 +65,7 @@ class RedemptionResolution(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/earning-rules")
-async def get_earning_rules(user: dict = Depends(get_current_user)):
+async def get_earning_rules(user: dict = Depends(verify_jwt_token)):
     """Get all earning rules for the user's restaurant"""
     try:
         supabase = get_supabase()
@@ -110,7 +117,7 @@ async def update_earning_rules(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/catalog")
-async def get_reward_catalog(user: dict = Depends(get_current_user)):
+async def get_reward_catalog(user: dict = Depends(verify_jwt_token)):
     """Get reward catalog for the user's restaurant"""
     try:
         supabase = get_supabase()
@@ -130,7 +137,7 @@ async def get_reward_catalog(user: dict = Depends(get_current_user)):
 
 
 @router.get("/catalog/available")
-async def get_available_rewards(user: dict = Depends(get_current_user)):
+async def get_available_rewards(user: dict = Depends(verify_jwt_token)):
     """Get only enabled rewards for staff portal"""
     try:
         supabase = get_supabase()
@@ -268,7 +275,7 @@ async def delete_catalog_item(
 @router.post("/redeem")
 async def redeem_reward(
     request: RedemptionRequest,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(verify_jwt_token)
 ):
     """Staff redeems a reward"""
     try:
@@ -403,7 +410,7 @@ async def get_redemption_history(
 
 
 @router.get("/redemptions/my")
-async def get_my_redemptions(user: dict = Depends(get_current_user)):
+async def get_my_redemptions(user: dict = Depends(verify_jwt_token)):
     """Get staff member's own redemption history"""
     try:
         supabase = get_supabase()
@@ -507,7 +514,7 @@ async def resolve_redemption(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/balance")
-async def get_my_balance(user: dict = Depends(get_current_user)):
+async def get_my_balance(user: dict = Depends(verify_jwt_token)):
     """Get current staff member's points balance and tier"""
     try:
         supabase = get_supabase()
@@ -561,7 +568,7 @@ async def get_my_balance(user: dict = Depends(get_current_user)):
 @router.get("/history")
 async def get_my_points_history(
     limit: int = 20,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(verify_jwt_token)
 ):
     """Get staff member's points transaction history"""
     try:
