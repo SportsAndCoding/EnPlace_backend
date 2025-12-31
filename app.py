@@ -195,7 +195,7 @@ app.include_router(recruiting_router
 )
 from routes.sms import router as sms_router
 app.include_router(sms_router)
-from rewards import router as rewards_router
+from routes.rewards import router as rewards_router
 app.include_router(rewards_router)
 
 
