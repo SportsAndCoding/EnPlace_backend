@@ -738,3 +738,42 @@ async def acknowledge_nudge(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to acknowledge nudge: {str(e)}"
         )
+    
+@router.put("/nudges/acknowledge-bulk")
+async def acknowledge_nudges_bulk(
+    nudge_ids: List[int],
+    current_user: dict = Depends(get_current_user)
+):
+    """Manager acknowledges multiple nudges at once"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can acknowledge nudges"
+        )
+    
+    from database.supabase_client import get_supabase
+    supabase = get_supabase()
+    
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        
+        result = supabase.table("nudges") \
+            .update({
+                "status": "acknowledged",
+                "viewed_at": now,
+                "viewed_by": current_user['staff_id']
+            }) \
+            .in_("id", nudge_ids) \
+            .eq("restaurant_id", current_user['restaurant_id']) \
+            .execute()
+        
+        return {
+            "success": True,
+            "acknowledged_count": len(result.data) if result.data else 0
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to acknowledge nudges: {str(e)}"
+        )
