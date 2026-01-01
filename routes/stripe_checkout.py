@@ -454,7 +454,7 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
 
     try:
         result = supabase.table("restaurants") \
-            .select("stripe_subscription_id, subscription_status, modules_enabled, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
+            .select("stripe_subscription_id, subscription_status, modules_enabled, modules_pending_cancel, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
             .eq("id", restaurant_id) \
             .single() \
             .execute()
@@ -491,11 +491,12 @@ async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token
             modules.append("shift_swap")
         
         return {
-            "success": True,
-            "subscription_status": result.data.get("subscription_status"),
-            "modules_enabled": modules,
-            "stripe_details": subscription_details
-        }
+    "success": True,
+    "subscription_status": result.data.get("subscription_status"),
+    "modules_enabled": modules,
+    "modules_pending_cancel": result.data.get("modules_pending_cancel") or {},
+    "stripe_details": subscription_details
+}
     
     except HTTPException:
         raise
