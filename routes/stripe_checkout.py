@@ -567,13 +567,16 @@ async def update_subscription_modules(
     # Get subscription period end from Stripe (for removals)
     period_end = None
     subscription_id = result.data.get("stripe_subscription_id")
-    if subscription_id and modules_to_remove:
-        try:
-            subscription = stripe.Subscription.retrieve(subscription_id)
-            period_end = datetime.utcfromtimestamp(subscription.current_period_end).isoformat()
-        except Exception as e:
-            logger.error(f"Could not get subscription period end: {e}")
-            # Fall back to 30 days from now
+    if modules_to_remove:
+        if subscription_id:
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                period_end = datetime.utcfromtimestamp(subscription.current_period_end).isoformat()
+            except Exception as e:
+                logger.error(f"Could not get subscription period end: {e}")
+                period_end = (datetime.utcnow() + timedelta(days=30)).isoformat()
+        else:
+            # No Stripe subscription (demo mode) - use 30 days from now
             period_end = (datetime.utcnow() + timedelta(days=30)).isoformat()
     
     # Build update payload
