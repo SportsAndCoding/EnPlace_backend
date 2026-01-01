@@ -52,6 +52,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     house_guardian_report = get_house_guardian_weekly_report(restaurant_id, has_house_guardian)
     pending_swaps = get_pending_swaps(restaurant_id)
     latest_schedule = get_latest_schedule_analysis(restaurant_id)
+    pending_nudges = get_pending_nudges(restaurant_id)
     
     # Compute each section
     smm = compute_smm(checkins_7d, checkins_28d, manager_logs)
@@ -60,7 +61,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian, pending_nudges)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
 
@@ -622,6 +623,19 @@ def get_latest_schedule_analysis(restaurant_id: int) -> dict:
     except Exception as e:
         return None
 
+def get_pending_nudges(restaurant_id: int) -> list:
+    """Get pending nudges aggregated by module and position."""
+    try:
+        result = supabase.table("nudges") \
+            .select("*, staff:staff_id(full_name, position)") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("status", "pending") \
+            .execute()
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Error fetching nudges: {e}")
+        return []
+
 # ═══════════════════════════════════════════════════════════════════
 # COMPUTATION FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════
@@ -1096,7 +1110,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False, nudges: list = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -1109,7 +1123,8 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         "escalation": {"icon": "🚨", "action": "Review", "secondary": None, "boost": 2},
         "schedule_issue": {"icon": "📅", "action": "Done", "secondary": "Dismiss", "boost": 2},
         "schedule_summary": {"icon": "📊", "action": "View Report", "secondary": None, "boost": 0},
-        "system": {"icon": "📋", "action": "View", "secondary": None, "boost": 1}
+        "system": {"icon": "📋", "action": "View", "secondary": None, "boost": 1},
+        "nudge_request": {"icon": "💡", "action": "Buy Now", "secondary": "Dismiss", "boost": 0}
     }
     priority_mapping = {
         "escalation": "critical",
@@ -1118,7 +1133,8 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         "schedule_issue": "high",
         "pto_request": "medium",
         "system": "low",
-        "schedule_summary": "info"
+        "schedule_summary": "info",
+        "nudge_request": "medium"
     }
 
     items = []
@@ -1525,6 +1541,83 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             "is_network_report": is_network
         })
     
+     # ═══════════════════════════════════════════════════════════════════
+    # INJECT STAFF NUDGES (aggregated by module + position)
+    # ═══════════════════════════════════════════════════════════════════
+    if nudges:
+        # Aggregate nudges by module_key and position
+        nudge_groups = {}
+        for nudge in nudges:
+            module_key = nudge.get("module_key")
+            staff_info = nudge.get("staff") or {}
+            position = staff_info.get("position") or "Staff"
+            
+            group_key = f"{module_key}_{position}"
+            if group_key not in nudge_groups:
+                nudge_groups[group_key] = {
+                    "module_key": module_key,
+                    "position": position,
+                    "count": 0,
+                    "nudge_ids": [],
+                    "latest_created": nudge.get("created_at")
+                }
+            nudge_groups[group_key]["count"] += 1
+            nudge_groups[group_key]["nudge_ids"].append(nudge.get("id"))
+        
+        # Module display info
+        module_info = {
+            "schedule": {
+                "title": "Stable Schedule Builder",
+                "copy": "Your {team} is asking for a fairer, less exhausting schedule. Stable Schedule Builder lets you load a draft schedule and instantly see its emotional cost—unfair shift distribution, burnout risks, and mismatches with staff preferences. Network restaurants using it see an average 10% lift in staff morale."
+            },
+            "shiftSwap": {
+                "title": "Shift Swap",
+                "copy": "Your {team} wants an easier way to handle life conflicts without chaos. Shift Swap lets staff request and approve swaps themselves—with your final one-click approval and no group-text drama. Network restaurants save managers ~40 hours a month on swap coordination."
+            },
+            "openShifts": {
+                "title": "Open Shift Marketplace",
+                "copy": "Your {team} wants call-outs handled faster and fairer. Open Shift Marketplace instantly posts open shifts; staff quietly volunteer and claim them with incentives you set. Network restaurants fill shifts quicker and cut manager firefighting by ~40 hours a month."
+            }
+        }
+        
+        for group_key, group in nudge_groups.items():
+            module_key = group["module_key"]
+            position = group["position"]
+            count = group["count"]
+            
+            info = module_info.get(module_key, {
+                "title": module_key.replace("_", " ").title(),
+                "copy": f"Your team has requested this feature."
+            })
+            
+            # Dynamic title based on count
+            team_label = f"{position.lower()} team" if position else "team"
+            if count == 1:
+                title = f"Your {team_label} requested {info['title']}"
+            else:
+                title = f"{count} members of your {team_label} requested {info['title']}"
+            
+            # Dynamic copy with team substitution
+            copy = info["copy"].replace("{team}", team_label)
+            
+            items.append({
+                "id": f"nudge_group_{group_key}",
+                "type": "nudge_request",
+                "priority": "medium",
+                "title": title,
+                "description": copy,
+                "time_ago": _time_ago(group["latest_created"]) if group["latest_created"] else "Recently",
+                "action": "Buy Now",
+                "secondary_action": "Dismiss",
+                "smm_boost": 0,
+                "nudge_context": {
+                    "module_key": module_key,
+                    "position": position,
+                    "count": count,
+                    "nudge_ids": group["nudge_ids"]
+                }
+            })
+
     # Sort by priority (info always at bottom)
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     items.sort(key=lambda x: priority_order.get(x["priority"], 3))
