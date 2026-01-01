@@ -53,9 +53,10 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     pending_swaps = get_pending_swaps(restaurant_id)
     latest_schedule = get_latest_schedule_analysis(restaurant_id)
     pending_nudges = get_pending_nudges(restaurant_id)
+    dismissed_nudges = get_dismissed_nudges(restaurant_id)
     
     # Compute each section
-    smm = compute_smm(checkins_7d, checkins_28d, manager_logs)
+    smm = compute_smm(checkins_7d, checkins_28d, manager_logs, dismissed_nudges)
     fairness = compute_fairness(checkins_7d, checkins_28d, shifts_week, staff_list)
     burnout = compute_burnout(checkins_7d, checkins_28d, shifts_week, staff_list)
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
@@ -635,12 +636,29 @@ def get_pending_nudges(restaurant_id: int) -> list:
     except Exception as e:
         logger.error(f"Error fetching nudges: {e}")
         return []
+    
+def get_dismissed_nudges(restaurant_id: int) -> list:
+    """Get dismissed (acknowledged) nudges from last 30 days."""
+    try:
+        from datetime import datetime, timedelta
+        thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        
+        result = supabase.table("nudges") \
+            .select("id, module_key, viewed_at") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("status", "acknowledged") \
+            .gte("viewed_at", thirty_days_ago) \
+            .execute()
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Error fetching dismissed nudges: {e}")
+        return []
 
 # ═══════════════════════════════════════════════════════════════════
 # COMPUTATION FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════
 
-def compute_smm(checkins_7d: list, checkins_28d: list, manager_logs: list) -> dict:
+def compute_smm(checkins_7d: list, checkins_28d: list, manager_logs: list, dismissed_nudges: list = None) -> dict:
     """
     Compute Staff-Manager Alignment score.
     Uses same logic as alignment_service but returns dashboard format.
