@@ -131,10 +131,18 @@ class StaffPortalService:
     ) -> Dict[str, Any]:
         """Update or create staff preferences"""
         try:
+            # Convert day strings to integers for database
+            day_str_to_int = {
+                'sun': 0, 'mon': 1, 'tue': 2, 'wed': 3,
+                'thu': 4, 'fri': 5, 'sat': 6
+            }
+            days_str = preferences.get("preferred_days_of_week", [])
+            days_int = [day_str_to_int[d.lower()] for d in days_str if d.lower() in day_str_to_int]
+
             payload = {
                 "staff_id": staff_id,
                 "preferred_shift_types": preferences.get("preferred_shift_types", []),
-                "preferred_days_of_week": preferences.get("preferred_days_of_week", []),
+                "preferred_days_of_week": days_int,
                 "trained_roles": preferences.get("trained_roles", []),
                 "max_consecutive_days": preferences.get("max_consecutive_days"),
                 "notes": preferences.get("notes"),
