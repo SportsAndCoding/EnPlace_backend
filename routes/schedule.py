@@ -21,6 +21,8 @@ from services.auth_service import verify_jwt_token
 from services.feature_gate import require_feature
 
 import logging
+from services.schedule_parser_service import parse_schedule
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,8 @@ class UploadScheduleResponse(BaseModel):
     upload_id: Optional[int] = None
     message: str
     week_of: Optional[str] = None
+    shifts_imported: int = 0
+    unmapped_names: List[str] = []
 
 class WorkProfileUpdate(BaseModel):
     hired_shift: Optional[str] = None
@@ -69,8 +73,9 @@ async def upload_schedule(
     current_staff: Dict[str, Any] = Depends(verify_jwt_token)
 ):
     """
-    Queue a schedule for overnight analysis.
-    Returns immediately - results available next morning.
+    Upload and parse a schedule immediately.
+    Shifts are saved to sse_shifts for use by Shift Swap, Open Shifts, etc.
+    Analysis is queued for overnight processing (premium feature to view).
     """
     restaurant_id = current_staff.get("restaurant_id")
     staff_id = current_staff.get("staff_id")
@@ -82,71 +87,115 @@ async def upload_schedule(
         raise HTTPException(status_code=400, detail="Schedule data is too short or empty")
     
     try:
-        # Check if upload already exists for this week
+        # Step 1: Parse the schedule immediately
+        logger.info(f"Parsing schedule for restaurant {restaurant_id}, week {request.week_of}")
+        parse_result = await parse_schedule(
+            raw_schedule=request.raw_schedule,
+            restaurant_id=restaurant_id,
+            week_of=request.week_of
+        )
+
+        if not parse_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not parse schedule: {parse_result.get('error', 'Unknown error')}"
+            )
+
+        shifts = parse_result.get("shifts", [])
+        unmapped = parse_result.get("unmapped", [])
+
+        if not shifts:
+            raise HTTPException(status_code=400, detail="No shifts could be extracted from schedule")
+
+        # Step 2: Save shifts to sse_shifts
+        shifts_saved = 0
+        for shift in shifts:
+            try:
+                shift_date = shift.get("date")
+                start_time = shift.get("start_time", "09:00")
+                end_time = shift.get("end_time", "17:00")
+                
+                start_hour = int(start_time.split(":")[0])
+                shift_type = "AM" if start_hour < 14 else "PM"
+                
+                shift_dt = datetime.strptime(shift_date, "%Y-%m-%d")
+                day_type = "weekend" if shift_dt.weekday() >= 5 else "weekday"
+
+                shift_data = {
+                    "restaurant_id": restaurant_id,
+                    "staff_id": shift.get("staff_id"),
+                    "shift_date": shift_date,
+                    "scheduled_start": f"{shift_date}T{start_time}:00Z",
+                    "scheduled_end": f"{shift_date}T{end_time}:00Z",
+                    "shift_type": shift_type,
+                    "day_type": day_type,
+                    "position": shift.get("position"),
+                    "is_published": True,
+                    "status": "assigned",
+                    "created_by": staff_id
+                }
+
+                supabase.table("sse_shifts").insert(shift_data).execute()
+                shifts_saved += 1
+
+            except Exception as e:
+                logger.warning(f"Failed to save shift: {e}")
+                continue
+
+        logger.info(f"Saved {shifts_saved} shifts to sse_shifts")
+
+        # Step 3: Save/update schedule_uploads for overnight analysis
         existing = supabase.table("schedule_uploads") \
             .select("id, status") \
             .eq("restaurant_id", restaurant_id) \
             .eq("week_of", request.week_of) \
             .execute()
-        
+
         if existing.data:
             existing_upload = existing.data[0]
-            if existing_upload["status"] == "completed":
-                # Allow re-upload by updating existing record
-                result = supabase.table("schedule_uploads") \
-                    .update({
-                        "raw_schedule": request.raw_schedule,
-                        "manager_notes": request.manager_notes,
-                        "uploaded_by": staff_id,
-                        "status": "pending",
-                        "analysis_result": None,
-                        "stability_score": None,
-                        "issues_found": 0,
-                        "critical_issues": 0,
-                        "error_message": None,
-                        "processed_at": None,
-                        "created_at": datetime.utcnow().isoformat()
-                    }) \
-                    .eq("id", existing_upload["id"]) \
-                    .execute()
-                
-                return UploadScheduleResponse(
-                    success=True,
-                    upload_id=existing_upload["id"],
-                    message="Schedule re-uploaded. Previous analysis will be replaced overnight.",
-                    week_of=request.week_of
-                )
-            else:
-                return UploadScheduleResponse(
-                    success=True,
-                    upload_id=existing_upload["id"],
-                    message="Schedule already queued for this week. Analysis in progress.",
-                    week_of=request.week_of
-                )
-        
-        # Insert new upload
-        result = supabase.table("schedule_uploads") \
-            .insert({
-                "restaurant_id": restaurant_id,
-                "uploaded_by": staff_id,
-                "week_of": request.week_of,
-                "raw_schedule": request.raw_schedule,
-                "manager_notes": request.manager_notes,
-                "status": "pending"
-            }) \
-            .execute()
-        
-        upload_id = result.data[0]["id"] if result.data else None
-        
-        logger.info(f"Schedule queued: restaurant={restaurant_id}, week={request.week_of}, upload_id={upload_id}")
-        
+            supabase.table("schedule_uploads") \
+                .update({
+                    "raw_schedule": request.raw_schedule,
+                    "manager_notes": request.manager_notes,
+                    "uploaded_by": staff_id,
+                    "status": "pending",
+                    "analysis_result": None,
+                    "stability_score": None,
+                    "issues_found": 0,
+                    "critical_issues": 0,
+                    "error_message": None,
+                    "processed_at": None,
+                    "created_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", existing_upload["id"]) \
+                .execute()
+            upload_id = existing_upload["id"]
+        else:
+            result = supabase.table("schedule_uploads") \
+                .insert({
+                    "restaurant_id": restaurant_id,
+                    "uploaded_by": staff_id,
+                    "week_of": request.week_of,
+                    "raw_schedule": request.raw_schedule,
+                    "manager_notes": request.manager_notes,
+                    "status": "pending"
+                }) \
+                .execute()
+            upload_id = result.data[0]["id"] if result.data else None
+
+        logger.info(f"Schedule queued: restaurant={restaurant_id}, week={request.week_of}, upload_id={upload_id}, shifts={shifts_saved}")
+
         return UploadScheduleResponse(
             success=True,
             upload_id=upload_id,
-            message="Schedule uploaded! Analysis will be available tomorrow morning.",
-            week_of=request.week_of
+            message=f"Schedule uploaded! {shifts_saved} shifts imported.",
+            week_of=request.week_of,
+            shifts_imported=shifts_saved,
+            unmapped_names=unmapped
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Schedule upload failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
