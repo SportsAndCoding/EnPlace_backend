@@ -66,7 +66,7 @@ class WorkProfileUpdate(BaseModel):
 @router.post("/upload", response_model=UploadScheduleResponse)
 async def upload_schedule(
     request: UploadScheduleRequest,
-    current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
+    current_staff: Dict[str, Any] = Depends(verify_jwt_token)
 ):
     """
     Queue a schedule for overnight analysis.
