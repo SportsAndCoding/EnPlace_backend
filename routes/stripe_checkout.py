@@ -8,7 +8,7 @@ Handles checkout session creation and webhook events.
 import os
 import stripe
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request, Header, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -316,46 +316,77 @@ async def handle_checkout_completed(session):
 
 
 async def handle_subscription_updated(subscription):
-    """Subscription was updated (plan change, module add/remove, etc.)"""
+    """Subscription was updated (renewal, plan change, etc.)"""
     supabase = get_supabase()
 
     try:
         result = supabase.table("restaurants") \
-            .select("id") \
+            .select("id, modules_pending_cancel") \
             .eq("stripe_subscription_id", subscription.id) \
             .single() \
             .execute()
 
         if result.data:
             restaurant_id = result.data["id"]
+            pending = result.data.get("modules_pending_cancel") or {}
             
-            modules = []
-            for item in subscription["items"]["data"]:
-                price_id = item["price"]["id"]
-                for module_name, pid in PRICE_IDS.items():
-                    if pid == price_id:
-                        modules.append(module_name)
-                        break
+            # Check for any pending cancellations that should now be processed
+            now = datetime.utcnow()
+            update_data = {"updated_at": now.isoformat()}
+            processed = []
             
-            if "sse" not in modules:
-                modules.insert(0, "sse")
+            for module, cancel_date_str in list(pending.items()):
+                cancel_date = datetime.fromisoformat(cancel_date_str.replace('Z', ''))
+                if now >= cancel_date:
+                    # Time to actually cancel this module
+                    processed.append(module)
+                    del pending[module]
+                    
+                    # Set boolean flag to false
+                    if module == "stable_hire":
+                        update_data["has_stable_hire"] = False
+                    elif module == "stable_schedule":
+                        update_data["has_schedule_optimizer"] = False
+                    elif module == "house_guardian":
+                        update_data["has_house_guardian"] = False
+                    elif module == "open_shift":
+                        update_data["has_open_shift_marketplace"] = False
+                    elif module == "shift_swap":
+                        update_data["has_shift_swap"] = False
             
+            if processed:
+                update_data["modules_pending_cancel"] = pending
+                
+                # Also remove from Stripe subscription
+                try:
+                    sub = stripe.Subscription.retrieve(subscription.id)
+                    items_to_keep = []
+                    for item in sub["items"]["data"]:
+                        price_id = item["price"]["id"]
+                        module_key = None
+                        for key, pid in PRICE_IDS.items():
+                            if pid == price_id:
+                                module_key = key
+                                break
+                        if module_key not in processed:
+                            items_to_keep.append({"id": item.id})
+                        else:
+                            items_to_keep.append({"id": item.id, "deleted": True})
+                    
+                    stripe.Subscription.modify(subscription.id, items=items_to_keep, proration_behavior="none")
+                except Exception as e:
+                    logger.error(f"Error removing items from Stripe: {e}")
+                
+                supabase.table("restaurants").update(update_data).eq("id", restaurant_id).execute()
+                logger.info(f"Processed pending cancellations for restaurant {restaurant_id}: {processed}")
+            
+            # Also sync subscription status
             supabase.table("restaurants").update({
-                "subscription_status": subscription.status,
-                "modules_enabled": modules,
-                "has_stable_hire": "stable_hire" in modules,
-                "has_schedule_optimizer": "stable_schedule" in modules,
-                "has_house_guardian": "house_guardian" in modules,
-                "has_open_shift_marketplace": "open_shift" in modules,
-                "has_shift_swap": "shift_swap" in modules,
-                "updated_at": datetime.utcnow().isoformat()
+                "subscription_status": subscription.status
             }).eq("id", restaurant_id).execute()
-
-            logger.info(f"Synced modules for restaurant {restaurant_id}: {modules}")
 
     except Exception as e:
         logger.error(f"Error handling subscription update: {e}")
-
 
 async def handle_subscription_deleted(subscription):
     """Subscription was cancelled"""
@@ -479,78 +510,125 @@ class UpdateModulesRequest(BaseModel):
 
 @router.post("/subscription/update-modules")
 async def update_subscription_modules(
-        request: UpdateModulesRequest,
-        current_staff: dict = Depends(verify_jwt_token)
-    ):
-        """Update subscription modules - handles both additions and removals."""
-        supabase = get_supabase()
-        restaurant_id = current_staff.get("restaurant_id")
-        
-        if not restaurant_id:
-            raise HTTPException(status_code=401, detail="No restaurant associated with this account")
-        
-        # SSE is always required
-        desired_modules = list(set(request.modules))
-        if "sse" not in desired_modules:
-            desired_modules.insert(0, "sse")
-        
-        # Validate all modules
-        invalid = [m for m in desired_modules if m not in PRICE_IDS]
-        if invalid:
-            raise HTTPException(status_code=400, detail=f"Invalid modules: {invalid}")
-        
-        result = supabase.table("restaurants") \
-            .select("stripe_subscription_id, modules_enabled, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
-            .eq("id", restaurant_id) \
-            .single() \
-            .execute()
-        
-        if not result.data:
-            raise HTTPException(status_code=404, detail="Restaurant not found")
-        
-        # Derive current modules from boolean flags
-        current_modules = ["sse"]
-        if result.data.get("has_stable_hire"):
-            current_modules.append("stable_hire")
-        if result.data.get("has_schedule_optimizer"):
-            current_modules.append("stable_schedule")
-        if result.data.get("has_house_guardian"):
-            current_modules.append("house_guardian")
-        if result.data.get("has_open_shift_marketplace"):
-            current_modules.append("open_shift")
-        if result.data.get("has_shift_swap"):
-            current_modules.append("shift_swap")
-        
-        # Calculate changes
-        modules_to_add = [m for m in desired_modules if m not in current_modules]
-        modules_to_remove = [m for m in current_modules if m not in desired_modules and m != "sse"]
-        
-        if not modules_to_add and not modules_to_remove:
-            return {
-                "success": True,
-                "message": "No changes to make",
-                "modules_enabled": current_modules
-            }
-        
-        # Update database (skip Stripe for now - can add later)
-        supabase.table("restaurants").update({
-            "modules_enabled": desired_modules,
-            "has_stable_hire": "stable_hire" in desired_modules,
-            "has_schedule_optimizer": "stable_schedule" in desired_modules,
-            "has_house_guardian": "house_guardian" in desired_modules,
-            "has_open_shift_marketplace": "open_shift" in desired_modules,
-            "has_shift_swap": "shift_swap" in desired_modules,
-            "updated_at": datetime.utcnow().isoformat()
-        }).eq("id", restaurant_id).execute()
-        
-        logger.info(f"Restaurant {restaurant_id} updated modules. Added: {modules_to_add}, Removed: {modules_to_remove}")
-        
+    request: UpdateModulesRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Update subscription modules - handles both additions and removals."""
+    supabase = get_supabase()
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    if not restaurant_id:
+        raise HTTPException(status_code=401, detail="No restaurant associated with this account")
+    
+    # SSE is always required
+    desired_modules = list(set(request.modules))
+    if "sse" not in desired_modules:
+        desired_modules.insert(0, "sse")
+    
+    # Validate all modules
+    invalid = [m for m in desired_modules if m not in PRICE_IDS]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid modules: {invalid}")
+    
+    result = supabase.table("restaurants") \
+        .select("stripe_subscription_id, modules_enabled, modules_pending_cancel, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
+        .eq("id", restaurant_id) \
+        .single() \
+        .execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+    
+    # Derive current modules from boolean flags
+    current_modules = ["sse"]
+    if result.data.get("has_stable_hire"):
+        current_modules.append("stable_hire")
+    if result.data.get("has_schedule_optimizer"):
+        current_modules.append("stable_schedule")
+    if result.data.get("has_house_guardian"):
+        current_modules.append("house_guardian")
+    if result.data.get("has_open_shift_marketplace"):
+        current_modules.append("open_shift")
+    if result.data.get("has_shift_swap"):
+        current_modules.append("shift_swap")
+    
+    # Calculate changes
+    modules_to_add = [m for m in desired_modules if m not in current_modules]
+    modules_to_remove = [m for m in current_modules if m not in desired_modules and m != "sse"]
+    
+    if not modules_to_add and not modules_to_remove:
         return {
             "success": True,
-            "modules_added": modules_to_add,
-            "modules_removed": modules_to_remove,
-            "modules_enabled": desired_modules
+            "message": "No changes to make",
+            "modules_enabled": current_modules
         }
+    
+    # Get subscription period end from Stripe (for removals)
+    period_end = None
+    subscription_id = result.data.get("stripe_subscription_id")
+    if subscription_id and modules_to_remove:
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            period_end = datetime.utcfromtimestamp(subscription.current_period_end).isoformat()
+        except Exception as e:
+            logger.error(f"Could not get subscription period end: {e}")
+            # Fall back to 30 days from now
+            period_end = (datetime.utcnow() + timedelta(days=30)).isoformat()
+    
+    # Build update payload
+    update_data = {"updated_at": datetime.utcnow().isoformat()}
+    
+    # Handle ADDITIONS - immediate activation
+    if modules_to_add:
+        # Update Stripe subscription (add items with proration)
+        if subscription_id:
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                new_items = [{"id": item.id} for item in subscription["items"]["data"]]
+                for module in modules_to_add:
+                    new_items.append({"price": PRICE_IDS[module]})
+                
+                stripe.Subscription.modify(
+                    subscription_id,
+                    items=new_items,
+                    proration_behavior="always_invoice",
+                    payment_behavior="error_if_incomplete",
+                )
+            except stripe.error.StripeError as e:
+                logger.error(f"Stripe error adding modules: {e}")
+                raise HTTPException(status_code=402, detail=f"Payment failed: {str(e)}")
+        
+        # Update boolean flags for additions immediately
+        if "stable_hire" in modules_to_add:
+            update_data["has_stable_hire"] = True
+        if "stable_schedule" in modules_to_add:
+            update_data["has_schedule_optimizer"] = True
+        if "house_guardian" in modules_to_add:
+            update_data["has_house_guardian"] = True
+        if "open_shift" in modules_to_add:
+            update_data["has_open_shift_marketplace"] = True
+        if "shift_swap" in modules_to_add:
+            update_data["has_shift_swap"] = True
+    
+    # Handle REMOVALS - schedule for period end (don't change boolean yet)
+    pending_cancel = result.data.get("modules_pending_cancel") or {}
+    if modules_to_remove and period_end:
+        for module in modules_to_remove:
+            pending_cancel[module] = period_end
+        update_data["modules_pending_cancel"] = pending_cancel
+    
+    # Update database
+    supabase.table("restaurants").update(update_data).eq("id", restaurant_id).execute()
+    
+    logger.info(f"Restaurant {restaurant_id} - Added: {modules_to_add}, Scheduled removal: {modules_to_remove}")
+    
+    return {
+        "success": True,
+        "modules_added": modules_to_add,
+        "modules_scheduled_removal": modules_to_remove,
+        "removal_date": period_end if modules_to_remove else None,
+        "modules_enabled": current_modules + modules_to_add  # Still have access to removed ones until period end
+    }
 
 
 @router.post("/subscription/cancel")
