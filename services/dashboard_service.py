@@ -711,6 +711,11 @@ def compute_smm(checkins_7d: list, checkins_28d: list, manager_logs: list, dismi
     
     # Combined score
     score = int(emotional * 0.5 + operational * 0.5)
+
+    # Penalty for dismissed staff nudges (-2 per nudge, max -10)
+    if dismissed_nudges:
+        nudge_penalty = min(len(dismissed_nudges) * 2, 10)
+        score = max(0, score - nudge_penalty)
     
     # Trend (compare to 4 weeks ago)
     if checkins_28d:
