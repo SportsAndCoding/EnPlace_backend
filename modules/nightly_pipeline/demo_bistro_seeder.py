@@ -108,36 +108,36 @@ DEMO_BISTRO_PATTERNS = [
         mood_trend=0.0, fair_trend=0.0, respected_trend=0.0,
     ),
     
-    # === FLIGHT RISK STAFF (declining patterns, needs intervention) ===
+    # === FLIGHT RISK STAFF (showing early warning signs, needs attention) ===
     StaffPattern(
         staff_id="SRV002", name="David Kim", position="Server",
         pattern_type="flight_risk",
-        mood_base=3.0, mood_volatility=0.6,
-        safe_prob=0.85, fair_prob=0.55, respected_prob=0.58,
-        mood_trend=-0.15, fair_trend=-0.05, respected_trend=-0.05,
+        mood_base=3.5, mood_volatility=0.5,
+        safe_prob=0.88, fair_prob=0.72, respected_prob=0.74,
+        mood_trend=-0.05, fair_trend=-0.02, respected_trend=-0.02,
     ),
     StaffPattern(
         staff_id="DSH001", name="Tony Nguyen", position="Dishwasher",
         pattern_type="flight_risk",
-        mood_base=2.8, mood_volatility=0.7,
-        safe_prob=0.80, fair_prob=0.50, respected_prob=0.52,
-        mood_trend=-0.2, fair_trend=-0.08, respected_trend=-0.06,
+        mood_base=3.3, mood_volatility=0.6,
+        safe_prob=0.85, fair_prob=0.68, respected_prob=0.70,
+        mood_trend=-0.06, fair_trend=-0.02, respected_trend=-0.02,
     ),
     StaffPattern(
         staff_id="COK002", name="James Wilson", position="Line Cook",
         pattern_type="flight_risk",
-        mood_base=3.1, mood_volatility=0.5,
-        safe_prob=0.82, fair_prob=0.58, respected_prob=0.55,
-        mood_trend=-0.1, fair_trend=-0.06, respected_trend=-0.08,
+        mood_base=3.5, mood_volatility=0.5,
+        safe_prob=0.86, fair_prob=0.70, respected_prob=0.72,
+        mood_trend=-0.04, fair_trend=-0.02, respected_trend=-0.02,
     ),
     
-    # === CRITICAL RISK STAFF (urgent intervention needed) ===
+    # === WATCH LIST STAFF (notable concerns, proactive outreach recommended) ===
     StaffPattern(
         staff_id="SRV004", name="Marcus Thompson", position="Server",
-        pattern_type="critical_risk",
-        mood_base=2.2, mood_volatility=0.8,
-        safe_prob=0.70, fair_prob=0.35, respected_prob=0.40,
-        mood_trend=-0.25, fair_trend=-0.1, respected_trend=-0.1,
+        pattern_type="watch_list",
+        mood_base=3.2, mood_volatility=0.6,
+        safe_prob=0.84, fair_prob=0.62, respected_prob=0.64,
+        mood_trend=-0.08, fair_trend=-0.03, respected_trend=-0.03,
     ),
 ]
 
