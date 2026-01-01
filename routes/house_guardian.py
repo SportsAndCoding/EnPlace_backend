@@ -213,7 +213,7 @@ async def get_weekly_report(
             return {
                 "success": True,
                 "is_network_report": True,
-                "report": _generate_network_report()
+                "report": _generate_network_report(restaurant_id)
             }
 
     except Exception as e:

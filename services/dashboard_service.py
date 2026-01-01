@@ -1504,8 +1504,15 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 description = f"All clear. {notes_scanned} check-ins scanned."
             title = f"🏠 House Guardian: {week_label}"
         
+        # Use a deterministic UUID for network reports to avoid notification system errors
+        report_id = hg_weekly_report.get('id')
+        if report_id == "network_report":
+            item_id = "00000000-0000-0000-0000-000000000000"  # Placeholder UUID for network reports
+        else:
+            item_id = f"hg_weekly_{report_id}"
+        
         items.append({
-            "id": f"hg_weekly_{hg_weekly_report.get('id')}",
+            "id": item_id,
             "type": "house_guardian_report",
             "priority": "info",
             "title": title,
