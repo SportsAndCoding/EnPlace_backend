@@ -17,6 +17,7 @@ from services.auth_service import verify_jwt_token
 from services.feature_gate import require_feature
 from config.settings import SUPABASE_URL, SUPABASE_KEY
 from supabase import create_client
+from services.dashboard_service import _generate_network_report
 
 router = APIRouter(prefix="/api/house-guardian", tags=["house-guardian"])
 
@@ -220,7 +221,7 @@ async def get_weekly_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _generate_network_report() -> dict:
+
     """
     Generate network-wide social proof report for non-subscribers.
     Shows aggregated wins across the En Place network.
