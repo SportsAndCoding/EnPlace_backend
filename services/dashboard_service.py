@@ -1157,7 +1157,8 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             trigger = esc.get("trigger_reason", "")
             
             # Build context-rich description
-            if staff_name:
+            source_type = esc.get("source_type", "mood")
+            if staff_name and source_type == "schedule":
                 desc = f"{staff_name} ({staff_position})" if staff_position else staff_name
             else:
                 desc = "Multiple staff affected"
