@@ -85,7 +85,7 @@ SWAP_REASONS = [
 def get_supabase() -> Client:
     """Initialize Supabase client using environment variables"""
     url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
+    key = os.environ.get("SUPABASE_SERVICE_KEY")
     
     if not url or not key:
         raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
