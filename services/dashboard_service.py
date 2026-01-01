@@ -1568,15 +1568,15 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
         module_info = {
             "schedule": {
                 "title": "Stable Schedule Builder",
-                "copy": "Your {team} is asking for a fairer, less exhausting schedule. Stable Schedule Builder lets you load a draft schedule and instantly see its emotional cost—unfair shift distribution, burnout risks, and mismatches with staff preferences. Network restaurants using it see an average 10% lift in staff morale."
+                "copy": "Your {team} is asking for fairer scheduling—restaurants using this see 10% higher morale."
             },
             "shiftSwap": {
                 "title": "Shift Swap",
-                "copy": "Your {team} wants an easier way to handle life conflicts without chaos. Shift Swap lets staff request and approve swaps themselves—with your final one-click approval and no group-text drama. Network restaurants save managers ~40 hours a month on swap coordination."
+                "copy": "Your {team} wants easier shift trades—saves managers ~40 hours/month on coordination."
             },
             "openShifts": {
                 "title": "Open Shift Marketplace",
-                "copy": "Your {team} wants call-outs handled faster and fairer. Open Shift Marketplace instantly posts open shifts; staff quietly volunteer and claim them with incentives you set. Network restaurants fill shifts quicker and cut manager firefighting by ~40 hours a month."
+                "copy": "Your {team} wants faster call-out coverage—fill open shifts quicker with less firefighting."
             }
         }
         
