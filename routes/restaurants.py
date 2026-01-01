@@ -179,39 +179,42 @@ async def get_restaurant_modules(
     restaurant_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get enabled modules for a restaurant"""
+    """Get enabled modules for a restaurant - reads from restaurants.has_* columns (source of truth)"""
     if current_user['restaurant_id'] != restaurant_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
     supabase = get_supabase()
-    
     try:
-        result = supabase.table("restaurant_modules") \
-            .select("module_key, is_enabled") \
-            .eq("restaurant_id", restaurant_id) \
+        result = supabase.table("restaurants") \
+            .select("has_open_shift_marketplace, has_shift_swap, has_schedule_optimizer, has_stable_hire, has_house_guardian") \
+            .eq("id", restaurant_id) \
+            .single() \
             .execute()
         
-        modules = {}
-        for row in (result.data or []):
-            modules[row['module_key']] = row['is_enabled']
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Restaurant not found")
         
-        if not modules:
-            modules = {
-                'openShifts': True,
-                'shiftSwap': True,
-                'schedule': True,
-                'aime': True,
-                'stableHire': True,
-                'houseGuardian': True
-            }
+        r = result.data
+        modules = {
+            'openShifts': r.get('has_open_shift_marketplace', False),
+            'shiftSwap': r.get('has_shift_swap', False),
+            'schedule': r.get('has_schedule_optimizer', False),
+            'stableHire': r.get('has_stable_hire', False),
+            'houseGuardian': r.get('has_house_guardian', False),
+            'aime': True  # Always included with base subscription
+        }
         
         return {
             "success": True,
             "restaurant_id": restaurant_id,
             "modules": modules
         }
-    
+    except HTTPException:
+        raise
     except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch modules: {str(e)}"
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch modules: {str(e)}"
