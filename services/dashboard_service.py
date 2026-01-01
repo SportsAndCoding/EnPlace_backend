@@ -1512,7 +1512,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # Network reports show every day (sales tool)
     # Subscriber reports show Mon/Tue/Fri only
     # ═══════════════════════════════════════════════════════════════════
-    is_hg_report_day = date.today().weekday() in [0, 1, 4]  # Monday, Tuesday, Friday
+    is_hg_report_day = date.today().weekday() == 0  # Monday only
     is_network_report = hg_weekly_report and hg_weekly_report.get("is_network_report", False)
     
     if hg_weekly_report and (is_network_report or is_hg_report_day):
@@ -1566,8 +1566,10 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     
      # ═══════════════════════════════════════════════════════════════════
     # INJECT STAFF NUDGES (aggregated by module + position)
+    # Show weekly on same cadence as House Guardian report
     # ═══════════════════════════════════════════════════════════════════
-    if nudges:
+    is_nudge_day = date.today().weekday() == 0  # Monday only
+    if nudges and is_nudge_day:
         # Aggregate nudges by module_key and position
         nudge_groups = {}
         for nudge in nudges:
