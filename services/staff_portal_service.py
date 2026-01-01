@@ -22,7 +22,7 @@ class StaffPortalService:
         """Get full staff profile for portal display"""
         try:
             result = self.supabase.table("staff") \
-                .select("staff_id, full_name, email, position, phone, hire_date, status, skills, stability_points_balance, aime_score, burnout_risk_score") \
+                .select("staff_id, restaurant_id, full_name, email, position, phone, hire_date, status, skills, stability_points_balance, aime_score, burnout_risk_score") \
                 .eq("staff_id", staff_id) \
                 .single() \
                 .execute()
@@ -45,7 +45,32 @@ class StaffPortalService:
             balance = profile.get("stability_points_balance", 0) or 0
             profile["current_tier"] = self._get_tier(balance)
             profile["tier_progress"] = self._get_tier_progress(balance)
-
+            
+            # Fetch restaurant feature flags for paywall
+            restaurant_id = profile.get("restaurant_id")
+            if restaurant_id:
+                restaurant_result = self.supabase.table("restaurants") \
+                    .select("has_open_shift_marketplace, has_shift_swap, has_schedule_optimizer, has_stable_hire, has_house_guardian, name") \
+                    .eq("id", restaurant_id) \
+                    .single() \
+                    .execute()
+                
+                if restaurant_result.data:
+                    r = restaurant_result.data
+                    profile["restaurant_name"] = r.get("name", "")
+                    profile["modules"] = {
+                        "openShifts": {"owned": r.get("has_open_shift_marketplace", False)},
+                        "shiftSwap": {"owned": r.get("has_shift_swap", False)},
+                        "schedule": {"owned": r.get("has_schedule_optimizer", False)},
+                        "stableHire": {"owned": r.get("has_stable_hire", False)},
+                        "houseGuardian": {"owned": r.get("has_house_guardian", False)},
+                        "aime": {"owned": True}  # Always included
+                    }
+                else:
+                    profile["modules"] = {}
+            else:
+                profile["modules"] = {}
+            
             return profile
 
         except Exception as e:
