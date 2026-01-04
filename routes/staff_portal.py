@@ -62,7 +62,7 @@ class CalloutRequest(BaseModel):
 
 
 class VolunteerRequest(BaseModel):
-    shift_id: int
+    shift_id: str  # UUID from open_shifts table
 
 
 class SwapRequest(BaseModel):
