@@ -468,7 +468,7 @@ class StaffPortalService:
     # SHIFT VOLUNTEER
     # ═══════════════════════════════════════════════════════════════════
 
- async def volunteer_for_shift(
+    async def volunteer_for_shift(
         self,
         staff_id: str,
         shift_id: str,  # Changed to str to accept UUID
@@ -516,6 +516,7 @@ class StaffPortalService:
         except Exception as e:
             logger.error(f"Volunteer for shift error: {e}")
             raise e
+
     # ═══════════════════════════════════════════════════════════════════
     # SHIFT SWAP REQUEST
     # ═══════════════════════════════════════════════════════════════════
