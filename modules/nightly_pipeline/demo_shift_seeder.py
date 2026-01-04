@@ -12,6 +12,18 @@ This keeps the "critical shift" alert always visible in demos.
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any
 import hashlib
+import pytz
+
+
+def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
 
 
 def _deterministic_random(seed_str: str) -> float:
@@ -27,7 +39,7 @@ def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
     Returns stats about what was created/modified.
     """
     
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     stats = {"created": 0, "gaps_created": 0}
     
     # Define shift templates for each day
@@ -176,7 +188,7 @@ def ensure_critical_gaps(supabase_client, restaurant_id: int = 1) -> int:
     
     Returns number of gaps created.
     """
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     tomorrow = today + timedelta(days=1)
     gaps_created = 0
     

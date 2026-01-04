@@ -11,8 +11,9 @@ Runs as part of nightly pipeline to:
 """
 
 import random
-from datetime import date, time, timedelta
+from datetime import date, time, timedelta, datetime
 from typing import Dict, Any, List
+import pytz
 
 
 # Realistic restaurant positions (excludes admin roles)
@@ -76,6 +77,17 @@ BONUS_TIERS = [
 ]
 
 
+def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
+
+
 def _weighted_bonus() -> float:
     """Select bonus amount using weighted distribution."""
     choices = []
@@ -108,7 +120,7 @@ def seed_demo_open_shifts(
     Returns:
         Dict with stats: {"deleted": N, "created": N}
     """
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     stats = {"deleted": 0, "created": 0}
     
     # Step 1: Delete stale open shifts (past dates or old unclaimed)
@@ -175,7 +187,7 @@ def ensure_minimum_open_shifts(
     Returns:
         Dict with stats: {"existing": N, "created": N}
     """
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     
     # Check current count
     existing = supabase_client.table("open_shifts") \

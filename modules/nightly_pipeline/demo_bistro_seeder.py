@@ -16,6 +16,18 @@ import hashlib
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import pytz
+
+
+def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
 
 
 @dataclass
@@ -248,7 +260,7 @@ def seed_demo_bistro_history(
     """
     from datetime import date, timedelta
     
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     all_checkins = []
     
     for days_ago in range(days_back, 0, -1):
@@ -291,7 +303,7 @@ def seed_today(
     Returns:
         Number of check-ins inserted
     """
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     
     # Delete any existing check-ins for today
     supabase_client.table("sse_daily_checkins") \

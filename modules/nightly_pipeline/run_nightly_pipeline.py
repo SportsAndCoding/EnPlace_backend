@@ -26,6 +26,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
 from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_critical_gaps
 from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
+from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -349,7 +350,13 @@ def run_pipeline(run_date: Optional[date] = None):
         hire_stats = reset_stable_hire_demo(client, restaurant_id=1)
         print(f"      Deleted {hire_stats['deleted']} demo candidates")
         print(f"      Reset {hire_stats['reset_to_open']} to open, {hire_stats['set_hired']} hired, {hire_stats['set_rejected']} rejected")
-        
+
+        # Step 1d: Seed Shift Swap demo data
+        print(f"\n[1d/5] Seeding Shift Swap demo data...")
+        swap_stats = seed_demo_swap_requests(client, restaurant_id=1)
+        print(f"      Deleted {swap_stats['deleted']} old pending swaps")
+        print(f"      Created {swap_stats['created']} fresh swap requests")
+
         # Step 2: Load signatures
         print(f"\n[2/5] Loading quitter signatures...")
         signatures = load_signatures()

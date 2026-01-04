@@ -5,16 +5,28 @@ Creates a 6 PM - 10 PM Server shift for demo restaurant
 import os
 from datetime import datetime, time
 from supabase import create_client
+import pytz
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 DEMO_RESTAURANT_ID = 1
 
 
+def _get_today_for_restaurant(supabase_client, restaurant_id: int):
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
+
+
 def run():
     """Main entry point for nightly pipeline"""
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    today = datetime.now().date()
+    today = _get_today_for_restaurant(supabase, DEMO_RESTAURANT_ID)
     
     print(f"🔄 Resetting demo shift for {today}...")
     
