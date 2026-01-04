@@ -109,6 +109,7 @@ def get_restaurant_info(restaurant_id: int) -> dict:
             "name": r.get("name", "Restaurant"),
             "manager": r.get("manager_name", "Manager"),
             "staff_count": staff_count,
+            "timezone": r.get("timezone", "America/New_York"),
             # Feature flags for paywall
             "has_schedule_optimizer": r.get("has_schedule_optimizer", False),
             "has_open_shift_marketplace": r.get("has_open_shift_marketplace", False),
@@ -121,6 +122,7 @@ def get_restaurant_info(restaurant_id: int) -> dict:
         "name": "Restaurant", 
         "manager": "Manager", 
         "staff_count": 0,
+        "timezone": "America/New_York",
         "has_schedule_optimizer": False,
         "has_open_shift_marketplace": False,
         "has_shift_swap": False,
