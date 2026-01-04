@@ -17,6 +17,19 @@ Data schema (both synthetic and organic):
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
 import statistics
+from datetime import date, datetime, timedelta
+import pytz
+
+
+def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
 
 
 # =============================================================================
@@ -409,8 +422,7 @@ def score_staff_flight_risk(
     if not staff_response.data:
         return []
     
-    from datetime import date, datetime
-    today = date.today()
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
     
     scores = []
     
@@ -705,8 +717,8 @@ def calculate_network_percentile(
     """
     
     # Get restaurant's recent metrics (last 30 days)
-    from datetime import date, timedelta
-    cutoff = date.today() - timedelta(days=30)
+    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    cutoff = today - timedelta(days=30)
     
     restaurant_response = supabase_client.table("sse_daily_checkins") \
         .select("mood_emoji, felt_safe, felt_fair, felt_respected") \

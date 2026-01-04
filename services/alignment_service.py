@@ -5,12 +5,23 @@ from database.supabase_client import get_supabase, supabase
 from datetime import datetime, timezone
 import os
 import logging
+import pytz
 
 logger = logging.getLogger(__name__)
 
 class AlignmentService:
     def __init__(self):
         self.supabase = get_supabase()
+    
+    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+        """Get today's date in restaurant timezone."""
+        try:
+            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+        except:
+            tz_name = "America/New_York"
+        tz = pytz.timezone(tz_name)
+        return datetime.now(tz).date()
     
     async def get_alignment_data(
         self, 
@@ -29,7 +40,7 @@ class AlignmentService:
         - Fairness index
         """
         # Current period
-        end_date = date.today()
+        end_date = self._get_today_for_restaurant(restaurant_id)
         start_date = end_date - timedelta(days=days)
         
         # Previous period (for trend comparison)

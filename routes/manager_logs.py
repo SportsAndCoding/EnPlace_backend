@@ -5,6 +5,19 @@ from services.auth_service import verify_jwt_token as get_current_user
 from services.manager_logs_service import ManagerLogsService
 from models.manager_logs import ManagerLogCreate, ManagerLogResponse, ManagerLogCreateResponse
 
+def _get_today_for_restaurant(restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    from database.supabase_client import get_supabase
+    supabase = get_supabase()
+    try:
+        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
+
+
 router = APIRouter(prefix="/api/manager-logs", tags=["manager-logs"])
 
 @router.post("", response_model=ManagerLogCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -78,7 +91,7 @@ async def get_manager_logs(
     
     # Default to last 7 days
     if not end_date:
-        end_date = date.today()
+        end_date = _get_today_for_restaurant(restaurant_id)
     if not start_date:
         start_date = end_date - timedelta(days=7)
     

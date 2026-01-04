@@ -24,6 +24,7 @@ import json
 import time
 from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
+import pytz
 from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_critical_gaps
 from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
 from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
@@ -35,6 +36,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from supabase import create_client
+
+
+def _get_today_for_demo_bistro(client) -> date:
+    """Get today's date in Demo Bistro's timezone."""
+    try:
+        result = client.table("restaurants").select("timezone").eq("id", 1).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
 
 
 def get_supabase_client():
@@ -307,10 +319,11 @@ def run_pipeline(run_date: Optional[date] = None):
     Run the complete nightly pipeline.
     
     Args:
-        run_date: Date to process (default: today)
+        run_date: Date to process (default: today in Demo Bistro timezone)
     """
     if run_date is None:
-        run_date = date.today()
+        client = get_supabase_client()
+        run_date = _get_today_for_demo_bistro(client)
     
     print(f"\n{'='*60}")
     print(f"NIGHTLY PIPELINE - {run_date.isoformat()}")

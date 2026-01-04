@@ -16,6 +16,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, date
 from typing import Optional, Dict, List, Any
+import pytz
 from collections import Counter
 from uuid import uuid4
 from services.house_guardian_weekly import generate_weekly_report
@@ -38,6 +39,17 @@ logger = logging.getLogger(__name__)
 
 # Initialize clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def _get_today_for_restaurant(restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -242,12 +254,12 @@ def get_staff_context(staff_ids: List[str]) -> Dict[str, Dict]:
     return {s["staff_id"]: s for s in (result.data or [])}
 
 
-def get_staff_events(staff_ids: List[str], days_back: int = 14) -> Dict[str, List[Dict]]:
+def get_staff_events(staff_ids: List[str], restaurant_id: int, days_back: int = 14) -> Dict[str, List[Dict]]:
     """Get recent events (PTO denied, write-ups, etc.) for credibility timing."""
     if not staff_ids:
         return {}
     
-    cutoff = (date.today() - timedelta(days=days_back)).isoformat()
+    cutoff = (_get_today_for_restaurant(restaurant_id) - timedelta(days=days_back)).isoformat()
     
     result = supabase.table("staff_events") \
         .select("*") \
@@ -625,8 +637,9 @@ def generate_alerts(restaurant_id: int, signals: List[Dict], staff_events: Dict)
         
         # Get date range
         dates = [s.get("checkin_date") for s in group_signals if s.get("checkin_date")]
-        timeframe_start = min(dates) if dates else date.today().isoformat()
-        timeframe_end = max(dates) if dates else date.today().isoformat()
+        today_str = _get_today_for_restaurant(restaurant_id).isoformat()
+        timeframe_start = min(dates) if dates else today_str
+        timeframe_end = max(dates) if dates else today_str
         
         # Create alert
         alert_data = {
@@ -708,7 +721,7 @@ async def scan_restaurant(restaurant_id: int) -> Dict[str, int]:
         
         # Get staff events for timing analysis
         all_staff_ids = list(set(s["staff_id"] for s in all_signals))
-        staff_events = get_staff_events(all_staff_ids)
+        staff_events = get_staff_events(all_staff_ids, restaurant_id)
         
         # Generate alerts
         stats["alerts_created"] = generate_alerts(restaurant_id, all_signals, staff_events)

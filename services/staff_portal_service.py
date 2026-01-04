@@ -5,6 +5,7 @@ Handles staff-facing functionality: profile, preferences, stability points, call
 import logging
 from datetime import date, datetime, timezone
 from typing import Optional, Dict, Any, List
+import pytz
 from database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,16 @@ logger = logging.getLogger(__name__)
 class StaffPortalService:
     def __init__(self):
         self.supabase = get_supabase()
+
+    def _get_now_for_restaurant(self, restaurant_id: int) -> datetime:
+        """Get current datetime in restaurant timezone."""
+        try:
+            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+        except:
+            tz_name = "America/New_York"
+        tz = pytz.timezone(tz_name)
+        return datetime.now(tz)
 
     # ═══════════════════════════════════════════════════════════════════
     # STAFF PROFILE
@@ -542,7 +553,8 @@ class StaffPortalService:
 
             # Check shift is at least 72 hours away
             shift_date = datetime.strptime(shift_result.data["shift_date"], "%Y-%m-%d")
-            hours_until = (shift_date - datetime.now()).total_seconds() / 3600
+            now = self._get_now_for_restaurant(restaurant_id).replace(tzinfo=None)  # Make naive for comparison
+            hours_until = (shift_date - now).total_seconds() / 3600
             if hours_until < 72:
                 raise ValueError("Shifts must be at least 72 hours away to swap")
 

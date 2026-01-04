@@ -5,6 +5,7 @@ Endpoints for SMS notifications and scheduled reminders
 
 from datetime import datetime, date
 from typing import Dict, Any, Optional
+import pytz
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 import os
@@ -87,17 +88,12 @@ async def send_checkin_reminders(authorized: bool = Depends(verify_scheduler_key
     Only sends to staff with:
     - sms_notifications_enabled = true
     - valid phone number
-    - no check-in record for today
+    - no check-in record for today (in restaurant's timezone)
     - status = 'active'
     """
-    today = date.today().isoformat()
-    
     try:
-        # Get staff who need reminders
-        # This query finds active staff with SMS enabled who haven't checked in today
-        result = supabase.rpc('get_staff_needing_checkin_reminder', {
-            'p_date': today
-        }).execute()
+        # Get staff who need reminders (timezone-aware per restaurant)
+        result = supabase.rpc('get_staff_needing_checkin_reminder_v2').execute()
         
         if not result.data:
             return {
@@ -133,7 +129,6 @@ async def send_checkin_reminders(authorized: bool = Depends(verify_scheduler_key
         
         return {
             "success": True,
-            "date": today,
             "sent": results["sent"],
             "failed": results["failed"],
             "details": results["details"]

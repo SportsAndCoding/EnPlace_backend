@@ -7,6 +7,7 @@ Called at end of nightly scan.
 
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Any
+import pytz
 from uuid import uuid4
 from collections import Counter
 
@@ -18,6 +19,18 @@ logger = logging.getLogger(__name__)
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
+def _get_today_for_restaurant(restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    try:
+        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
+
+
 DANGER_CATEGORIES = ["harassment", "theft", "drugs", "threats", "bullying"]
 
 
@@ -27,7 +40,7 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
     
     Returns the report data that was saved.
     """
-    today = date.today()
+    today = _get_today_for_restaurant(restaurant_id)
     week_start = today - timedelta(days=7)
     week_end = today - timedelta(days=1)
     

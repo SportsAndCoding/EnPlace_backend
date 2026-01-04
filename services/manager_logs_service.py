@@ -1,6 +1,7 @@
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, Dict, Any, List
+import pytz
 from database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -9,13 +10,23 @@ class ManagerLogsService:
     def __init__(self):
         self.supabase = get_supabase()
     
+    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+        """Get today's date in restaurant timezone."""
+        try:
+            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+        except:
+            tz_name = "America/New_York"
+        tz = pytz.timezone(tz_name)
+        return datetime.now(tz).date()
+    
     async def create_log(self, log_data: Dict[str, Any], manager_staff_id: str) -> Dict[str, Any]:
         """
         Create a daily log entry for a manager.
         One log per restaurant per day.
         """
         try:
-            log_date = log_data.get("log_date") or date.today().isoformat()
+            log_date = log_data.get("log_date") or self._get_today_for_restaurant(log_data["restaurant_id"]).isoformat()
             
             payload = {
                 "restaurant_id": log_data["restaurant_id"],
@@ -91,4 +102,5 @@ class ManagerLogsService:
     
     async def get_today_log(self, restaurant_id: int) -> Optional[Dict[str, Any]]:
         """Check if restaurant already has a log for today"""
-        return await self.get_log_by_restaurant_and_date(restaurant_id, date.today())
+        today = self._get_today_for_restaurant(restaurant_id)
+        return await self.get_log_by_restaurant_and_date(restaurant_id, today)

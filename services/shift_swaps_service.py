@@ -1,6 +1,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, date
+import pytz
 from database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -9,6 +10,16 @@ logger = logging.getLogger(__name__)
 class ShiftSwapsService:
     def __init__(self):
         self.supabase = get_supabase()
+    
+    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+        """Get today's date in restaurant timezone."""
+        try:
+            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+        except:
+            tz_name = "America/New_York"
+        tz = pytz.timezone(tz_name)
+        return datetime.now(tz).date()
     
     async def get_swaps(
         self,
@@ -42,7 +53,7 @@ class ShiftSwapsService:
             shifts_map = {s['id']: s for s in (shifts_result.data or [])}
             
             # Filter out past shifts if needed
-            today = date.today().isoformat()
+            today = self._get_today_for_restaurant(restaurant_id).isoformat()
             if not include_past:
                 swaps = [s for s in swaps if shifts_map.get(s['shift_id'], {}).get('shift_date', '9999') >= today]
             

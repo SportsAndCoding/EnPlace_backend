@@ -1,9 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+import pytz
 from services.auth_service import verify_jwt_token as get_current_user
 from services.checkins_service import CheckinsService
 from models.checkins import CheckinCreate, CheckinResponse, CheckinCreateResponse
+
+def _get_today_for_restaurant(restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    from database.supabase_client import get_supabase
+    supabase = get_supabase()
+    try:
+        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
+
 
 router = APIRouter(prefix="/api/checkins", tags=["checkins"])
 
@@ -75,7 +89,7 @@ async def get_checkins(
     
     # Default to last 7 days
     if not end_date:
-        end_date = date.today()
+        end_date = _get_today_for_restaurant(restaurant_id)
     if not start_date:
         start_date = end_date - timedelta(days=7)
     
@@ -107,7 +121,7 @@ async def get_my_today_checkin(
     service = CheckinsService()
     
     try:
-        checkin = await service.get_today_checkin(current_user['staff_id'])
+        checkin = await service.get_today_checkin(current_user['staff_id'], current_user['restaurant_id'])
         
         if checkin:
             return {

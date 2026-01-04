@@ -1,6 +1,7 @@
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Any
+import pytz
 
 from core.supabase_client import get_supabase
 from modules.sse.aggregation.processor import process_restaurant
@@ -29,9 +30,10 @@ def run_sse_aggregation(target_date: date | None = None) -> Dict[str, Any]:
     Returns:
         Dict containing job execution summary including per-restaurant results.
     """
-    # Determine target date — default to yesterday
+    # Determine target date — default to yesterday in US Eastern (most common timezone)
     if target_date is None:
-        target_date = date.today() - timedelta(days=1)
+        eastern = pytz.timezone("America/New_York")
+        target_date = datetime.now(eastern).date() - timedelta(days=1)
 
     logger.info("Starting SSE aggregation job for date: %s", target_date)
 

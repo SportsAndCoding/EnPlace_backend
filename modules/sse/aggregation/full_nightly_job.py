@@ -1,6 +1,7 @@
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, Any, List
+import pytz
 from collections import defaultdict
 
 from core.supabase_client import get_supabase
@@ -141,7 +142,8 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
 def run_full_nightly_job(target_date: date | None = None) -> Dict[str, Any]:
     """Top-level orchestrator for the nightly SSE aggregation job."""
     if target_date is None:
-        target_date = date.today() - timedelta(days=1)
+        eastern = pytz.timezone("America/New_York")
+        target_date = datetime.now(eastern).date() - timedelta(days=1)
 
     logger.info("Starting full SSE nightly job for date: %s", target_date)
 

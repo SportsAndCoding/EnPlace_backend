@@ -5,9 +5,23 @@ All staff-facing endpoints for the mobile/web portal
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+import pytz
 from services.auth_service import verify_jwt_token as get_current_user
 from services.staff_portal_service import StaffPortalService
+
+def _get_today_for_restaurant(restaurant_id: int) -> date:
+    """Get today's date in restaurant timezone."""
+    from database.supabase_client import get_supabase
+    supabase = get_supabase()
+    try:
+        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    except:
+        tz_name = "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
+
 
 router = APIRouter(prefix="/api/staff-portal", tags=["staff-portal"])
 
@@ -365,7 +379,7 @@ async def get_my_schedule(
 
     # Default to current week + next week
     if not start_date:
-        today = date.today()
+        today = _get_today_for_restaurant(current_user['restaurant_id'])
         start_date = today - timedelta(days=today.weekday())  # Monday
     if not end_date:
         end_date = start_date + timedelta(days=13)  # 2 weeks
