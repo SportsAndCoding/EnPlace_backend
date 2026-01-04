@@ -468,17 +468,17 @@ class StaffPortalService:
     # SHIFT VOLUNTEER
     # ═══════════════════════════════════════════════════════════════════
 
-    async def volunteer_for_shift(
+ async def volunteer_for_shift(
         self,
         staff_id: str,
-        shift_id: int,
+        shift_id: str,  # Changed to str to accept UUID
         restaurant_id: int
     ) -> Dict[str, Any]:
-        """Staff volunteers for an open shift"""
+        """Staff volunteers for an open shift from the open_shifts marketplace"""
         try:
-            # Verify shift exists and is open
-            shift_result = self.supabase.table("sse_shifts") \
-                .select("id, staff_id, restaurant_id") \
+            # Query open_shifts table (UUID-based)
+            shift_result = self.supabase.table("open_shifts") \
+                .select("id, restaurant_id, status, claimed_by, position, date, start_time, end_time") \
                 .eq("id", shift_id) \
                 .eq("restaurant_id", restaurant_id) \
                 .single() \
@@ -487,42 +487,35 @@ class StaffPortalService:
             if not shift_result.data:
                 raise ValueError("Shift not found")
 
-            if shift_result.data.get("staff_id"):
-                raise ValueError("Shift is already assigned")
+            shift = shift_result.data
 
-            # Check if already volunteered
-            existing = self.supabase.table("shift_volunteers") \
-                .select("id") \
-                .eq("shift_id", shift_id) \
-                .eq("staff_id", staff_id) \
-                .execute()
+            if shift.get("status") != "open":
+                raise ValueError("Shift is no longer available")
 
-            if existing.data and len(existing.data) > 0:
-                raise ValueError("Already volunteered for this shift")
+            if shift.get("claimed_by"):
+                raise ValueError("Shift has already been claimed")
 
-            # Create volunteer record
-            payload = {
-                "shift_id": shift_id,
-                "staff_id": staff_id,
-                "status": "posted",
-                "volunteered_at": datetime.now(timezone.utc).isoformat()
-            }
-
-            result = self.supabase.table("shift_volunteers") \
-                .insert(payload) \
+            # Update the open shift with the volunteer
+            result = self.supabase.table("open_shifts") \
+                .update({
+                    "claimed_by": staff_id,
+                    "claimed_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "pending"  # Awaiting manager approval
+                }) \
+                .eq("id", shift_id) \
+                .eq("status", "open") \
                 .execute()
 
             if result.data and len(result.data) > 0:
                 return result.data[0]
 
-            raise Exception("Insert returned no data")
+            raise Exception("Failed to claim shift - it may have been claimed by someone else")
 
         except ValueError:
             raise
         except Exception as e:
             logger.error(f"Volunteer for shift error: {e}")
             raise e
-
     # ═══════════════════════════════════════════════════════════════════
     # SHIFT SWAP REQUEST
     # ═══════════════════════════════════════════════════════════════════
