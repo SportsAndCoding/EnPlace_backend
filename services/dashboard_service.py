@@ -606,14 +606,20 @@ def _generate_network_report(restaurant_id: int) -> dict:
         }
     }  
 def get_pending_swaps(restaurant_id: int) -> list:
-    """Get pending shift swap requests with staff names."""
+    """Get pending shift swap requests with staff names (future shifts only)."""
     try:
         result = supabase.table("shift_swaps") \
             .select("*, sse_shifts(shift_date, scheduled_start, position, shift_type), requester:requesting_staff_id(full_name), target:target_staff_id(full_name)") \
             .eq("restaurant_id", restaurant_id) \
             .eq("status", "accepted") \
             .execute()
-        return result.data or []
+        
+        # Filter out past shifts
+        today = _get_today_for_restaurant(restaurant_id).isoformat()
+        swaps = result.data or []
+        swaps = [s for s in swaps if (s.get("sse_shifts") or {}).get("shift_date", "9999") >= today]
+        
+        return swaps
     except Exception as e:
         logger.error(f"Error fetching swaps: {e}")
         return []
