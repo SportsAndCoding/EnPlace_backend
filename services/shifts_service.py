@@ -177,7 +177,7 @@ class ShiftsService:
             result = self.supabase.table("open_shifts") \
                 .select("id, restaurant_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by") \
                 .eq("restaurant_id", restaurant_id) \
-                .eq("status", "open") \
+                .in_("status", ["open", "pending"]) \
                 .gte("date", start_date.isoformat()) \
                 .lte("date", end_date.isoformat()) \
                 .order("date") \
