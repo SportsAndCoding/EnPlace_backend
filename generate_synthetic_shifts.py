@@ -14,6 +14,20 @@ import hashlib
 import random
 from collections import defaultdict
 
+from supabase import create_client
+from config.settings import SUPABASE_URL, SUPABASE_KEY
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def load_staff_for_restaurant(restaurant_id: int) -> list:
+    """Load staff from synthetic_staff_master for a restaurant."""
+    result = supabase.table("synthetic_staff_master") \
+        .select("staff_id, exit_day") \
+        .eq("restaurant_id", restaurant_id) \
+        .execute()
+    return result.data or []
+
 
 def deterministic_random(restaurant_id: int, day_index: int, salt: str = "") -> float:
     """Generate deterministic random [0,1) based on inputs."""
@@ -85,51 +99,61 @@ def get_restaurant_size(restaurant_id: int) -> int:
 
 def generate_restaurant_shifts(
     restaurant_id: int,
+    staff_list: list,
     total_days: int = 365,
 ) -> list:
     """
-    Generate all shifts for a restaurant.
+    Generate all shifts for a restaurant using real staff from synthetic_staff_master.
     """
     persona = get_coverage_persona(restaurant_id)
     shifts_per_day = get_restaurant_size(restaurant_id)
-    
+
     shifts = []
-    shift_id = 0
-    
+
     for day_index in range(1, total_days + 1):
         # Determine if weekend (days 6, 7, 13, 14, etc.)
         is_weekend = (day_index % 7) in [6, 0]
         day_type = "weekend" if is_weekend else "weekday"
-        
+
+        # Get staff who haven't exited yet
+        available_staff = [
+            s for s in staff_list 
+            if s["exit_day"] is None or s["exit_day"] > day_index
+        ]
+
         # Calculate coverage probability for this day
         daily_variance = (deterministic_random(restaurant_id, day_index, "var") - 0.5) * 2 * persona["variance"]
         weekend_penalty = persona["weekend_penalty"] if is_weekend else 0
-        
+
         coverage_prob = persona["base_coverage"] + daily_variance - weekend_penalty
         coverage_prob = max(0.5, min(0.99, coverage_prob))  # Clamp to 50-99%
-        
+
         # Generate shifts for the day
         # Mix of shift types
         shift_types = ["AM"] * 3 + ["PM"] * 4 + ["MID"] * 2 + ["FULL"] * 1
-        
+
         for i in range(shifts_per_day):
             shift_type = shift_types[i % len(shift_types)]
-            
+
             # Determine if this shift is covered
             is_covered = deterministic_random(restaurant_id, day_index, f"shift_{i}") < coverage_prob
-            
+
+            # Assign real staff_id from master table
+            staff_id = None
+            if is_covered and available_staff:
+                staff_idx = int(deterministic_random(restaurant_id, day_index, f"staff_{i}") * len(available_staff))
+                staff_id = available_staff[staff_idx]["staff_id"]
+
             shifts.append({
                 "restaurant_id": restaurant_id,
-                "staff_id": f"STAFF_{restaurant_id}_{shift_id}" if is_covered else None,
+                "staff_id": staff_id,
                 "day_index": day_index,
                 "shift_type": shift_type,
                 "day_type": day_type,
                 "is_covered": is_covered,
             })
-            shift_id += 1
-    
-    return shifts
 
+    return shifts
 
 def main():
     print("=" * 60)
@@ -145,8 +169,9 @@ def main():
     for restaurant_id in range(101, 201):
         persona = get_coverage_persona(restaurant_id)
         persona_counts[persona["type"]] += 1
-        
-        shifts = generate_restaurant_shifts(restaurant_id, total_days=365)
+
+        staff_list = load_staff_for_restaurant(restaurant_id)
+        shifts = generate_restaurant_shifts(restaurant_id, staff_list, total_days=365)
         all_shifts.extend(shifts)
         
         if restaurant_id % 20 == 0 or restaurant_id == 101:

@@ -1512,7 +1512,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # Network reports show every day (sales tool)
     # Subscriber reports show Mon/Tue/Fri only
     # ═══════════════════════════════════════════════════════════════════
-    is_hg_report_day = date.today().weekday() == 5  # Monday only
+    is_hg_report_day = date.today().weekday() == 0  # Monday only
     is_network_report = hg_weekly_report and hg_weekly_report.get("is_network_report", False)
     
     if hg_weekly_report and (is_network_report or is_hg_report_day):
