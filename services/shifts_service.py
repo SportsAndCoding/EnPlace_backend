@@ -172,19 +172,35 @@ class ShiftsService:
         start_date: date,
         end_date: date
     ) -> List[Dict[str, Any]]:
-        """Get unassigned (open) shifts - NO EMBED"""
+        """Get open shifts from marketplace"""
         try:
-            result = self.supabase.table("sse_shifts") \
-                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
+            result = self.supabase.table("open_shifts") \
+                .select("id, restaurant_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by") \
                 .eq("restaurant_id", restaurant_id) \
-                .is_("staff_id", "null") \
-                .gte("shift_date", start_date.isoformat()) \
-                .lte("shift_date", end_date.isoformat()) \
-                .order("shift_date") \
-                .order("scheduled_start") \
+                .eq("status", "open") \
+                .gte("date", start_date.isoformat()) \
+                .lte("date", end_date.isoformat()) \
+                .order("date") \
+                .order("start_time") \
                 .execute()
-            
-            return result.data or []
+
+            # Map to frontend expected field names
+            shifts = []
+            for row in result.data or []:
+                shifts.append({
+                    "id": row["id"],
+                    "restaurant_id": row["restaurant_id"],
+                    "position": row["position"],
+                    "shift_date": row["date"],
+                    "scheduled_start": row["start_time"],
+                    "scheduled_end": row["end_time"],
+                    "bonus_pay": row.get("bonus_pay", 0),
+                    "description": row.get("description"),
+                    "status": row["status"],
+                    "created_at": row.get("created_at"),
+                    "staff_id": row.get("claimed_by"),
+                })
+            return shifts
             
         except Exception as e:
             logger.error(f"Get open shifts error: {e}")
