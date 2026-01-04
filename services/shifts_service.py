@@ -206,6 +206,62 @@ class ShiftsService:
             logger.error(f"Get open shifts error: {e}")
             raise e
     
+    async def get_pending_open_shift_claims(
+        self,
+        restaurant_id: int
+    ) -> List[Dict[str, Any]]:
+        """Get open shifts with pending claims (for manager approval)"""
+        try:
+            result = self.supabase.table("open_shifts") \
+                .select("id, restaurant_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by, claimed_at") \
+                .eq("restaurant_id", restaurant_id) \
+                .eq("status", "pending") \
+                .order("date") \
+                .order("start_time") \
+                .execute()
+
+            if not result.data:
+                return []
+
+            # Get staff details for claimed_by
+            staff_ids = [r['claimed_by'] for r in result.data if r.get('claimed_by')]
+            staff_map = {}
+            if staff_ids:
+                staff_result = self.supabase.table("staff") \
+                    .select("staff_id, full_name, position") \
+                    .in_("staff_id", staff_ids) \
+                    .execute()
+                staff_map = {s['staff_id']: s for s in (staff_result.data or [])}
+
+            # Build response
+            claims = []
+            for row in result.data:
+                claimer = staff_map.get(row.get('claimed_by'), {})
+                claims.append({
+                    "id": row["id"],
+                    "restaurant_id": row["restaurant_id"],
+                    "position": row["position"],
+                    "date": row["date"],
+                    "start_time": row["start_time"],
+                    "end_time": row["end_time"],
+                    "bonus_pay": row.get("bonus_pay", 0),
+                    "description": row.get("description"),
+                    "status": row["status"],
+                    "created_at": row.get("created_at"),
+                    "claimed_by": row.get("claimed_by"),
+                    "claimed_at": row.get("claimed_at"),
+                    "claimer": {
+                        "staff_id": row.get("claimed_by"),
+                        "name": claimer.get("full_name", "Unknown"),
+                        "position": claimer.get("position", "")
+                    } if row.get("claimed_by") else None
+                })
+            return claims
+            
+        except Exception as e:
+            logger.error(f"Get pending open shift claims error: {e}")
+            raise e
+
     async def get_shift_volunteers(self, shift_id: int, restaurant_id: int) -> List[Dict[str, Any]]:
         """Get volunteers for a shift with staff details"""
         try:

@@ -160,6 +160,33 @@ async def get_open_shifts(
             detail=f"Failed to fetch open shifts: {str(e)}"
         )
 
+@router.get("/open/pending")
+async def get_pending_open_shift_claims(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get open shifts with pending claims awaiting manager approval"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can view pending claims"
+        )
+    
+    service = ShiftsService()
+    try:
+        claims = await service.get_pending_open_shift_claims(
+            restaurant_id=current_user['restaurant_id']
+        )
+        return {
+            "success": True,
+            "claims": claims,
+            "count": len(claims)
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch pending claims: {str(e)}"
+        )
+
 @router.get("/my")
 async def get_my_shifts(
     current_staff: dict = Depends(get_current_user),
