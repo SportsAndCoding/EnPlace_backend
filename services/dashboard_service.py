@@ -615,13 +615,13 @@ def get_pending_swaps(restaurant_id: int) -> list:
             .execute()
         
         # Filter out past shifts
-        today = _get_today_for_restaurant(restaurant_id).isoformat()
+        today = get_today_for_restaurant(restaurant_id).isoformat()
         swaps = result.data or []
         swaps = [s for s in swaps if (s.get("sse_shifts") or {}).get("shift_date", "9999") >= today]
         
         return swaps
     except Exception as e:
-        logger.error(f"Error fetching swaps: {e}")
+        print(f"Error fetching swaps: {e}")
         return []
     
 def get_latest_schedule_analysis(restaurant_id: int) -> dict:
