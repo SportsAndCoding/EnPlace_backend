@@ -611,7 +611,7 @@ def get_pending_swaps(restaurant_id: int) -> list:
         result = supabase.table("shift_swaps") \
             .select("*, sse_shifts(shift_date, scheduled_start, position, shift_type), requester:requesting_staff_id(full_name), target:target_staff_id(full_name)") \
             .eq("restaurant_id", restaurant_id) \
-            .eq("status", "pending") \
+            .eq("status", "accepted") \
             .execute()
         return result.data or []
     except Exception as e:
