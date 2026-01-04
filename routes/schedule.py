@@ -10,7 +10,7 @@ GET /api/schedule/profiles - Get staff work profiles
 PUT /api/schedule/profiles/{staff_id} - Update a staff work profile
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
@@ -70,54 +70,126 @@ class WorkProfileUpdate(BaseModel):
 @router.post("/upload", response_model=UploadScheduleResponse)
 async def upload_schedule(
     request: UploadScheduleRequest,
+    background_tasks: BackgroundTasks,
     current_staff: Dict[str, Any] = Depends(verify_jwt_token)
 ):
     """
-    Upload and parse a schedule immediately.
-    Shifts are saved to sse_shifts for use by Shift Swap, Open Shifts, etc.
-    Analysis is queued for overnight processing (premium feature to view).
+    Upload a schedule - saves immediately, parsing runs in background.
+    Frontend should poll /status/{upload_id} for completion.
     """
     restaurant_id = current_staff.get("restaurant_id")
     staff_id = current_staff.get("staff_id")
-    
+
     if not restaurant_id:
         raise HTTPException(status_code=400, detail="No restaurant associated with user")
-    
+
     if not request.raw_schedule or len(request.raw_schedule.strip()) < 10:
         raise HTTPException(status_code=400, detail="Schedule data is too short or empty")
-    
+
     try:
-        # Step 1: Parse the schedule immediately
-        logger.info(f"Parsing schedule for restaurant {restaurant_id}, week {request.week_of}")
-        parse_result = await parse_schedule(
+        existing = supabase.table("schedule_uploads") \
+            .select("id") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("week_of", request.week_of) \
+            .execute()
+
+        if existing.data:
+            upload_id = existing.data[0]["id"]
+            supabase.table("schedule_uploads") \
+                .update({
+                    "raw_schedule": request.raw_schedule,
+                    "manager_notes": request.manager_notes,
+                    "uploaded_by": staff_id,
+                    "status": "processing",
+                    "error_message": None,
+                    "created_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", upload_id) \
+                .execute()
+        else:
+            result = supabase.table("schedule_uploads") \
+                .insert({
+                    "restaurant_id": restaurant_id,
+                    "uploaded_by": staff_id,
+                    "week_of": request.week_of,
+                    "raw_schedule": request.raw_schedule,
+                    "manager_notes": request.manager_notes,
+                    "status": "processing"
+                }) \
+                .execute()
+            upload_id = result.data[0]["id"] if result.data else None
+
+        if not upload_id:
+            raise HTTPException(status_code=500, detail="Failed to create upload record")
+
+        background_tasks.add_task(
+            process_schedule_background,
+            upload_id=upload_id,
             raw_schedule=request.raw_schedule,
             restaurant_id=restaurant_id,
-            week_of=request.week_of
+            week_of=request.week_of,
+            staff_id=staff_id
+        )
+
+        logger.info(f"Schedule queued for background processing: upload_id={upload_id}")
+
+        return UploadScheduleResponse(
+            success=True,
+            upload_id=upload_id,
+            message="Schedule uploaded! Processing in background...",
+            week_of=request.week_of,
+            shifts_imported=0,
+            unmapped_names=[]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Schedule upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+async def process_schedule_background(
+    upload_id: int,
+    raw_schedule: str,
+    restaurant_id: int,
+    week_of: str,
+    staff_id: str
+):
+    """Background task: Parse schedule and save shifts."""
+    try:
+        logger.info(f"Background processing started: upload_id={upload_id}")
+
+        parse_result = await parse_schedule(
+            raw_schedule=raw_schedule,
+            restaurant_id=restaurant_id,
+            week_of=week_of
         )
 
         if not parse_result.get("success"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Could not parse schedule: {parse_result.get('error', 'Unknown error')}"
-            )
+            supabase.table("schedule_uploads") \
+                .update({
+                    "status": "failed",
+                    "error_message": parse_result.get("error", "Parse failed"),
+                    "processed_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", upload_id) \
+                .execute()
+            logger.error(f"Background parse failed: upload_id={upload_id}")
+            return
 
         shifts = parse_result.get("shifts", [])
-        unmapped = parse_result.get("unmapped", [])
-
-        if not shifts:
-            raise HTTPException(status_code=400, detail="No shifts could be extracted from schedule")
-
-        # Step 2: Save shifts to sse_shifts
         shifts_saved = 0
+
         for shift in shifts:
             try:
                 shift_date = shift.get("date")
                 start_time = shift.get("start_time", "09:00")
                 end_time = shift.get("end_time", "17:00")
-                
+
                 start_hour = int(start_time.split(":")[0])
                 shift_type = "AM" if start_hour < 14 else "PM"
-                
+
                 shift_dt = datetime.strptime(shift_date, "%Y-%m-%d")
                 day_type = "weekend" if shift_dt.weekday() >= 5 else "weekday"
 
@@ -142,64 +214,133 @@ async def upload_schedule(
                 logger.warning(f"Failed to save shift: {e}")
                 continue
 
-        logger.info(f"Saved {shifts_saved} shifts to sse_shifts")
-
-        # Step 3: Save/update schedule_uploads for overnight analysis
-        existing = supabase.table("schedule_uploads") \
-            .select("id, status") \
-            .eq("restaurant_id", restaurant_id) \
-            .eq("week_of", request.week_of) \
+        supabase.table("schedule_uploads") \
+            .update({
+                "status": "completed",
+                "processed_at": datetime.utcnow().isoformat(),
+                "error_message": None
+            }) \
+            .eq("id", upload_id) \
             .execute()
 
-        if existing.data:
-            existing_upload = existing.data[0]
+        logger.info(f"Background processing complete: upload_id={upload_id}, shifts_saved={shifts_saved}")
+
+    except Exception as e:
+        logger.error(f"Background processing crashed: upload_id={upload_id}, error={e}", exc_info=True)
+        try:
             supabase.table("schedule_uploads") \
                 .update({
-                    "raw_schedule": request.raw_schedule,
-                    "manager_notes": request.manager_notes,
-                    "uploaded_by": staff_id,
-                    "status": "pending",
-                    "analysis_result": None,
-                    "stability_score": None,
-                    "issues_found": 0,
-                    "critical_issues": 0,
-                    "error_message": None,
-                    "processed_at": None,
-                    "created_at": datetime.utcnow().isoformat()
+                    "status": "failed",
+                    "error_message": str(e),
+                    "processed_at": datetime.utcnow().isoformat()
                 }) \
-                .eq("id", existing_upload["id"]) \
+                .eq("id", upload_id) \
                 .execute()
-            upload_id = existing_upload["id"]
-        else:
-            result = supabase.table("schedule_uploads") \
-                .insert({
-                    "restaurant_id": restaurant_id,
-                    "uploaded_by": staff_id,
-                    "week_of": request.week_of,
-                    "raw_schedule": request.raw_schedule,
-                    "manager_notes": request.manager_notes,
-                    "status": "pending"
-                }) \
-                .execute()
-            upload_id = result.data[0]["id"] if result.data else None
+        except:
+            pass
 
-        logger.info(f"Schedule queued: restaurant={restaurant_id}, week={request.week_of}, upload_id={upload_id}, shifts={shifts_saved}")
 
-        return UploadScheduleResponse(
-            success=True,
-            upload_id=upload_id,
-            message=f"Schedule uploaded! {shifts_saved} shifts imported.",
-            week_of=request.week_of,
-            shifts_imported=shifts_saved,
-            unmapped_names=unmapped
+# ═══════════════════════════════════════════════════════════════════════════
+# STATUS & HISTORY ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def process_schedule_background(
+    upload_id: int,
+    raw_schedule: str,
+    restaurant_id: int,
+    week_of: str,
+    staff_id: str
+):
+    """
+    Background task: Parse schedule and save shifts.
+    Updates schedule_uploads status when complete.
+    """
+    try:
+        logger.info(f"Background processing started: upload_id={upload_id}")
+
+        parse_result = await parse_schedule(
+            raw_schedule=raw_schedule,
+            restaurant_id=restaurant_id,
+            week_of=week_of
         )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Schedule upload failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
+        if not parse_result.get("success"):
+            supabase.table("schedule_uploads") \
+                .update({
+                    "status": "failed",
+                    "error_message": parse_result.get("error", "Parse failed"),
+                    "processed_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", upload_id) \
+                .execute()
+            logger.error(f"Background parse failed: upload_id={upload_id}")
+            return
+
+        shifts = parse_result.get("shifts", [])
+
+        shifts_saved = 0
+        for shift in shifts:
+            try:
+                shift_date = shift.get("date")
+                start_time = shift.get("start_time", "09:00")
+                end_time = shift.get("end_time", "17:00")
+
+                start_hour = int(start_time.split(":")[0])
+                shift_type = "AM" if start_hour < 14 else "PM"
+
+                shift_dt = datetime.strptime(shift_date, "%Y-%m-%d")
+                day_type = "weekend" if shift_dt.weekday() >= 5 else "weekday"
+
+                shift_data = {
+                    "restaurant_id": restaurant_id,
+                    "staff_id": shift.get("staff_id"),
+                    "shift_date": shift_date,
+                    "scheduled_start": f"{shift_date}T{start_time}:00Z",
+                    "scheduled_end": f"{shift_date}T{end_time}:00Z",
+                    "shift_type": shift_type,
+                    "day_type": day_type,
+                    "position": shift.get("position"),
+                    "is_published": True,
+                    "status": "assigned",
+                    "created_by": staff_id
+                }
+
+                supabase.table("sse_shifts").insert(shift_data).execute()
+                shifts_saved += 1
+
+            except Exception as e:
+                logger.warning(f"Failed to save shift: {e}")
+                continue
+
+        supabase.table("schedule_uploads") \
+            .update({
+                "status": "completed",
+                "processed_at": datetime.utcnow().isoformat(),
+                "error_message": None
+            }) \
+            .eq("id", upload_id) \
+            .execute()
+
+        logger.info(f"Background processing complete: upload_id={upload_id}, shifts_saved={shifts_saved}")
+
+    except Exception as e:
+        logger.error(f"Background processing crashed: upload_id={upload_id}, error={e}", exc_info=True)
+        try:
+            supabase.table("schedule_uploads") \
+                .update({
+                    "status": "failed",
+                    "error_message": str(e),
+                    "processed_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", upload_id) \
+                .execute()
+        except:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STATUS & HISTORY ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STATUS & HISTORY ENDPOINTS
