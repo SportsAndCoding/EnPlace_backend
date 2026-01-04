@@ -504,7 +504,7 @@ class StaffPortalService:
             payload = {
                 "shift_id": shift_id,
                 "staff_id": staff_id,
-                "status": "pending",
+                "status": "posted",
                 "volunteered_at": datetime.now(timezone.utc).isoformat()
             }
 
@@ -562,7 +562,7 @@ class StaffPortalService:
             existing = self.supabase.table("shift_swaps") \
                 .select("id") \
                 .eq("shift_id", shift_id) \
-                .eq("status", "pending") \
+                .in_("status", ["posted", "accepted"]) \
                 .execute()
 
             if existing.data and len(existing.data) > 0:
@@ -574,7 +574,7 @@ class StaffPortalService:
                 "shift_id": shift_id,
                 "requesting_staff_id": staff_id,
                 "target_staff_id": target_staff_id,
-                "status": "pending",
+                "status": "posted",
                 "reason": reason
             }
 
@@ -624,7 +624,7 @@ class StaffPortalService:
             result = self.supabase.table("shift_swaps") \
                 .select("*") \
                 .eq("restaurant_id", restaurant_id) \
-                .eq("status", "pending") \
+                .eq("status", "posted") \
                 .neq("requesting_staff_id", staff_id) \
                 .execute()
 
@@ -654,7 +654,7 @@ class StaffPortalService:
                 .select("*") \
                 .eq("id", swap_id) \
                 .eq("restaurant_id", restaurant_id) \
-                .eq("status", "pending") \
+                .eq("status", "posted") \
                 .single() \
                 .execute()
 
@@ -669,7 +669,7 @@ class StaffPortalService:
             result = self.supabase.table("shift_swaps") \
                 .update({
                     "target_staff_id": staff_id,
-                    "status": "accepted_pending_approval"
+                    "status": "accepted"
                 }) \
                 .eq("id", swap_id) \
                 .execute()

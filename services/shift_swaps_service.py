@@ -144,7 +144,7 @@ class ShiftSwapsService:
             swap = await self.get_swap_by_id(swap_id, restaurant_id)
             if not swap:
                 return None
-            if swap['status'] != 'pending':
+            if swap['status'] != 'accepted':
                 raise ValueError(f"Swap already {swap['status']}")
             
             # Update swap status
@@ -189,7 +189,7 @@ class ShiftSwapsService:
         """Reject a swap request"""
         try:
             swap = await self.get_swap_by_id(swap_id, restaurant_id)
-            if not swap or swap['status'] != 'pending':
+            if not swap or swap['status'] != 'accepted':
                 return None
             
             result = self.supabase.table("shift_swaps") \
