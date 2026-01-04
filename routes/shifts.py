@@ -160,6 +160,98 @@ async def get_open_shifts(
             detail=f"Failed to fetch open shifts: {str(e)}"
         )
 
+@router.get("/my")
+async def get_my_shifts(
+    current_staff: dict = Depends(get_current_user),
+    start_date: date = Query(default=None),
+    end_date: date = Query(default=None),
+    include_coworkers: bool = Query(default=False)
+):
+    """Get authenticated staff member's own shifts"""
+    from database.supabase_client import get_supabase
+    
+    staff_id = current_staff.get("staff_id")
+    restaurant_id = current_staff.get("restaurant_id")
+    
+    if not staff_id or not restaurant_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
+    
+    # Default to 2 weeks from today
+    today = _get_today_for_restaurant(restaurant_id)
+    if not start_date:
+        start_date = today
+    if not end_date:
+        end_date = start_date + timedelta(days=14)
+    
+    supabase = get_supabase()
+    
+    # Get this staff member's shifts
+    result = supabase.table("sse_shifts")\
+        .select("id, shift_date, scheduled_start, scheduled_end, position, status")\
+        .eq("staff_id", staff_id)\
+        .eq("restaurant_id", restaurant_id)\
+        .gte("shift_date", start_date.isoformat())\
+        .lte("shift_date", end_date.isoformat())\
+        .order("shift_date")\
+        .execute()
+    
+    shifts = result.data or []
+    
+    # Optionally include coworkers for each shift date
+    if include_coworkers and shifts:
+        shift_dates = list(set(s["shift_date"] for s in shifts))
+        
+        # Get all shifts on those dates (excluding current staff)
+        coworker_result = supabase.table("sse_shifts")\
+            .select("shift_date, scheduled_start, scheduled_end, staff_id")\
+            .eq("restaurant_id", restaurant_id)\
+            .in_("shift_date", shift_dates)\
+            .neq("staff_id", staff_id)\
+            .not_.is_("staff_id", "null")\
+            .execute()
+        
+        coworker_shifts = coworker_result.data or []
+        
+        # Get coworker names
+        coworker_ids = list(set(c["staff_id"] for c in coworker_shifts))
+        if coworker_ids:
+            staff_result = supabase.table("staff")\
+                .select("staff_id, full_name, position")\
+                .in_("staff_id", coworker_ids)\
+                .execute()
+            staff_map = {s["staff_id"]: s for s in (staff_result.data or [])}
+        else:
+            staff_map = {}
+        
+        # Build coworkers by date
+        coworkers_by_date = {}
+        for c in coworker_shifts:
+            d = c["shift_date"]
+            if d not in coworkers_by_date:
+                coworkers_by_date[d] = []
+            staff_info = staff_map.get(c["staff_id"], {})
+            coworkers_by_date[d].append({
+                "staff_id": c["staff_id"],
+                "full_name": staff_info.get("full_name", "Unknown"),
+                "position": staff_info.get("position"),
+                "scheduled_start": c["scheduled_start"],
+                "scheduled_end": c["scheduled_end"]
+            })
+        
+        # Attach coworkers to each shift
+        for shift in shifts:
+            shift["coworkers"] = coworkers_by_date.get(shift["shift_date"], [])
+    
+    return {
+        "success": True,
+        "staff_id": staff_id,
+        "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+        "shifts": shifts
+    }
+
 
 @router.get("/{shift_id}")
 async def get_shift(
