@@ -65,10 +65,10 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     smm = compute_smm(checkins_7d, checkins_28d, manager_logs, dismissed_nudges)
     fairness = compute_fairness(checkins_7d, checkins_28d, shifts_week, staff_list)
     burnout = compute_burnout(checkins_7d, checkins_28d, shifts_week, staff_list)
-    stable_schedule = compute_stable_schedule(shifts_week, shifts_today)
+    stable_schedule = compute_stable_schedule(shifts_week, shifts_today, today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian, pending_nudges)
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian, pending_nudges, today)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
 
@@ -93,7 +93,7 @@ def get_dashboard_data(restaurant_id: int) -> dict:
         },
         "timestamp": {
             "generated_at": datetime.utcnow().isoformat() + "Z",
-            "pay_period": compute_pay_period()
+            "pay_period": compute_pay_period(today)
         }
     }
 
@@ -226,7 +226,7 @@ def _generate_network_report(restaurant_id: int) -> dict:
     """
     from datetime import datetime, timedelta
     
-    today = datetime.now().date()
+    today = get_today_for_restaurant(restaurant_id)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=6)
     
@@ -969,7 +969,7 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
 
 
 
-def compute_stable_schedule(shifts_week: list, shifts_today: list) -> dict:
+def compute_stable_schedule(shifts_week: list, shifts_today: list, today: date) -> dict:
     """
     Compute schedule coverage and gaps.
     """
@@ -990,7 +990,7 @@ def compute_stable_schedule(shifts_week: list, shifts_today: list) -> dict:
         if shift_date_str:
             try:
                 shift_date = date.fromisoformat(shift_date_str)
-                days_until = (shift_date - date.today()).days
+                days_until = (shift_date - today).days
                 if days_until <= 1:
                     critical += 1
                 else:
@@ -1141,7 +1141,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False, nudges: list = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False, nudges: list = None, today: date = None) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -1308,7 +1308,8 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # INJECT OPEN SHIFTS (COVERAGE GAPS)
     # ═══════════════════════════════════════════════════════════════════
     if shifts_week:
-        today = date.today()
+        if today is None:
+            today = date.today()  # Fallback, should not happen
         for shift in shifts_week:
             # Open shift = no staff assigned
             if shift.get("staff_id"):
@@ -1442,7 +1443,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # ═══════════════════════════════════════════════════════════════════
     # INJECT WEEKLY SCHEDULE SUMMARY (ALWAYS AT BOTTOM)
     # ═══════════════════════════════════════════════════════════════════
-    is_report_day = date.today().weekday() in [0, 1, 4]  # Monday = 0, Tuesday = 1, Friday = 4 for testing  
+    is_report_day = today.weekday() in [0]  # Monday = 0, Tuesday = 1, Friday = 4 for testing  
     if is_report_day and schedule_analysis and schedule_analysis.get("status") == "completed":
         analysis = schedule_analysis.get("analysis_result") or {}
         week_of = schedule_analysis.get("week_of", "")
@@ -1520,7 +1521,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # Network reports show every day (sales tool)
     # Subscriber reports show Mon/Tue/Fri only
     # ═══════════════════════════════════════════════════════════════════
-    is_hg_report_day = date.today().weekday() == 0  # Monday only
+    is_hg_report_day = today.weekday() == 0  # Monday only
     is_network_report = hg_weekly_report and hg_weekly_report.get("is_network_report", False)
     
     if hg_weekly_report and (is_network_report or is_hg_report_day):
@@ -1576,7 +1577,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # INJECT STAFF NUDGES (aggregated by module + position)
     # Show weekly on same cadence as House Guardian report
     # ═══════════════════════════════════════════════════════════════════
-    is_nudge_day = date.today().weekday() == 0  # Monday only
+    is_nudge_day = today.weekday() == 0  # Monday only
     if nudges and is_nudge_day:
         # Aggregate nudges by module_key and position
         nudge_groups = {}
@@ -1784,12 +1785,12 @@ def compute_quick_stats(shifts_today: list, shifts_week: list, staff_list: list)
     }
 
 
-def compute_pay_period() -> str:
+def compute_pay_period(today: date) -> str:
     """
     Compute current pay period string.
     Assumes bi-weekly pay periods starting on Monday.
     """
-    today = date.today()
+    # today is passed as parameter
     # Find start of current pay period (every other Monday)
     days_since_monday = today.weekday()
     this_monday = today - timedelta(days=days_since_monday)
