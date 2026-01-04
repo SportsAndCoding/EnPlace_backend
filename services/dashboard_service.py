@@ -16,16 +16,22 @@ from services.network_benchmark_service import (
 from datetime import datetime, timedelta, date
 from typing import Optional
 from database.supabase_client import supabase
+import pytz
 
+def get_today_for_restaurant(restaurant_id: int) -> date:
+    """Get today's date in the restaurant's timezone."""
+    result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+    tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
+    tz = pytz.timezone(tz_name)
+    return datetime.now(tz).date()
 
 def get_dashboard_data(restaurant_id: int) -> dict:
     """
     Aggregate all dashboard data for a restaurant.
     Returns everything manager-home.html needs in one response.
     """
-    
-    # Date ranges
-    today = date.today()
+    # Date ranges - use restaurant timezone
+    today = get_today_for_restaurant(restaurant_id)
     week_ago = today - timedelta(days=7)
     two_weeks_ago = today - timedelta(days=14)
     four_weeks_ago = today - timedelta(days=28)
