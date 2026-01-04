@@ -441,6 +441,25 @@ async def volunteer_for_shift(
             detail=f"Failed to volunteer: {str(e)}"
         )
 
+@router.get("/my-open-shift-claims")
+async def get_my_open_shift_claims(current_user: dict = Depends(get_current_user)):
+    """Get open shifts claimed by current staff"""
+    service = StaffPortalService()
+    try:
+        claims = await service.get_my_open_shift_claims(
+            staff_id=current_user['staff_id'],
+            restaurant_id=current_user['restaurant_id']
+        )
+        return {
+            "success": True,
+            "claims": claims,
+            "count": len(claims)
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch claims: {str(e)}"
+        )
 
 # ═══════════════════════════════════════════════════════════════════
 # SHIFT SWAPS

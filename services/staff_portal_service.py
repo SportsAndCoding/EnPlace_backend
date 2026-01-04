@@ -517,6 +517,26 @@ class StaffPortalService:
             logger.error(f"Volunteer for shift error: {e}")
             raise e
 
+    async def get_my_open_shift_claims(
+        self,
+        staff_id: str,
+        restaurant_id: int
+    ) -> List[Dict[str, Any]]:
+        """Get open shifts claimed by this staff member"""
+        try:
+            result = self.supabase.table("open_shifts") \
+                .select("*") \
+                .eq("claimed_by", staff_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .order("date", desc=False) \
+                .execute()
+
+            return result.data or []
+
+        except Exception as e:
+            logger.error(f"Get my open shift claims error: {e}")
+            raise e
+
     # ═══════════════════════════════════════════════════════════════════
     # SHIFT SWAP REQUEST
     # ═══════════════════════════════════════════════════════════════════
