@@ -40,6 +40,7 @@ class UploadScheduleRequest(BaseModel):
     raw_schedule: str
     week_of: str  # YYYY-MM-DD
     manager_notes: Optional[str] = ""
+    auto_publish: Optional[bool] = True
 
 class UploadScheduleResponse(BaseModel):
     success: bool
@@ -128,7 +129,8 @@ async def upload_schedule(
             raw_schedule=request.raw_schedule,
             restaurant_id=restaurant_id,
             week_of=request.week_of,
-            staff_id=staff_id
+            staff_id=staff_id,
+            auto_publish=request.auto_publish
         )
 
         logger.info(f"Schedule queued for background processing: upload_id={upload_id}")
@@ -154,7 +156,8 @@ async def process_schedule_background(
     raw_schedule: str,
     restaurant_id: int,
     week_of: str,
-    staff_id: str
+    staff_id: str,
+    auto_publish: bool = True
 ):
     """Background task: Parse schedule and save shifts."""
     try:
@@ -181,38 +184,39 @@ async def process_schedule_background(
         shifts = parse_result.get("shifts", [])
         shifts_saved = 0
 
-        for shift in shifts:
-            try:
-                shift_date = shift.get("date")
-                start_time = shift.get("start_time", "09:00")
-                end_time = shift.get("end_time", "17:00")
+        if auto_publish:
+            for shift in shifts:
+                try:
+                    shift_date = shift.get("date")
+                    start_time = shift.get("start_time", "09:00")
+                    end_time = shift.get("end_time", "17:00")
 
-                start_hour = int(start_time.split(":")[0])
-                shift_type = "AM" if start_hour < 14 else "PM"
+                    start_hour = int(start_time.split(":")[0])
+                    shift_type = "AM" if start_hour < 14 else "PM"
 
-                shift_dt = datetime.strptime(shift_date, "%Y-%m-%d")
-                day_type = "weekend" if shift_dt.weekday() >= 5 else "weekday"
+                    shift_dt = datetime.strptime(shift_date, "%Y-%m-%d")
+                    day_type = "weekend" if shift_dt.weekday() >= 5 else "weekday"
 
-                shift_data = {
-                    "restaurant_id": restaurant_id,
-                    "staff_id": shift.get("staff_id"),
-                    "shift_date": shift_date,
-                    "scheduled_start": f"{shift_date}T{start_time}:00Z",
-                    "scheduled_end": f"{shift_date}T{end_time}:00Z",
-                    "shift_type": shift_type,
-                    "day_type": day_type,
-                    "position": shift.get("position"),
-                    "is_published": True,
-                    "status": "assigned",
-                    "created_by": staff_id
-                }
+                    shift_data = {
+                        "restaurant_id": restaurant_id,
+                        "staff_id": shift.get("staff_id"),
+                        "shift_date": shift_date,
+                        "scheduled_start": f"{shift_date}T{start_time}:00Z",
+                        "scheduled_end": f"{shift_date}T{end_time}:00Z",
+                        "shift_type": shift_type,
+                        "day_type": day_type,
+                        "position": shift.get("position"),
+                        "is_published": True,
+                        "status": "assigned",
+                        "created_by": staff_id
+                    }
 
-                supabase.table("sse_shifts").insert(shift_data).execute()
-                shifts_saved += 1
+                    supabase.table("sse_shifts").insert(shift_data).execute()
+                    shifts_saved += 1
 
-            except Exception as e:
-                logger.warning(f"Failed to save shift: {e}")
-                continue
+                except Exception as e:
+                    logger.warning(f"Failed to save shift: {e}")
+                    continue
 
         supabase.table("schedule_uploads") \
             .update({
