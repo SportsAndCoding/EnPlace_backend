@@ -409,3 +409,23 @@ class ShiftsService:
             except Exception as e:
                 print(f"Error getting shift volunteers: {e}")
                 return []
+    async def update_open_shift(
+        self,
+        shift_id: str,
+        restaurant_id: int,
+        update_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Update an open_shifts record (UUID-based marketplace shifts)"""
+        try:
+            payload = {k: v for k, v in update_data.items() if v is not None}
+            
+            result = self.supabase.table("open_shifts") \
+                .update(payload) \
+                .eq("id", shift_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .execute()
+            
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error updating open shift: {e}")
+            raise e

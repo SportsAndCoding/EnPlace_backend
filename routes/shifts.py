@@ -439,3 +439,25 @@ async def get_shift_volunteers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch volunteers: {str(e)}"
         )
+    
+@router.put("/open/{shift_id}")
+async def update_open_shift(
+    shift_id: str,
+    update_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an open shift (marketplace)"""
+    if current_user.get('portal_access') != 'manager':
+        raise HTTPException(status_code=403, detail="Only managers can update shifts")
+    
+    service = ShiftsService()
+    result = await service.update_open_shift(
+        shift_id=shift_id,
+        restaurant_id=current_user['restaurant_id'],
+        update_data=update_data
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Shift not found")
+    
+    return {"success": True, "shift": result}
