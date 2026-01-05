@@ -640,7 +640,8 @@ class StaffPortalService:
                 .order("created_at", desc=True) \
                 .execute()
 
-            return result.data or []
+            swaps = result.data or []
+            return await self._enrich_swaps(swaps)
 
         except Exception as e:
             logger.error(f"Get my swap requests error: {e}")
@@ -668,11 +669,61 @@ class StaffPortalService:
                 if target is None or target == staff_id:
                     swaps.append(swap)
 
-            return swaps
+            return await self._enrich_swaps(swaps)
 
         except Exception as e:
             logger.error(f"Get available swap requests error: {e}")
             raise e
+
+    async def _enrich_swaps(self, swaps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Enrich swap records with shift and staff details"""
+        if not swaps:
+            return []
+
+        try:
+            # Get all shift IDs
+            shift_ids = list(set(s['shift_id'] for s in swaps))
+            shifts_result = self.supabase.table("sse_shifts") \
+                .select("id, shift_date, scheduled_start, scheduled_end, position, shift_type") \
+                .in_("id", shift_ids) \
+                .execute()
+            shifts_map = {s['id']: s for s in (shifts_result.data or [])}
+
+            # Get all staff IDs (requesters and targets)
+            staff_ids = list(set(
+                [s['requesting_staff_id'] for s in swaps] +
+                [s['target_staff_id'] for s in swaps if s.get('target_staff_id')]
+            ))
+            staff_result = self.supabase.table("staff") \
+                .select("staff_id, full_name, position") \
+                .in_("staff_id", staff_ids) \
+                .execute()
+            staff_map = {s['staff_id']: s for s in (staff_result.data or [])}
+
+            # Enrich each swap
+            enriched = []
+            for swap in swaps:
+                shift = shifts_map.get(swap['shift_id'], {})
+                requester = staff_map.get(swap['requesting_staff_id'], {})
+
+                swap['shift'] = {
+                    'date': shift.get('shift_date'),
+                    'start': shift.get('scheduled_start'),
+                    'end': shift.get('scheduled_end'),
+                    'position': shift.get('position') or shift.get('shift_type')
+                }
+                swap['staff'] = {
+                    'full_name': requester.get('full_name'),
+                    'position': requester.get('position')
+                }
+                enriched.append(swap)
+
+            return enriched
+
+        except Exception as e:
+            logger.error(f"Enrich swaps error: {e}")
+            # Return original swaps if enrichment fails
+            return swaps
 
     async def accept_swap(
         self,
