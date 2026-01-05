@@ -1340,6 +1340,17 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             
             days_until = (shift_date - today).days
             
+            # For today's shifts, skip if start time has passed
+            if days_until == 0 and shift.get("scheduled_start"):
+                try:
+                    from datetime import datetime as dt, timezone
+                    start_dt = dt.fromisoformat(shift.get("scheduled_start").replace("Z", "+00:00"))
+                    now = dt.now(timezone.utc)
+                    if start_dt <= now:
+                        continue  # Shift already started
+                except:
+                    pass
+            
             # Urgency
             if days_until == 0:
                 urgency = "TODAY"
