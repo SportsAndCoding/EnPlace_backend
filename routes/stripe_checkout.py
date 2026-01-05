@@ -283,6 +283,9 @@ async def stripe_webhook(
     elif event_type == "invoice.payment_failed":
         await handle_payment_failed(data)
     
+    elif event_type == "invoice.paid":
+        await handle_invoice_paid(data)
+    
     return {"received": True}
 
 
@@ -437,6 +440,43 @@ async def handle_payment_failed(invoice):
     
     except Exception as e:
         logger.error(f"Error handling payment failure: {e}")
+
+async def handle_invoice_paid(invoice):
+    """Record successful payment in invoices table"""
+    supabase = get_supabase()
+    
+    try:
+        subscription_id = invoice.subscription
+        restaurant_id = None
+        
+        # Find the restaurant
+        if subscription_id:
+            result = supabase.table("restaurants") \
+                .select("id") \
+                .eq("stripe_subscription_id", subscription_id) \
+                .single() \
+                .execute()
+            
+            if result.data:
+                restaurant_id = result.data["id"]
+        
+        # Insert invoice record
+        supabase.table("invoices").insert({
+            "restaurant_id": restaurant_id,
+            "stripe_invoice_id": invoice.id,
+            "amount_cents": invoice.amount_paid,
+            "currency": invoice.currency,
+            "description": invoice.lines.data[0].description if invoice.lines.data else "Subscription",
+            "status": "paid",
+            "period_start": datetime.utcfromtimestamp(invoice.period_start).isoformat() if invoice.period_start else None,
+            "period_end": datetime.utcfromtimestamp(invoice.period_end).isoformat() if invoice.period_end else None,
+            "paid_at": datetime.utcnow().isoformat()
+        }).execute()
+        
+        logger.info(f"Recorded invoice {invoice.id} for restaurant {restaurant_id}: ${invoice.amount_paid / 100:.2f}")
+    
+    except Exception as e:
+        logger.error(f"Error recording invoice: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
