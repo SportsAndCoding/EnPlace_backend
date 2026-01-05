@@ -524,6 +524,54 @@ async def get_my_swap_requests(current_user: dict = Depends(get_current_user)):
         )
 
 
+@router.get("/shifts-by-date")
+async def get_shifts_by_date(
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all shifts and staff working on a specific date"""
+    from database.supabase_client import get_supabase
+    supabase = get_supabase()
+    
+    try:
+        result = supabase.table("sse_shifts") \
+            .select("id, shift_date, scheduled_start, scheduled_end, position, shift_type, staff_id") \
+            .eq("restaurant_id", current_user['restaurant_id']) \
+            .eq("shift_date", date) \
+            .execute()
+        
+        shifts = result.data or []
+        
+        staff_ids = [s['staff_id'] for s in shifts if s.get('staff_id')]
+        staff_map = {}
+        if staff_ids:
+            staff_result = supabase.table("staff") \
+                .select("staff_id, full_name, position") \
+                .in_("staff_id", staff_ids) \
+                .execute()
+            staff_map = {s['staff_id']: s for s in (staff_result.data or [])}
+        
+        enriched = []
+        for shift in shifts:
+            staff = staff_map.get(shift.get('staff_id'), {})
+            enriched.append({
+                **shift,
+                'staff_name': staff.get('full_name'),
+                'staff_position': staff.get('position')
+            })
+        
+        return {
+            "success": True,
+            "shifts": enriched,
+            "count": len(enriched)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch shifts: {str(e)}"
+        )
+
 @router.get("/swap-requests/available")
 async def get_available_swap_requests(current_user: dict = Depends(get_current_user)):
     """Get swap requests available for current staff to accept"""
