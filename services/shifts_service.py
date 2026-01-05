@@ -485,8 +485,21 @@ class ShiftsService:
     ) -> Dict[str, Any]:
         """Manager selects a volunteer for an open shift"""
         try:
-            # Update open_shifts - set claimed_by and approved
+            # Get the open shift details first
             shift_result = self.supabase.table("open_shifts") \
+                .select("*") \
+                .eq("id", shift_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .single() \
+                .execute()
+            
+            if not shift_result.data:
+                raise ValueError("Shift not found")
+            
+            open_shift = shift_result.data
+            
+            # Update open_shifts - set claimed_by and approved
+            update_result = self.supabase.table("open_shifts") \
                 .update({
                     "claimed_by": staff_id,
                     "status": "approved"
@@ -495,8 +508,8 @@ class ShiftsService:
                 .eq("restaurant_id", restaurant_id) \
                 .execute()
             
-            if not shift_result.data:
-                raise ValueError("Shift not found")
+            if not update_result.data:
+                raise ValueError("Failed to update shift")
             
             # Mark selected volunteer as 'selected'
             self.supabase.table("open_shift_volunteers") \
@@ -512,7 +525,37 @@ class ShiftsService:
                 .neq("staff_id", staff_id) \
                 .execute()
             
-            return shift_result.data[0]
+            # Insert into sse_shifts so it appears on staff schedule
+            shift_date = open_shift["date"]
+            start_time = open_shift.get("start_time", "09:00:00")
+            end_time = open_shift.get("end_time", "17:00:00")
+            
+            # Combine date and time into timestamp
+            scheduled_start = f"{shift_date}T{start_time}+00:00"
+            scheduled_end = f"{shift_date}T{end_time}+00:00"
+            
+            # Determine day_type
+            from datetime import datetime
+            date_obj = datetime.strptime(shift_date, "%Y-%m-%d")
+            day_type = "weekend" if date_obj.weekday() >= 5 else "weekday"
+            
+            self.supabase.table("sse_shifts") \
+                .insert({
+                    "restaurant_id": restaurant_id,
+                    "staff_id": staff_id,
+                    "shift_date": shift_date,
+                    "scheduled_start": scheduled_start,
+                    "scheduled_end": scheduled_end,
+                    "shift_type": open_shift.get("position", "General"),
+                    "position": open_shift.get("position"),
+                    "day_type": day_type,
+                    "is_published": True,
+                    "status": "scheduled",
+                    "reason": f"Picked up open shift"
+                }) \
+                .execute()
+            
+            return update_result.data[0]
         except ValueError:
             raise
         except Exception as e:
