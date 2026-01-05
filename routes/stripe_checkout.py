@@ -23,14 +23,14 @@ router = APIRouter(prefix="/api", tags=["stripe"])
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
-# Price IDs (Test Mode)
+# Price IDs from environment (supports test/live switching)
 PRICE_IDS = {
-    "sse": "price_1SgTnqKPFo8zGGmKMxYuuqN6",           # $1,500/mo - Required
-    "stable_hire": "price_1SgToIKPFo8zGGmKwXvssUrs",   # $500/mo
-    "stable_schedule": "price_1SgTohKPFo8zGGmKyq3g9bSr", # $500/mo
-    "house_guardian": "price_1SgTrfKPFo8zGGmKzqWSDKkw",  # $500/mo
-    "open_shift": "price_1SgTsrKPFo8zGGmKtL2SjMOF",    # $200/mo
-    "shift_swap": "price_1SgTt7KPFo8zGGmKFQoXJYgI",    # $200/mo
+    "sse": os.environ.get("STRIPE_PRICE_SSE"),
+    "stable_hire": os.environ.get("STRIPE_PRICE_STABLE_HIRE"),
+    "stable_schedule": os.environ.get("STRIPE_PRICE_STABLE_SCHEDULE"),
+    "house_guardian": os.environ.get("STRIPE_PRICE_HOUSE_GUARDIAN"),
+    "open_shift": os.environ.get("STRIPE_PRICE_OPEN_SHIFT"),
+    "shift_swap": os.environ.get("STRIPE_PRICE_SHIFT_SWAP"),
 }
 
 # Frontend URLs
