@@ -174,6 +174,8 @@ class ShiftsService:
     ) -> List[Dict[str, Any]]:
         """Get open shifts from marketplace"""
         try:
+            from datetime import datetime, timezone
+            
             result = self.supabase.table("open_shifts") \
                 .select("id, restaurant_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by") \
                 .eq("restaurant_id", restaurant_id) \
@@ -183,10 +185,18 @@ class ShiftsService:
                 .order("date") \
                 .order("start_time") \
                 .execute()
-
-            # Map to frontend expected field names
+            
+            # Filter out shifts that have already started today
+            now = datetime.now(timezone.utc)
+            today_str = now.strftime("%Y-%m-%d")
+            current_time = now.strftime("%H:%M:%S")
+            
             shifts = []
             for row in result.data or []:
+                # Skip today's shifts where start_time has passed
+                if row["date"] == today_str and row["start_time"] <= current_time:
+                    continue
+                    
                 shifts.append({
                     "id": row["id"],
                     "restaurant_id": row["restaurant_id"],
@@ -197,15 +207,13 @@ class ShiftsService:
                     "bonus_pay": row.get("bonus_pay", 0),
                     "description": row.get("description"),
                     "status": row["status"],
-                    "created_at": row.get("created_at"),
-                    "staff_id": row.get("claimed_by"),
+                    "created_at": row["created_at"],
+                    "claimed_by": row.get("claimed_by")
                 })
             return shifts
-            
         except Exception as e:
-            logger.error(f"Get open shifts error: {e}")
+            print(f"Error fetching open shifts: {e}")
             raise e
-    
     async def get_pending_open_shift_claims(
         self,
         restaurant_id: int
