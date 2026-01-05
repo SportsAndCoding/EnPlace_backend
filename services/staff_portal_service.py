@@ -471,46 +471,56 @@ class StaffPortalService:
     async def volunteer_for_shift(
         self,
         staff_id: str,
-        shift_id: str,  # Changed to str to accept UUID
+        shift_id: str,
         restaurant_id: int
     ) -> Dict[str, Any]:
-        """Staff volunteers for an open shift from the open_shifts marketplace"""
+        """Staff volunteers for an open shift - adds to volunteers list"""
         try:
-            # Query open_shifts table (UUID-based)
+            # Verify shift exists and is open
             shift_result = self.supabase.table("open_shifts") \
-                .select("id, restaurant_id, status, claimed_by, position, date, start_time, end_time") \
+                .select("id, restaurant_id, status, position, date, start_time, end_time") \
                 .eq("id", shift_id) \
                 .eq("restaurant_id", restaurant_id) \
                 .single() \
                 .execute()
-
+            
             if not shift_result.data:
                 raise ValueError("Shift not found")
-
+            
             shift = shift_result.data
-
-            if shift.get("status") != "open":
+            if shift.get("status") not in ("open", "pending"):
                 raise ValueError("Shift is no longer available")
-
-            if shift.get("claimed_by"):
-                raise ValueError("Shift has already been claimed")
-
-            # Update the open shift with the volunteer
-            result = self.supabase.table("open_shifts") \
-                .update({
-                    "claimed_by": staff_id,
-                    "claimed_at": datetime.now(timezone.utc).isoformat(),
-                    "status": "pending"  # Awaiting manager approval
+            
+            # Check if already volunteered
+            existing = self.supabase.table("open_shift_volunteers") \
+                .select("id") \
+                .eq("open_shift_id", shift_id) \
+                .eq("staff_id", staff_id) \
+                .execute()
+            
+            if existing.data and len(existing.data) > 0:
+                raise ValueError("You have already volunteered for this shift")
+            
+            # Insert volunteer record
+            result = self.supabase.table("open_shift_volunteers") \
+                .insert({
+                    "open_shift_id": shift_id,
+                    "staff_id": staff_id,
+                    "status": "pending"
                 }) \
+                .execute()
+            
+            # Update shift status to pending if first volunteer
+            self.supabase.table("open_shifts") \
+                .update({"status": "pending"}) \
                 .eq("id", shift_id) \
                 .eq("status", "open") \
                 .execute()
-
+            
             if result.data and len(result.data) > 0:
-                return result.data[0]
-
-            raise Exception("Failed to claim shift - it may have been claimed by someone else")
-
+                return {**result.data[0], "shift": shift}
+            
+            raise Exception("Failed to volunteer")
         except ValueError:
             raise
         except Exception as e:
@@ -522,17 +532,26 @@ class StaffPortalService:
         staff_id: str,
         restaurant_id: int
     ) -> List[Dict[str, Any]]:
-        """Get open shifts claimed by this staff member"""
+        """Get open shifts this staff member has volunteered for"""
         try:
-            result = self.supabase.table("open_shifts") \
-                .select("*") \
-                .eq("claimed_by", staff_id) \
-                .eq("restaurant_id", restaurant_id) \
-                .order("date", desc=False) \
+            result = self.supabase.table("open_shift_volunteers") \
+                .select("*, open_shifts(*)") \
+                .eq("staff_id", staff_id) \
                 .execute()
-
-            return result.data or []
-
+            
+            # Flatten and filter by restaurant
+            claims = []
+            for vol in (result.data or []):
+                shift = vol.get("open_shifts")
+                if shift and shift.get("restaurant_id") == restaurant_id:
+                    claims.append({
+                        "volunteer_id": vol["id"],
+                        "volunteer_status": vol["status"],
+                        "volunteered_at": vol["volunteered_at"],
+                        **shift
+                    })
+            
+            return sorted(claims, key=lambda x: x.get("date", ""))
         except Exception as e:
             logger.error(f"Get my open shift claims error: {e}")
             raise e

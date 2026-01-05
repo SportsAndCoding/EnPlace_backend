@@ -461,3 +461,59 @@ async def update_open_shift(
         raise HTTPException(status_code=404, detail="Shift not found")
     
     return {"success": True, "shift": result}
+
+@router.get("/open/{shift_id}/volunteers")
+async def get_open_shift_volunteers(
+    shift_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all volunteers for an open shift (manager view)"""
+    if current_user.get('portal_access') != 'manager':
+        raise HTTPException(status_code=403, detail="Manager access required")
+    
+    service = ShiftsService()
+    try:
+        volunteers = await service.get_open_shift_volunteers(
+            shift_id=shift_id,
+            restaurant_id=current_user['restaurant_id']
+        )
+        return {
+            "success": True,
+            "volunteers": volunteers,
+            "count": len(volunteers)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/open/{shift_id}/select-volunteer")
+async def select_volunteer(
+    shift_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """Manager selects a volunteer for an open shift"""
+    if current_user.get('portal_access') != 'manager':
+        raise HTTPException(status_code=403, detail="Manager access required")
+    
+    body = await request.json()
+    staff_id = body.get("staff_id")
+    
+    if not staff_id:
+        raise HTTPException(status_code=400, detail="staff_id required")
+    
+    service = ShiftsService()
+    try:
+        result = await service.select_volunteer(
+            shift_id=shift_id,
+            staff_id=staff_id,
+            restaurant_id=current_user['restaurant_id']
+        )
+        return {
+            "success": True,
+            "shift": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

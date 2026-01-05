@@ -417,7 +417,9 @@ class ShiftsService:
     ) -> Optional[Dict[str, Any]]:
         """Update an open_shifts record (UUID-based marketplace shifts)"""
         try:
-            payload = {k: v for k, v in update_data.items() if v is not None}
+            # Allow explicit None for clearable fields like claimed_by
+            clearable_fields = {'claimed_by', 'staff_id', 'created_by'}
+            payload = {k: v for k, v in update_data.items() if v is not None or k in clearable_fields}
             
             result = self.supabase.table("open_shifts") \
                 .update(payload) \
@@ -428,4 +430,64 @@ class ShiftsService:
             return result.data[0] if result.data else None
         except Exception as e:
             print(f"Error updating open shift: {e}")
+            raise e
+        
+    async def get_open_shift_volunteers(
+        self,
+        shift_id: str,
+        restaurant_id: int
+    ) -> List[Dict[str, Any]]:
+        """Get all volunteers for an open shift"""
+        try:
+            result = self.supabase.table("open_shift_volunteers") \
+                .select("*, staff:staff_id(staff_id, full_name, position, photo_url)") \
+                .eq("open_shift_id", shift_id) \
+                .eq("status", "pending") \
+                .order("volunteered_at", desc=False) \
+                .execute()
+            return result.data or []
+        except Exception as e:
+            print(f"Error getting volunteers: {e}")
+            raise e
+
+    async def select_volunteer(
+        self,
+        shift_id: str,
+        staff_id: str,
+        restaurant_id: int
+    ) -> Dict[str, Any]:
+        """Manager selects a volunteer for an open shift"""
+        try:
+            # Update open_shifts - set claimed_by and approved
+            shift_result = self.supabase.table("open_shifts") \
+                .update({
+                    "claimed_by": staff_id,
+                    "status": "approved"
+                }) \
+                .eq("id", shift_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .execute()
+            
+            if not shift_result.data:
+                raise ValueError("Shift not found")
+            
+            # Mark selected volunteer as 'selected'
+            self.supabase.table("open_shift_volunteers") \
+                .update({"status": "selected"}) \
+                .eq("open_shift_id", shift_id) \
+                .eq("staff_id", staff_id) \
+                .execute()
+            
+            # Mark all other volunteers as 'not_selected'
+            self.supabase.table("open_shift_volunteers") \
+                .update({"status": "not_selected"}) \
+                .eq("open_shift_id", shift_id) \
+                .neq("staff_id", staff_id) \
+                .execute()
+            
+            return shift_result.data[0]
+        except ValueError:
+            raise
+        except Exception as e:
+            print(f"Error selecting volunteer: {e}")
             raise e
