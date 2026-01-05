@@ -453,7 +453,7 @@ class ShiftsService:
             
             # Get staff details separately
             staff_ids = [v["staff_id"] for v in volunteers]
-            staff_result = self.supabase.table("sse_staff") \
+            staff_result = self.supabase.table("staff") \
                 .select("staff_id, full_name, position, photo_url") \
                 .in_("staff_id", staff_ids) \
                 .execute()
