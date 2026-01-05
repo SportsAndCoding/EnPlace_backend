@@ -439,13 +439,32 @@ class ShiftsService:
     ) -> List[Dict[str, Any]]:
         """Get all volunteers for an open shift"""
         try:
+            # Get volunteers
             result = self.supabase.table("open_shift_volunteers") \
-                .select("*, staff:staff_id(staff_id, full_name, position, photo_url)") \
+                .select("*") \
                 .eq("open_shift_id", shift_id) \
                 .eq("status", "pending") \
                 .order("volunteered_at", desc=False) \
                 .execute()
-            return result.data or []
+            
+            volunteers = result.data or []
+            if not volunteers:
+                return []
+            
+            # Get staff details separately
+            staff_ids = [v["staff_id"] for v in volunteers]
+            staff_result = self.supabase.table("sse_staff") \
+                .select("staff_id, full_name, position, photo_url") \
+                .in_("staff_id", staff_ids) \
+                .execute()
+            
+            staff_map = {s["staff_id"]: s for s in (staff_result.data or [])}
+            
+            # Merge staff into volunteers
+            for v in volunteers:
+                v["staff"] = staff_map.get(v["staff_id"], {})
+            
+            return volunteers
         except Exception as e:
             print(f"Error getting volunteers: {e}")
             raise e
