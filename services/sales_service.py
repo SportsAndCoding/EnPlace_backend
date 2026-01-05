@@ -13,12 +13,21 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Initialize Supabase
-SUPABASE_URL = os.environ.get('SUPABASE_URL')
-SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+# Initialize Supabase (lazy loaded to ensure env vars are ready)
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+_supabase_client: Client = None
+
+def get_supabase() -> Client:
+    """Get or create Supabase client - lazy initialization"""
+    global _supabase_client
+    if _supabase_client is None:
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
+        if not url or not key:
+            raise Exception("Supabase credentials not configured")
+        _supabase_client = create_client(url, key)
+    return _supabase_client
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONSTANTS
@@ -327,7 +336,7 @@ Original Notes: {notes_text}"""
         - sales_captain: own + team leads
         - sales_director: all leads
         """
-        query = supabase.table('sales_leads').select('*')
+        query = get_supabase().table('sales_leads').select('*')
         
         if role == 'sales_rep':
             query = query.eq('assigned_rep_id', rep_id)
