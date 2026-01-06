@@ -506,6 +506,7 @@ class StaffPortalService:
                 .insert({
                     "open_shift_id": shift_id,
                     "staff_id": staff_id,
+                    "restaurant_id": shift.get("restaurant_id"),
                     "status": "pending"
                 }) \
                 .execute()
