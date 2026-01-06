@@ -356,7 +356,7 @@ Original Notes: {notes_text}"""
     
     async def get_lead_by_id(self, lead_id: str) -> Optional[Dict[str, Any]]:
         """Get single lead with activities"""
-        result = supabase.table('sales_leads').select('*').eq('id', lead_id).single().execute()
+        result = get_supabase().table('sales_leads').select('*').eq('id', lead_id).single().execute()
         
         if not result.data:
             return None
@@ -364,14 +364,14 @@ Original Notes: {notes_text}"""
         lead = result.data
         
         # Get activities for this lead
-        activities = supabase.table('sales_activities').select('*').eq('lead_id', lead_id).order('created_at', desc=True).execute()
+        activities = get_supabase().table('sales_activities').select('*').eq('lead_id', lead_id).order('created_at', desc=True).execute()
         lead['activities'] = activities.data or []
         
         return lead
     
     async def create_lead(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new lead"""
-        result = supabase.table('sales_leads').insert(data).execute()
+        result = get_supabase().table('sales_leads').insert(data).execute()
         return result.data[0] if result.data else None
     
     async def update_lead(self, lead_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -380,7 +380,7 @@ Original Notes: {notes_text}"""
         data = {k: v for k, v in data.items() if v is not None}
         data['updated_at'] = datetime.utcnow().isoformat()
         
-        result = supabase.table('sales_leads').update(data).eq('id', lead_id).execute()
+        result = get_supabase().table('sales_leads').update(data).eq('id', lead_id).execute()
         return result.data[0] if result.data else None
     
     async def update_lead_stage(self, lead_id: str, new_stage: str) -> Dict[str, Any]:
@@ -393,8 +393,8 @@ Original Notes: {notes_text}"""
     async def delete_lead(self, lead_id: str) -> bool:
         """Delete a lead and associated activities"""
         # Delete activities first (cascade would handle this but being explicit)
-        supabase.table('sales_activities').delete().eq('lead_id', lead_id).execute()
-        result = supabase.table('sales_leads').delete().eq('id', lead_id).execute()
+        get_supabase().table('sales_activities').delete().eq('lead_id', lead_id).execute()
+        result = get_supabase().table('sales_leads').delete().eq('id', lead_id).execute()
         return True
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -403,11 +403,11 @@ Original Notes: {notes_text}"""
     
     async def create_activity(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new activity"""
-        result = supabase.table('sales_activities').insert(data).execute()
+        result = get_supabase().table('sales_activities').insert(data).execute()
         
         # Also update the lead's updated_at
         if data.get('lead_id'):
-            supabase.table('sales_leads').update({
+            get_supabase().table('sales_leads').update({
                 'updated_at': datetime.utcnow().isoformat()
             }).eq('id', data['lead_id']).execute()
         
@@ -415,7 +415,7 @@ Original Notes: {notes_text}"""
     
     async def get_activities_for_lead(self, lead_id: str) -> List[Dict[str, Any]]:
         """Get all activities for a lead"""
-        result = supabase.table('sales_activities').select('*').eq('lead_id', lead_id).order('created_at', desc=True).execute()
+        result = get_supabase().table('sales_activities').select('*').eq('lead_id', lead_id).order('created_at', desc=True).execute()
         return result.data or []
     
     async def get_rep_activities(
@@ -425,7 +425,7 @@ Original Notes: {notes_text}"""
     ) -> List[Dict[str, Any]]:
         """Get recent activities for a rep"""
         since = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        result = supabase.table('sales_activities').select('*, sales_leads(restaurant_name)').eq('rep_id', rep_id).gte('created_at', since).order('created_at', desc=True).execute()
+        result = get_supabase().table('sales_activities').select('*, sales_leads(restaurant_name)').eq('rep_id', rep_id).gte('created_at', since).order('created_at', desc=True).execute()
         return result.data or []
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -453,7 +453,7 @@ Original Notes: {notes_text}"""
             'status': 'active'
         }
         
-        deal_result = supabase.table('sales_deals').insert(deal_data).execute()
+        deal_result = get_supabase().table('sales_deals').insert(deal_data).execute()
         deal = deal_result.data[0]
         deal_id = deal['id']
         
@@ -499,7 +499,7 @@ Original Notes: {notes_text}"""
         
         # Insert all commissions
         if commissions:
-            supabase.table('sales_commissions').insert(commissions).execute()
+            get_supabase().table('sales_commissions').insert(commissions).execute()
         
         return {
             'deal': deal,
@@ -514,7 +514,7 @@ Original Notes: {notes_text}"""
         status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Get deals based on role permissions"""
-        query = supabase.table('sales_deals').select('*, sales_leads(restaurant_name)')
+        query = get_supabase().table('sales_deals').select('*, sales_leads(restaurant_name)')
         
         if role == 'sales_rep':
             query = query.eq('rep_id', rep_id)
@@ -537,7 +537,7 @@ Original Notes: {notes_text}"""
         status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Get commissions for a rep"""
-        query = supabase.table('sales_commissions').select('*, sales_deals(monthly_value, sales_leads(restaurant_name))').eq('rep_id', rep_id)
+        query = get_supabase().table('sales_commissions').select('*, sales_deals(monthly_value, sales_leads(restaurant_name))').eq('rep_id', rep_id)
         
         if status:
             query = query.eq('status', status)
@@ -661,7 +661,7 @@ Original Notes: {notes_text}"""
         
         if metric == 'deals':
             # Count deals per rep
-            result = supabase.table('sales_deals').select('rep_id').execute()
+            result = get_supabase().table('sales_deals').select('rep_id').execute()
             deals = result.data or []
             
             # Count by rep
@@ -676,7 +676,7 @@ Original Notes: {notes_text}"""
             # Get rep names
             leaderboard = []
             for rep_id, count in sorted_reps:
-                rep_result = supabase.table('staff').select('full_name').eq('staff_id', rep_id).single().execute()
+                rep_result = get_supabase().table('staff').select('full_name').eq('staff_id', rep_id).single().execute()
                 name = rep_result.data['full_name'] if rep_result.data else rep_id
                 leaderboard.append({
                     'rank': len(leaderboard) + 1,
@@ -690,7 +690,7 @@ Original Notes: {notes_text}"""
         
         elif metric == 'revenue':
             # Sum revenue per rep
-            result = supabase.table('sales_deals').select('rep_id, monthly_value').execute()
+            result = get_supabase().table('sales_deals').select('rep_id, monthly_value').execute()
             deals = result.data or []
             
             totals = {}
@@ -702,7 +702,7 @@ Original Notes: {notes_text}"""
             
             leaderboard = []
             for rep_id, total in sorted_reps:
-                rep_result = supabase.table('staff').select('full_name').eq('staff_id', rep_id).single().execute()
+                rep_result = get_supabase().table('staff').select('full_name').eq('staff_id', rep_id).single().execute()
                 name = rep_result.data['full_name'] if rep_result.data else rep_id
                 leaderboard.append({
                     'rank': len(leaderboard) + 1,
@@ -717,7 +717,7 @@ Original Notes: {notes_text}"""
         elif metric == 'activities':
             # Count activities in last 7 days
             since = (datetime.utcnow() - timedelta(days=7)).isoformat()
-            result = supabase.table('sales_activities').select('rep_id').gte('created_at', since).execute()
+            result = get_supabase().table('sales_activities').select('rep_id').gte('created_at', since).execute()
             activities = result.data or []
             
             counts = {}
@@ -729,7 +729,7 @@ Original Notes: {notes_text}"""
             
             leaderboard = []
             for rep_id, count in sorted_reps:
-                rep_result = supabase.table('staff').select('full_name').eq('staff_id', rep_id).single().execute()
+                rep_result = get_supabase().table('staff').select('full_name').eq('staff_id', rep_id).single().execute()
                 name = rep_result.data['full_name'] if rep_result.data else rep_id
                 leaderboard.append({
                     'rank': len(leaderboard) + 1,
