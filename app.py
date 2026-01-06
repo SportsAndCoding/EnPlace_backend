@@ -199,6 +199,8 @@ from routes.rewards import router as rewards_router
 app.include_router(rewards_router)
 from routes.sales import router as sales_router
 app.include_router(sales_router)
+from routes.sales_rep_registration import router as sales_rep_registration_router
+app.include_router(sales_rep_registration_router)
 
 
 @app.get("/")
