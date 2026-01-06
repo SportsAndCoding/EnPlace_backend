@@ -201,6 +201,8 @@ from routes.sales import router as sales_router
 app.include_router(sales_router)
 from routes.sales_rep_registration import router as sales_rep_registration_router
 app.include_router(sales_rep_registration_router)
+from routes.admin import router as admin_router
+app.include_router(admin_router)
 
 
 @app.get("/")
