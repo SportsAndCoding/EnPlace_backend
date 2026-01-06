@@ -23,7 +23,7 @@ def get_supabase() -> Client:
     global _supabase_client
     if _supabase_client is None:
         url = os.environ.get('SUPABASE_URL')
-        key = os.environ.get('SUPABASE_KEY')
+        key = os.environ.get('SUPABASE_SERVICE_KEY')
         if not url or not key:
             raise Exception("Supabase credentials not configured")
         _supabase_client = create_client(url, key)
