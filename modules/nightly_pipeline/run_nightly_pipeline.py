@@ -28,6 +28,7 @@ import pytz
 from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_critical_gaps
 from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
 from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
+from modules.nightly_pipeline.baseline_grill_nudge_cleaner import clear_baseline_grill_nudges
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -367,8 +368,13 @@ def run_pipeline(run_date: Optional[date] = None):
         # Step 1d: Seed Shift Swap demo data
         print(f"\n[1d/5] Seeding Shift Swap demo data...")
         swap_stats = seed_demo_swap_requests(client, restaurant_id=1)
-        print(f"      Deleted {swap_stats['deleted']} old pending swaps")
-        print(f"      Created {swap_stats['created']} fresh swap requests")
+        print(f"      Deleted {swap_stats['deleted']} old demo swaps")
+        print(f"      Created {swap_stats['created']} fresh swap requests (posted + accepted)")
+
+        # Step 1e: Clear Baseline Grill nudges for paywall demo
+        print(f"\n[1e/5] Clearing Baseline Grill nudges...")
+        nudge_stats = clear_baseline_grill_nudges(client)
+        print(f"      Deleted {nudge_stats['deleted']} nudges")
 
         # Step 2: Load signatures
         print(f"\n[2/5] Loading quitter signatures...")
