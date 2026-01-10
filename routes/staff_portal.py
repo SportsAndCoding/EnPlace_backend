@@ -688,20 +688,23 @@ async def create_nudge(
     supabase = get_supabase()
     
     try:
-        week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        # Skip cooldown check for demo restaurants (allows repeated demos)
+        demo_restaurants = [1, 11]  # Demo Bistro, Baseline Grill
+        is_demo = current_user.get('restaurant_id') in demo_restaurants
         
-        existing = supabase.table("nudges") \
-            .select("id") \
-            .eq("staff_id", current_user['staff_id']) \
-            .eq("module_key", request.module_key) \
-            .gte("created_at", week_ago) \
-            .execute()
-        
-        if existing.data and len(existing.data) > 0:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="You've already requested this feature recently"
-            )
+        if not is_demo:
+            week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+            existing = supabase.table("nudges") \
+                .select("id") \
+                .eq("staff_id", current_user['staff_id']) \
+                .eq("module_key", request.module_key) \
+                .gte("created_at", week_ago) \
+                .execute()
+            if existing.data and len(existing.data) > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="You've already requested this feature recently"
+                )
         
         payload = {
             "staff_id": current_user['staff_id'],
