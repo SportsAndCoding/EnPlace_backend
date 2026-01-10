@@ -639,3 +639,86 @@ async def get_constants():
         "stages": LEAD_STAGES,
         "activity_types": ACTIVITY_TYPES
     }
+
+@router.get("/demo-reports")
+async def get_demo_reports(
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """
+    Get static demo versions of House Guardian and Stable Schedule Builder reports.
+    Always available regardless of day of week - for sales demos.
+    """
+    require_sales_access(current_staff)
+    
+    # Static House Guardian Weekly Report - compelling demo data
+    house_guardian_report = {
+        "id": "demo_hg_report",
+        "type": "house_guardian_report",
+        "priority": "warning",
+        "title": "🏠 House Guardian: Week of Jan 6",
+        "description": "1 category flagged • 3 equipment issues • 847 notes scanned",
+        "time_ago": "This week",
+        "action": "View Summary",
+        "secondary_action": None,
+        "smm_boost": 0,
+        "is_network_report": False,
+        "report_content": {
+            "all_clear": False,
+            "categories_flagged": ["harassment"],
+            "categories_clear": ["theft", "drugs", "threats", "bullying"],
+            "operational_themes": [
+                {"type": "equipment", "issue": "AC Unit", "mentions": 4},
+                {"type": "equipment", "issue": "Ice Machine", "mentions": 3},
+                {"type": "equipment", "issue": "POS Terminal #2", "mentions": 2}
+            ],
+            "sentiment_samples": [
+                {"role": "Server", "text": "busy night but tips were great. team worked well together"},
+                {"role": "Line Cook", "text": "new prep system is working. less chaos during rush"},
+                {"role": "Bartender", "text": "one customer got handsy, manager handled it immediately"}
+            ],
+            "notes_scanned": 847,
+            "week_start": "2026-01-06",
+            "week_end": "2026-01-12"
+        }
+    }
+    
+    # Static Stable Schedule Builder Report - compelling demo data
+    stable_schedule_report = {
+        "id": "demo_ssb_report",
+        "type": "schedule_report",
+        "priority": "info",
+        "title": "📅 Schedule Analysis: Week of Jan 6",
+        "description": "Stability Score: 87% • 3 issues prevented • 2 open shifts remain",
+        "time_ago": "This week",
+        "action": "View Details",
+        "secondary_action": None,
+        "smm_boost": 0,
+        "report_content": {
+            "stability_score": 87,
+            "coverage_percent": 94,
+            "issues_found": 5,
+            "issues_prevented": 3,
+            "critical_issues": 0,
+            "open_shifts": 2,
+            "overtime_risk": 1,
+            "insights": [
+                {"type": "prevented", "text": "Blocked double-shift for Maria S. (burnout risk)"},
+                {"type": "prevented", "text": "Filled Friday PM gap using availability preferences"},
+                {"type": "prevented", "text": "Rebalanced Saturday to avoid 3 closers calling out"},
+                {"type": "warning", "text": "Sunday brunch still needs 1 server, 1 busser"},
+                {"type": "suggestion", "text": "Consider cross-training Alex T. for host backup"}
+            ],
+            "week_of": "2026-01-06"
+        }
+    }
+    
+    return {
+        "success": True,
+        "reports": [house_guardian_report, stable_schedule_report],
+        "demo_tips": [
+            "House Guardian: Click 'View Summary' to show the harassment flag - explain anonymous escalation",
+            "Equipment issues: 'AC mentioned 4 times this week - time to call repair?'",
+            "SSB: 'We prevented 3 scheduling mistakes before they happened'",
+            "The Billy Moment: 'When Billy calls in sick, who covers? We already know.'"
+        ]
+    }

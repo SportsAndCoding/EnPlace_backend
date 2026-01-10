@@ -750,22 +750,40 @@ Original Notes: {notes_text}"""
     def get_demo_credentials(self) -> Dict[str, Any]:
         """Get demo portal credentials for sales reps"""
         return {
-            'manager_portal': {
-                'url': 'https://app.en-place.ai/manager-dashboard.html',
-                'email': 'manager@demobistro.com',
-                'password': 'manager123',
-                'description': 'Full manager dashboard with SSE, escalations, scheduling'
+            'demo_bistro': {
+                'name': 'Demo Bistro',
+                'description': 'FULLY LOADED - All modules enabled. Show the full platform.',
+                'manager_portal': {
+                    'url': 'https://app.en-place.ai/manager-home.html',
+                    'email': 'manager@demobistro.com',
+                    'password': 'manager123'
+                },
+                'staff_portal': {
+                    'url': 'https://app.en-place.ai/staff-portal/',
+                    'email': 'server@demobistro.com',
+                    'password': 'server123'
+                }
             },
-            'staff_portal': {
-                'url': 'https://app.en-place.ai/staff-portal.html', 
-                'email': 'server@demobistro.com',
-                'password': 'server123',
-                'description': 'Staff view with mood check-in, schedule, rewards'
+            'baseline_grill': {
+                'name': 'Baseline Grill',
+                'description': 'CORE ONLY - SSE only. Show paywall UI and upsell opportunities.',
+                'manager_portal': {
+                    'url': 'https://app.en-place.ai/manager-home.html',
+                    'email': 'sarah@baselinegrill.com',
+                    'password': 'manager123'
+                },
+                'staff_portal': {
+                    'url': 'https://app.en-place.ai/staff-portal/',
+                    'email': 'jake@baselinegrill.com',
+                    'password': 'staff123'
+                }
             },
             'tips': [
-                'Start with "Billy called in sick" scenario - most compelling demo moment',
-                'Show the mood heatmap after a week of data',
-                'Demonstrate the 7-step escalation ladder',
-                'Let them see the Stable Hire candidate scoring'
+                'Start with Baseline Grill to show core value, then "upgrade" to Demo Bistro',
+                'Use the "Billy called in sick" scenario - most compelling demo moment',
+                'Show the mood heatmap after explaining daily check-ins',
+                'Point out the grayed-out modules: "These unlock when you upgrade"',
+                'Demo Bistro: Show House Guardian catching the harassment flag',
+                'Demo Bistro: Show SSB preventing burnout scheduling'
             ]
         }
