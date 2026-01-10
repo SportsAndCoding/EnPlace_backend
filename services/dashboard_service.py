@@ -1460,7 +1460,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # ═══════════════════════════════════════════════════════════════════
     # INJECT WEEKLY SCHEDULE SUMMARY (ALWAYS AT BOTTOM)
     # ═══════════════════════════════════════════════════════════════════
-    is_report_day = today.weekday() in [0]  # Monday = 0, Tuesday = 1, Friday = 4 for testing  
+    is_report_day = today.weekday() in [0, 5, 6]  # Monday = 0, Tuesday = 1, Friday = 4 for testing  
     if is_report_day and schedule_analysis and schedule_analysis.get("status") == "completed":
         analysis = schedule_analysis.get("analysis_result") or {}
         week_of = schedule_analysis.get("week_of", "")
@@ -1538,7 +1538,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # Network reports show every day (sales tool)
     # Subscriber reports show Mon/Tue/Fri only
     # ═══════════════════════════════════════════════════════════════════
-    is_hg_report_day = today.weekday() == 0  # Monday only
+    is_hg_report_day = today.weekday() in [0, 5, 6]  # Monday + weekends for demos
     is_network_report = hg_weekly_report and hg_weekly_report.get("is_network_report", False)
     
     if hg_weekly_report and (is_network_report or is_hg_report_day):
@@ -1594,7 +1594,7 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     # INJECT STAFF NUDGES (aggregated by module + position)
     # Show weekly on same cadence as House Guardian report
     # ═══════════════════════════════════════════════════════════════════
-    is_nudge_day = today.weekday() == 0  # Monday only
+    is_nudge_day = today.weekday() in [0, 5, 6]  # Monday + weekends for demos
     if nudges and is_nudge_day:
         # Aggregate nudges by module_key and position
         nudge_groups = {}
