@@ -7,6 +7,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 from services.sales_service import SalesService, LEAD_STAGES, ACTIVITY_TYPES
 from services.auth_service import verify_jwt_token
+from services.rep_scheduling_service import RepSchedulingService
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
@@ -61,6 +62,55 @@ class CreateDealRequest(BaseModel):
     contract_months: Optional[int] = 12
     captain_id: Optional[str] = None
 
+class SetFieldHoursRequest(BaseModel):
+    field_hours: Dict[str, Any]  # {"monday": {"start": "09:00", "end": "17:00"}, ...}
+
+
+class UpdateBookingSettingsRequest(BaseModel):
+    timezone: Optional[str] = None
+    booking_slug: Optional[str] = None
+
+
+class CreateOverrideRequest(BaseModel):
+    override_date: str  # YYYY-MM-DD
+    start_time: Optional[str] = None  # HH:MM (null = full day)
+    end_time: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class BookDemoRequest(BaseModel):
+    restaurant_name: str
+    contact_name: str
+    contact_email: str
+    contact_phone: str
+    appointment_date: str  # YYYY-MM-DD
+    start_time: str  # HH:MM
+    location_address: Optional[str] = None
+    location_notes: Optional[str] = None
+
+
+class CreateAppointmentRequest(BaseModel):
+    restaurant_name: str
+    contact_name: str
+    appointment_date: str  # YYYY-MM-DD
+    start_time: str  # HH:MM
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    location_address: Optional[str] = None
+    location_notes: Optional[str] = None
+    lead_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class UpdateAppointmentRequest(BaseModel):
+    restaurant_name: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    location_address: Optional[str] = None
+    location_notes: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HELPER: Check sales portal access
@@ -722,3 +772,602 @@ async def get_demo_reports(
             "The Billy Moment: 'When Billy calls in sick, who covers? We already know.'"
         ]
     }
+
+@router.get("/book/{slug}")
+async def get_rep_public_profile(slug: str):
+    """
+    PUBLIC: Get rep info for booking page.
+    Returns name, photo, timezone for the booking UI.
+    """
+    service = RepSchedulingService()
+    
+    try:
+        rep = await service.get_rep_by_slug(slug)
+        if not rep:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sales representative not found"
+            )
+        
+        return {
+            "success": True,
+            "rep": {
+                "name": rep['full_name'],
+                "photo_url": rep.get('profile_photo_url'),
+                "timezone": rep.get('timezone', 'America/New_York'),
+                "position": rep.get('position', 'Sales Representative')
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get rep info: {str(e)}"
+        )
+
+
+@router.get("/book/{slug}/availability")
+async def get_booking_availability(
+    slug: str,
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD")
+):
+    """
+    PUBLIC: Get available dates for booking calendar.
+    Returns which dates have availability.
+    """
+    service = RepSchedulingService()
+    
+    try:
+        rep = await service.get_rep_by_slug(slug)
+        if not rep:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sales representative not found"
+            )
+        
+        from datetime import datetime
+        start = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        # Limit to 60 days max
+        if (end - start).days > 60:
+            end = start + timedelta(days=60)
+        
+        availability = await service.get_available_dates(rep['staff_id'], start, end)
+        
+        return {
+            "success": True,
+            "availability": availability,
+            "timezone": rep.get('timezone', 'America/New_York')
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get availability: {str(e)}"
+        )
+
+
+@router.get("/book/{slug}/slots")
+async def get_booking_slots(
+    slug: str,
+    date: str = Query(..., description="Date YYYY-MM-DD")
+):
+    """
+    PUBLIC: Get available time slots for a specific date.
+    """
+    service = RepSchedulingService()
+    
+    try:
+        rep = await service.get_rep_by_slug(slug)
+        if not rep:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sales representative not found"
+            )
+        
+        from datetime import datetime
+        target_date = datetime.strptime(date, '%Y-%m-%d').date()
+        
+        slots = await service.get_available_slots(
+            rep['staff_id'], 
+            target_date,
+            rep.get('timezone', 'America/New_York')
+        )
+        
+        return {
+            "success": True,
+            "date": date,
+            "slots": slots,
+            "timezone": rep.get('timezone', 'America/New_York')
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get slots: {str(e)}"
+        )
+
+
+@router.post("/book/{slug}")
+async def book_demo_public(slug: str, request: BookDemoRequest):
+    """
+    PUBLIC: Restaurant books a demo with a rep.
+    Creates appointment and returns confirmation.
+    """
+    service = RepSchedulingService()
+    
+    try:
+        from datetime import datetime
+        appt_date = datetime.strptime(request.appointment_date, '%Y-%m-%d').date()
+        appt_time = datetime.strptime(request.start_time, '%H:%M').time()
+        
+        result = await service.book_demo(
+            slug=slug,
+            restaurant_name=request.restaurant_name,
+            contact_name=request.contact_name,
+            contact_email=request.contact_email,
+            contact_phone=request.contact_phone,
+            appointment_date=appt_date,
+            start_time=appt_time,
+            location_address=request.location_address,
+            location_notes=request.location_notes
+        )
+        
+        return {
+            "success": True,
+            "message": "Demo scheduled successfully!",
+            **result
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This time slot was just booked. Please select another."
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to book demo: {str(e)}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REP AUTHENTICATED ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/my/booking-settings")
+async def get_my_booking_settings(
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Get current rep's booking settings (timezone, slug)"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        rep = await service.get_rep_by_id(staff_id)
+        if not rep:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rep not found"
+            )
+        
+        return {
+            "success": True,
+            "settings": {
+                "timezone": rep.get('timezone', 'America/New_York'),
+                "booking_slug": rep.get('booking_slug'),
+                "booking_url": f"https://app.en-place.ai/book/{rep.get('booking_slug')}" if rep.get('booking_slug') else None
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get settings: {str(e)}"
+        )
+
+
+@router.put("/my/booking-settings")
+async def update_my_booking_settings(
+    request: UpdateBookingSettingsRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Update rep's timezone and/or booking slug"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        result = await service.update_rep_booking_settings(
+            staff_id=staff_id,
+            timezone=request.timezone,
+            booking_slug=request.booking_slug
+        )
+        
+        return {
+            "success": True,
+            "settings": {
+                "timezone": result.get('timezone'),
+                "booking_slug": result.get('booking_slug'),
+                "booking_url": f"https://app.en-place.ai/book/{result.get('booking_slug')}" if result.get('booking_slug') else None
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update settings: {str(e)}"
+        )
+
+
+@router.get("/my/field-hours")
+async def get_my_field_hours(
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Get rep's weekly field hours template"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        field_hours = await service.get_field_hours(staff_id)
+        return {
+            "success": True,
+            **field_hours
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get field hours: {str(e)}"
+        )
+
+
+@router.put("/my/field-hours")
+async def set_my_field_hours(
+    request: SetFieldHoursRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Set rep's weekly field hours template"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        result = await service.set_field_hours(staff_id, request.field_hours)
+        return {
+            "success": True,
+            **result
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set field hours: {str(e)}"
+        )
+
+
+@router.get("/my/overrides")
+async def get_my_overrides(
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Get rep's availability overrides for a date range"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        from datetime import datetime
+        start = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        overrides = await service.get_overrides(staff_id, start, end)
+        return {
+            "success": True,
+            "overrides": overrides
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get overrides: {str(e)}"
+        )
+
+
+@router.post("/my/overrides")
+async def create_my_override(
+    request: CreateOverrideRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Create an availability override (block time)"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        from datetime import datetime
+        override_date = datetime.strptime(request.override_date, '%Y-%m-%d').date()
+        
+        start_time = None
+        end_time = None
+        if request.start_time:
+            start_time = datetime.strptime(request.start_time, '%H:%M').time()
+        if request.end_time:
+            end_time = datetime.strptime(request.end_time, '%H:%M').time()
+        
+        override = await service.create_override(
+            staff_id=staff_id,
+            override_date=override_date,
+            start_time=start_time,
+            end_time=end_time,
+            reason=request.reason
+        )
+        
+        return {
+            "success": True,
+            "override": override
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create override: {str(e)}"
+        )
+
+
+@router.delete("/my/overrides/{override_id}")
+async def delete_my_override(
+    override_id: int,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Delete an availability override"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        await service.delete_override(override_id, staff_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete override: {str(e)}"
+        )
+
+
+@router.get("/my/appointments")
+async def get_my_appointments(
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Get rep's appointments"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        from datetime import datetime
+        start = datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else None
+        end = datetime.strptime(end_date, '%Y-%m-%d').date() if end_date else None
+        
+        appointments = await service.get_appointments(staff_id, start, end, status)
+        return {
+            "success": True,
+            "appointments": appointments,
+            "count": len(appointments)
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get appointments: {str(e)}"
+        )
+
+
+@router.post("/my/appointments")
+async def create_my_appointment(
+    request: CreateAppointmentRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Rep manually creates an appointment (from field booking)"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        from datetime import datetime
+        appt_date = datetime.strptime(request.appointment_date, '%Y-%m-%d').date()
+        appt_time = datetime.strptime(request.start_time, '%H:%M').time()
+        
+        appointment = await service.create_appointment(
+            staff_id=staff_id,
+            restaurant_name=request.restaurant_name,
+            contact_name=request.contact_name,
+            appointment_date=appt_date,
+            start_time=appt_time,
+            contact_email=request.contact_email,
+            contact_phone=request.contact_phone,
+            location_address=request.location_address,
+            location_notes=request.location_notes,
+            lead_id=request.lead_id,
+            booked_by='rep',
+            notes=request.notes
+        )
+        
+        return {
+            "success": True,
+            "appointment": appointment
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This time slot is already booked"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create appointment: {str(e)}"
+        )
+
+
+@router.put("/my/appointments/{appointment_id}")
+async def update_my_appointment(
+    appointment_id: int,
+    request: UpdateAppointmentRequest,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Update an appointment"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        updates = request.dict(exclude_none=True)
+        appointment = await service.update_appointment(appointment_id, staff_id, updates)
+        
+        if not appointment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Appointment not found"
+            )
+        
+        return {
+            "success": True,
+            "appointment": appointment
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update appointment: {str(e)}"
+        )
+
+
+@router.delete("/my/appointments/{appointment_id}")
+async def cancel_my_appointment(
+    appointment_id: int,
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """Cancel an appointment"""
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        await service.cancel_appointment(appointment_id, staff_id)
+        return {"success": True, "message": "Appointment cancelled"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel appointment: {str(e)}"
+        )
+
+
+@router.get("/my/schedule")
+async def get_my_schedule_view(
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_staff: dict = Depends(verify_jwt_token)
+):
+    """
+    Get combined schedule view for rep - shows appointments + blocked times + available slots.
+    Useful for the rep's schedule management page.
+    """
+    require_sales_access(current_staff)
+    
+    service = RepSchedulingService()
+    staff_id = current_staff.get('staff_id')
+    
+    try:
+        from datetime import datetime
+        start = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        # Get all data
+        appointments = await service.get_appointments(staff_id, start, end)
+        overrides = await service.get_overrides(staff_id, start, end)
+        field_hours = await service.get_field_hours(staff_id)
+        
+        # Get availability for each date
+        availability = await service.get_available_dates(staff_id, start, end)
+        
+        return {
+            "success": True,
+            "schedule": {
+                "appointments": appointments,
+                "overrides": overrides,
+                "field_hours": field_hours.get('field_hours', {}),
+                "availability_by_date": availability
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get schedule: {str(e)}"
+        )

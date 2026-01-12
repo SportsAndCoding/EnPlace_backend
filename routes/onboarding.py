@@ -465,7 +465,7 @@ async def generate_join_code_endpoint(current_user: dict = Depends(get_current_u
             raise HTTPException(status_code=500, detail="Failed to generate unique join code")
         
         # Build join URL
-        join_url = f"https://enplace.app/join/{join_code}"
+        join_url = f"https://app.en-place.ai/join/{join_code}"
         
         # Save code
         supabase.table('restaurant_onboarding_status') \
