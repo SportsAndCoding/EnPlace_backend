@@ -3,7 +3,7 @@ SALES ROUTES
 Endpoints for sales portal: leads, activities, deals, commissions, AI parsing
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Query
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from services.sales_service import SalesService, LEAD_STAGES, ACTIVITY_TYPES
 from services.auth_service import verify_jwt_token
