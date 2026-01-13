@@ -280,3 +280,118 @@ async def validate_session(session_id: str):
             "valid": False,
             "error": "Invalid session"
         }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEMO REGISTRATION (For testing onboarding without Stripe)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class DemoRegisterRequest(BaseModel):
+    owner_email: EmailStr = "demo@enplace.io"
+    owner_first_name: str = "Demo"
+    owner_last_name: str = "Owner"
+    restaurant_name: str = "Demo Restaurant"
+
+
+@router.post("/register/demo", response_model=RegisterResponse)
+async def register_demo(request: DemoRegisterRequest = DemoRegisterRequest()):
+    """
+    Create a demo restaurant for testing onboarding flow.
+    Bypasses Stripe - for development/demo purposes only.
+    
+    Gated by ALLOW_DEMO_REGISTRATION env var.
+    """
+    # Safety gate - only allow in dev/demo environments
+    if os.environ.get("ALLOW_DEMO_REGISTRATION", "false").lower() != "true":
+        raise HTTPException(status_code=403, detail="Demo registration disabled")
+    
+    supabase = get_supabase()
+    
+    # Generate unique identifiers
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    demo_restaurant_name = f"{request.restaurant_name} {timestamp}"
+    demo_email = f"demo_{timestamp}@enplace.io" if request.owner_email == "demo@enplace.io" else request.owner_email
+    
+    # Step 1: Create restaurant (no Stripe IDs)
+    try:
+        restaurant_result = supabase.table("restaurants").insert({
+            "name": demo_restaurant_name,
+            "status": "onboarding",
+            "stripe_customer_id": None,
+            "stripe_subscription_id": None,
+            "stripe_checkout_session_id": f"demo_{timestamp}",
+            "subscription_status": "demo",
+            "modules_enabled": ["sse"],
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        if not restaurant_result.data:
+            raise HTTPException(status_code=500, detail="Failed to create demo restaurant")
+
+        restaurant_id = restaurant_result.data[0]["id"]
+
+    except Exception as e:
+        logger.error(f"Error creating demo restaurant: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create demo restaurant")
+
+    # Step 2: Create owner staff record
+    try:
+        staff_id = generate_staff_id("DMO")
+        password_hash = hash_password("demo123")  # Simple demo password
+        full_name = f"{request.owner_first_name} {request.owner_last_name}"
+
+        staff_result = supabase.table("staff").insert({
+            "staff_id": staff_id,
+            "restaurant_id": restaurant_id,
+            "email": demo_email,
+            "password_hash": password_hash,
+            "full_name": full_name,
+            "phone": None,
+            "position": "Owner",
+            "portal_access": "manager",
+            "can_edit_staff": True,
+            "is_owner": True,
+            "status": "active",
+            "hire_date": datetime.utcnow().date().isoformat(),
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        if not staff_result.data:
+            supabase.table("restaurants").delete().eq("id", restaurant_id).execute()
+            raise HTTPException(status_code=500, detail="Failed to create demo owner")
+
+    except Exception as e:
+        logger.error(f"Error creating demo owner: {e}")
+        supabase.table("restaurants").delete().eq("id", restaurant_id).execute()
+        raise HTTPException(status_code=500, detail="Failed to create demo owner")
+
+    # Step 3: Create onboarding status
+    try:
+        supabase.table("restaurant_onboarding_status").insert({
+            "restaurant_id": restaurant_id,
+            "setup_step": "basics",
+            "onboarding_started_at": datetime.utcnow().isoformat()
+        }).execute()
+    except Exception as e:
+        logger.warning(f"Failed to create onboarding status: {e}")
+
+    # Step 4: Generate JWT token
+    token = create_jwt_token({
+        "staff_id": staff_id,
+        "email": demo_email,
+        "full_name": full_name,
+        "position": "Owner",
+        "portal_access": "manager",
+        "restaurant_id": restaurant_id,
+        "can_edit_staff": True
+    })
+
+    logger.info(f"Created demo restaurant: {demo_restaurant_name} (ID: {restaurant_id})")
+
+    return RegisterResponse(
+        success=True,
+        restaurant_id=restaurant_id,
+        staff_id=staff_id,
+        token=token,
+        message="Demo restaurant created! Use this token for onboarding."
+    )
