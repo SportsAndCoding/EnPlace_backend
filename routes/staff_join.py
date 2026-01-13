@@ -298,11 +298,15 @@ async def staff_join(data: StaffJoinRequest):
         # Generate JWT token
         from services.auth_service import create_jwt_token
 
-        token = create_jwt_token(
-            staff_id=data.staff_id,
-            restaurant_id=restaurant_id,
-            portal_access="staff"
-        )
+        token = create_jwt_token({
+            "staff_id": data.staff_id,
+            "email": data.email,
+            "full_name": staff_result.data["full_name"],
+            "position": staff_result.data.get("position", "Staff"),
+            "portal_access": "staff",
+            "restaurant_id": restaurant_id,
+            "can_edit_staff": False
+        })
 
         full_name = staff_result.data["full_name"]
         first_name = full_name.split()[0] if full_name else "there"
