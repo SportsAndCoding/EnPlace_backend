@@ -363,6 +363,60 @@ async def get_my_callouts(
             detail=f"Failed to fetch callouts: {str(e)}"
         )
 
+@router.get("/callouts/today")
+async def get_todays_callouts_for_manager(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get today's callouts for manager dashboard alert banner"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can view all callouts"
+        )
+    
+    service = StaffPortalService()
+    today = _get_today_for_restaurant(current_user['restaurant_id'])
+    
+    try:
+        callouts = await service.get_callouts(
+            restaurant_id=current_user['restaurant_id'],
+            start_date=today,
+            end_date=today
+        )
+        
+        # Enrich with staff names and shift details
+        from database.supabase_client import get_supabase
+        supabase = get_supabase()
+        
+        enriched = []
+        for callout in callouts:
+            staff_result = supabase.table("staff").select("full_name, position").eq("staff_id", callout['staff_id']).single().execute()
+            staff_name = staff_result.data.get('full_name', 'Unknown') if staff_result.data else 'Unknown'
+            
+            shift_info = None
+            if callout.get('shift_id'):
+                shift_result = supabase.table("sse_shifts").select("scheduled_start, scheduled_end, position").eq("id", callout['shift_id']).single().execute()
+                if shift_result.data:
+                    shift_info = shift_result.data
+            
+            enriched.append({
+                **callout,
+                'staff_name': staff_name,
+                'shift_info': shift_info
+            })
+        
+        return {
+            "success": True,
+            "callouts": enriched,
+            "count": len(enriched)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch callouts: {str(e)}"
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════
 # MY SCHEDULE
