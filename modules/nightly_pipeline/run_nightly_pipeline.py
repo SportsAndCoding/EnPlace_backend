@@ -29,6 +29,7 @@ from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_
 from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
 from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
 from modules.nightly_pipeline.baseline_grill_nudge_cleaner import clear_baseline_grill_nudges
+from .release_commissions import release_held_commissions
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -421,6 +422,17 @@ def run_pipeline(run_date: Optional[date] = None):
             write_restaurant_metrics(client, metrics, run_date)
             
             print(f"      {restaurant['name']}: {metrics['overall_health_percentile']}th percentile overall")
+        
+        # Step 6: Release held commissions
+        print(f"\n[6/6] Releasing held commissions...")
+        from .release_commissions import release_held_commissions
+        commission_stats = release_held_commissions(client)
+        print(f"      Processed: {commission_stats['processed']}")
+        print(f"      Released: {commission_stats['released']} (${commission_stats['total_amount']:.2f})")
+        if commission_stats['skipped_no_connect'] > 0:
+            print(f"      Skipped (no account): {commission_stats['skipped_no_connect']}")
+        if commission_stats['failed'] > 0:
+            print(f"      Failed: {commission_stats['failed']}")
         
         # Log success
         duration = time.time() - start_time

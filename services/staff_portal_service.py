@@ -398,10 +398,28 @@ class StaffPortalService:
                 .insert(payload) \
                 .execute()
 
-            if result.data and len(result.data) > 0:
-                return result.data[0]
+            if not result.data or len(result.data) == 0:
+                raise Exception("Insert returned no data")
 
-            raise Exception("Insert returned no data")
+            callout = result.data[0]
+
+            # Update shift status to 'callout' if shift_id provided
+            if shift_id:
+                try:
+                    self.supabase.table("sse_shifts") \
+                        .update({
+                            "status": "callout",
+                            "reason": reason
+                        }) \
+                        .eq("id", shift_id) \
+                        .eq("restaurant_id", restaurant_id) \
+                        .execute()
+                    logger.info(f"Shift {shift_id} marked as callout")
+                except Exception as shift_err:
+                    logger.warning(f"Failed to update shift status: {shift_err}")
+                    # Don't fail the callout if shift update fails
+
+            return callout
 
         except Exception as e:
             logger.error(f"Create callout error: {e}")

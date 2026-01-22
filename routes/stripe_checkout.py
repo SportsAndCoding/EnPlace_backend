@@ -442,7 +442,7 @@ async def handle_payment_failed(invoice):
         logger.error(f"Error handling payment failure: {e}")
 
 async def handle_invoice_paid(invoice):
-    """Record successful payment in invoices table"""
+    """Record successful payment in invoices table and create sales commission"""
     supabase = get_supabase()
     
     try:
@@ -461,7 +461,7 @@ async def handle_invoice_paid(invoice):
                 restaurant_id = result.data["id"]
         
         # Insert invoice record
-        supabase.table("invoices").insert({
+        invoice_result = supabase.table("invoices").insert({
             "restaurant_id": restaurant_id,
             "stripe_invoice_id": invoice.id,
             "amount_cents": invoice.amount_paid,
@@ -474,9 +474,81 @@ async def handle_invoice_paid(invoice):
         }).execute()
         
         logger.info(f"Recorded invoice {invoice.id} for restaurant {restaurant_id}: ${invoice.amount_paid / 100:.2f}")
+        
+        # === COMMISSION CREATION ===
+        if restaurant_id:
+            await create_commission_for_invoice(supabase, restaurant_id, invoice)
     
     except Exception as e:
         logger.error(f"Error recording invoice: {e}")
+
+
+async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
+    """
+    Create commission record for the sales rep who closed this deal.
+    
+    - First invoice: 75% initial commission
+    - Subsequent invoices: 5% residual commission
+    """
+    try:
+        # Find the deal for this restaurant
+        deal_result = supabase.table("sales_deals") \
+            .select("id, rep_id, monthly_value") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("status", "active") \
+            .single() \
+            .execute()
+        
+        if not deal_result.data:
+            logger.info(f"No active sales deal found for restaurant {restaurant_id} - no commission created")
+            return
+        
+        deal = deal_result.data
+        deal_id = deal["id"]
+        rep_id = deal["rep_id"]
+        
+        if not rep_id:
+            logger.info(f"Deal {deal_id} has no rep_id - no commission created")
+            return
+        
+        # Check if initial commission already exists for this deal
+        existing_initial = supabase.table("sales_commissions") \
+            .select("id") \
+            .eq("deal_id", deal_id) \
+            .eq("commission_type", "initial") \
+            .execute()
+        
+        amount_dollars = invoice.amount_paid / 100  # Convert cents to dollars
+        
+        if not existing_initial.data:
+            # First payment - 75% initial commission
+            commission_amount = amount_dollars * 0.75
+            commission_type = "initial"
+            logger.info(f"Creating initial commission for deal {deal_id}: ${commission_amount:.2f}")
+        else:
+            # Subsequent payment - 5% residual
+            commission_amount = amount_dollars * 0.05
+            commission_type = "residual"
+            logger.info(f"Creating residual commission for deal {deal_id}: ${commission_amount:.2f}")
+        
+        # Create commission with 7-day hold
+        release_at = datetime.utcnow() + timedelta(days=7)
+        
+        supabase.table("sales_commissions").insert({
+            "deal_id": deal_id,
+            "rep_id": rep_id,
+            "commission_type": commission_type,
+            "amount": commission_amount,
+            "status": "held",
+            "release_at": release_at.isoformat(),
+            "expected_pay_date": release_at.date().isoformat(),
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+        
+        logger.info(f"Commission created: ${commission_amount:.2f} ({commission_type}) for rep {rep_id}, releases {release_at.date()}")
+    
+    except Exception as e:
+        logger.error(f"Error creating commission for restaurant {restaurant_id}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

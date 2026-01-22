@@ -205,6 +205,8 @@ from routes.admin import router as admin_router
 app.include_router(admin_router)
 from routes.staff_join import router as staff_join_router
 app.include_router(staff_join_router)
+from routes.stripe_connect import router as stripe_connect_router
+app.include_router(stripe_connect_router)
 
 
 @app.get("/")
