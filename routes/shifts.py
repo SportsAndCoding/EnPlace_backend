@@ -5,6 +5,10 @@ import pytz
 from services.auth_service import verify_jwt_token as get_current_user
 from services.shifts_service import ShiftsService
 from models.shifts import ShiftCreate, ShiftUpdate, ShiftResponse, ShiftCreateResponse
+from services.twilio_service import send_sms
+import logging
+
+logger = logging.getLogger(__name__)
 
 def _get_today_for_restaurant(restaurant_id: int) -> date:
     """Get today's date in restaurant timezone."""
@@ -51,6 +55,17 @@ async def create_shift(
             shift_data=shift.dict(),
             created_by=current_user['staff_id']
         )
+        
+        # Check if this is a same-day open shift - send SMS alerts
+        try:
+            await _notify_open_shift_if_eligible(
+                shift_data=shift.dict(),
+                shift_id=result['id'],
+                restaurant_id=shift.restaurant_id
+            )
+        except Exception as sms_err:
+            logger.error(f"Open shift SMS notification failed: {sms_err}")
+            # Don't fail the shift creation if SMS fails
         
         return ShiftCreateResponse(
             success=True,
@@ -517,3 +532,86 @@ async def select_volunteer(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+async def _notify_open_shift_if_eligible(shift_data: dict, shift_id: int, restaurant_id: int):
+    """
+    Send SMS to eligible staff if this is a same-day open shift.
+    
+    Criteria:
+    - No staff_id assigned (open shift)
+    - Shift is TODAY
+    - Shift starts 2+ hours from now
+    """
+    from database.supabase_client import get_supabase
+    from datetime import datetime, timedelta
+    import pytz
+    
+    # Only open shifts (no staff assigned)
+    if shift_data.get('staff_id'):
+        return
+    
+    # Get restaurant timezone
+    supabase = get_supabase()
+    rest_result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+    tz_name = rest_result.data.get("timezone", "America/New_York") if rest_result.data else "America/New_York"
+    tz = pytz.timezone(tz_name)
+    
+    now = datetime.now(tz)
+    today = now.date()
+    
+    # Check if shift is today
+    shift_date = shift_data.get('shift_date')
+    if isinstance(shift_date, str):
+        shift_date = datetime.fromisoformat(shift_date).date()
+    
+    if shift_date != today:
+        return
+    
+    # Check if shift starts 2+ hours from now
+    scheduled_start = shift_data.get('scheduled_start')
+    if isinstance(scheduled_start, str):
+        scheduled_start = datetime.fromisoformat(scheduled_start.replace('Z', '+00:00'))
+    
+    if scheduled_start.astimezone(tz) < now + timedelta(hours=2):
+        return
+    
+    # Get position for this shift
+    position = shift_data.get('position', '')
+    
+    # Find eligible staff: active, SMS enabled, not already scheduled at this time
+    staff_result = supabase.table("staff")\
+        .select("staff_id, full_name, phone, position")\
+        .eq("restaurant_id", restaurant_id)\
+        .eq("status", "active")\
+        .eq("sms_notifications_enabled", True)\
+        .not_.is_("phone", "null")\
+        .execute()
+    
+    if not staff_result.data:
+        return
+    
+    # Format shift time for message
+    start_time = scheduled_start.astimezone(tz).strftime("%-I:%M%p").lower()
+    scheduled_end = shift_data.get('scheduled_end')
+    if isinstance(scheduled_end, str):
+        scheduled_end = datetime.fromisoformat(scheduled_end.replace('Z', '+00:00'))
+    end_time = scheduled_end.astimezone(tz).strftime("%-I:%M%p").lower()
+    
+    sent_count = 0
+    for staff in staff_result.data:
+        # Optional: filter by matching position
+        # if position and staff.get('position') != position:
+        #     continue
+        
+        phone = staff.get('phone')
+        if not phone:
+            continue
+        
+        first_name = staff['full_name'].split()[0] if staff.get('full_name') else ''
+        message = f"Hey {first_name}! Open shift today: {position} {start_time}-{end_time}. Claim it: https://app.en-place.ai/staff-portal"
+        
+        result = send_sms(phone, message)
+        if result.get('success'):
+            sent_count += 1
+    
+    logger.info(f"Open shift SMS sent to {sent_count} staff for shift {shift_id}")
