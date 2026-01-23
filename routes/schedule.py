@@ -13,7 +13,7 @@ PUT /api/schedule/profiles/{staff_id} - Update a staff work profile
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from supabase import create_client, Client
 from config.settings import SUPABASE_URL, SUPABASE_KEY
@@ -22,6 +22,7 @@ from services.feature_gate import require_feature
 
 import logging
 from services.schedule_parser_service import parse_schedule
+from services.twilio_service import send_sms
 import asyncio
 
 logger = logging.getLogger(__name__)
@@ -218,6 +219,13 @@ async def process_schedule_background(
                     logger.warning(f"Failed to save shift: {e}")
                     continue
 
+        # Send SMS to all staff about new schedule
+        try:
+            await _notify_schedule_published(restaurant_id, week_of)
+        except Exception as sms_err:
+            logger.error(f"Schedule published SMS failed: {sms_err}")
+            # Don't fail the upload if SMS fails
+        
         supabase.table("schedule_uploads") \
             .update({
                 "status": "completed",
@@ -226,7 +234,6 @@ async def process_schedule_background(
             }) \
             .eq("id", upload_id) \
             .execute()
-
         logger.info(f"Background processing complete: upload_id={upload_id}, shifts_saved={shifts_saved}")
 
     except Exception as e:
@@ -646,3 +653,47 @@ async def get_prevented_stats(
     except Exception as e:
         logger.error(f"Failed to fetch prevented stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch stats")
+    
+async def _notify_schedule_published(restaurant_id: int, week_of: str):
+    """
+    Send SMS to all SMS-enabled staff when schedule is published.
+    """
+    # Get restaurant name
+    rest_result = supabase.table("restaurants").select("name").eq("id", restaurant_id).single().execute()
+    restaurant_name = rest_result.data.get("name", "your restaurant") if rest_result.data else "your restaurant"
+    
+    # Format week range for message
+    try:
+        week_start = datetime.strptime(week_of, "%Y-%m-%d")
+        week_end = week_start + timedelta(days=6)
+        week_range = f"{week_start.strftime('%b %d')}-{week_end.strftime('%d')}"
+    except:
+        week_range = "this week"
+    
+    # Get all SMS-enabled staff
+    staff_result = supabase.table("staff")\
+        .select("staff_id, full_name, phone")\
+        .eq("restaurant_id", restaurant_id)\
+        .eq("status", "active")\
+        .eq("sms_notifications_enabled", True)\
+        .not_.is_("phone", "null")\
+        .execute()
+    
+    if not staff_result.data:
+        logger.info(f"No SMS-enabled staff for restaurant {restaurant_id}")
+        return
+    
+    sent_count = 0
+    for staff in staff_result.data:
+        phone = staff.get("phone")
+        if not phone:
+            continue
+        
+        first_name = staff["full_name"].split()[0] if staff.get("full_name") else ""
+        message = f"Hey {first_name}! New schedule posted for {week_range}. Check your shifts: https://app.en-place.ai/staff-portal"
+        
+        result = send_sms(phone, message)
+        if result.get("success"):
+            sent_count += 1
+    
+    logger.info(f"Schedule published SMS sent to {sent_count} staff for restaurant {restaurant_id}")
