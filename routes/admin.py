@@ -227,3 +227,235 @@ async def delete_expense(
     except Exception as e:
         logger.error(f"Delete expense error: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete expense")
+    
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMMISSION APPROVAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/commissions/pending")
+async def get_pending_commissions(current_staff: dict = Depends(verify_admin)):
+    """
+    Get all commissions pending approval.
+    These are commissions where the 7-day hold has passed and they're ready for review.
+    """
+    supabase = get_supabase()
+    
+    try:
+        result = supabase.table("sales_commissions") \
+            .select("*, sales_deals(monthly_value, restaurant_id, restaurants(name))") \
+            .eq("status", "pending_approval") \
+            .order("created_at", desc=False) \
+            .execute()
+        
+        commissions = result.data or []
+        
+        # Enrich with rep info
+        enriched = []
+        for c in commissions:
+            # Get rep name
+            rep_result = supabase.table("staff") \
+                .select("full_name, email, stripe_connect_account_id") \
+                .eq("staff_id", c["rep_id"]) \
+                .single() \
+                .execute()
+            
+            rep_data = rep_result.data if rep_result.data else {}
+            
+            enriched.append({
+                **c,
+                "rep_name": rep_data.get("full_name", c["rep_id"]),
+                "rep_email": rep_data.get("email"),
+                "rep_has_stripe": bool(rep_data.get("stripe_connect_account_id")),
+                "restaurant_name": c.get("sales_deals", {}).get("restaurants", {}).get("name") if c.get("sales_deals") else None
+            })
+        
+        return {
+            "success": True,
+            "commissions": enriched,
+            "count": len(enriched)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching pending commissions: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch commissions")
+
+
+@router.post("/commissions/{commission_id}/approve")
+async def approve_commission(commission_id: str, current_staff: dict = Depends(verify_admin)):
+    """
+    Approve a commission and trigger Stripe transfer.
+    """
+    import os
+    import stripe
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+    
+    supabase = get_supabase()
+    
+    try:
+        # Get commission
+        commission_result = supabase.table("sales_commissions") \
+            .select("*") \
+            .eq("id", commission_id) \
+            .single() \
+            .execute()
+        
+        if not commission_result.data:
+            raise HTTPException(status_code=404, detail="Commission not found")
+        
+        commission = commission_result.data
+        
+        if commission["status"] != "pending_approval":
+            raise HTTPException(status_code=400, detail=f"Commission is {commission['status']}, not pending_approval")
+        
+        # Get rep's Stripe Connect account
+        rep_result = supabase.table("staff") \
+            .select("stripe_connect_account_id, full_name") \
+            .eq("staff_id", commission["rep_id"]) \
+            .single() \
+            .execute()
+        
+        if not rep_result.data:
+            raise HTTPException(status_code=404, detail="Rep not found")
+        
+        connect_account_id = rep_result.data.get("stripe_connect_account_id")
+        rep_name = rep_result.data.get("full_name", commission["rep_id"])
+        
+        if not connect_account_id:
+            raise HTTPException(status_code=400, detail=f"{rep_name} has not set up their Stripe account yet")
+        
+        # Verify account can receive payouts
+        try:
+            account = stripe.Account.retrieve(connect_account_id)
+            if not account.payouts_enabled:
+                raise HTTPException(status_code=400, detail=f"{rep_name}'s Stripe account is not enabled for payouts")
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+        
+        # Create transfer
+        amount_cents = int(float(commission["amount"]) * 100)
+        
+        try:
+            transfer = stripe.Transfer.create(
+                amount=amount_cents,
+                currency="usd",
+                destination=connect_account_id,
+                description=f"En Place commission - Deal {commission.get('deal_id', 'N/A')}",
+                metadata={
+                    "commission_id": str(commission_id),
+                    "rep_id": commission["rep_id"],
+                    "approved_by": current_staff.get("staff_id")
+                }
+            )
+            
+            # Update commission
+            supabase.table("sales_commissions") \
+                .update({
+                    "status": "released",
+                    "stripe_transfer_id": transfer.id,
+                    "paid_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", commission_id) \
+                .execute()
+            
+            logger.info(f"Commission {commission_id} approved by {current_staff.get('staff_id')}: ${commission['amount']} to {rep_name}")
+            
+            return {
+                "success": True,
+                "message": f"Transferred ${commission['amount']:.2f} to {rep_name}",
+                "transfer_id": transfer.id
+            }
+        
+        except stripe.error.StripeError as e:
+            logger.error(f"Transfer failed for commission {commission_id}: {e}")
+            raise HTTPException(status_code=400, detail=f"Transfer failed: {str(e)}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving commission {commission_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to approve commission")
+
+
+@router.post("/commissions/{commission_id}/reject")
+async def reject_commission(commission_id: str, reason: str = None, current_staff: dict = Depends(verify_admin)):
+    """
+    Reject a commission (won't be paid).
+    Use for duplicate entries, cancelled deals, etc.
+    """
+    supabase = get_supabase()
+    
+    try:
+        # Get commission
+        commission_result = supabase.table("sales_commissions") \
+            .select("*") \
+            .eq("id", commission_id) \
+            .single() \
+            .execute()
+        
+        if not commission_result.data:
+            raise HTTPException(status_code=404, detail="Commission not found")
+        
+        commission = commission_result.data
+        
+        if commission["status"] not in ["pending_approval", "held", "pending"]:
+            raise HTTPException(status_code=400, detail=f"Cannot reject commission with status {commission['status']}")
+        
+        # Update to rejected
+        supabase.table("sales_commissions") \
+            .update({
+                "status": "rejected",
+                # Could add a rejection_reason field if needed
+            }) \
+            .eq("id", commission_id) \
+            .execute()
+        
+        logger.info(f"Commission {commission_id} rejected by {current_staff.get('staff_id')}: {reason or 'No reason given'}")
+        
+        return {
+            "success": True,
+            "message": "Commission rejected"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rejecting commission {commission_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to reject commission")
+
+
+@router.get("/commissions/summary")
+async def get_commission_summary(current_staff: dict = Depends(verify_admin)):
+    """
+    Get summary of all commissions by status.
+    """
+    supabase = get_supabase()
+    
+    try:
+        result = supabase.table("sales_commissions") \
+            .select("status, amount") \
+            .execute()
+        
+        commissions = result.data or []
+        
+        summary = {
+            "held": {"count": 0, "total": 0},
+            "pending_approval": {"count": 0, "total": 0},
+            "released": {"count": 0, "total": 0},
+            "rejected": {"count": 0, "total": 0},
+            "pending": {"count": 0, "total": 0}
+        }
+        
+        for c in commissions:
+            status = c["status"] or "pending"
+            if status in summary:
+                summary[status]["count"] += 1
+                summary[status]["total"] += float(c["amount"] or 0)
+        
+        return {
+            "success": True,
+            "summary": summary
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching commission summary: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch summary")
