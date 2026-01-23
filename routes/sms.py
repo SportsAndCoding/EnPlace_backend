@@ -139,6 +139,60 @@ async def send_checkin_reminders(authorized: bool = Depends(verify_scheduler_key
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/send-shift-reminders")
+async def send_shift_checkin_reminders(authorized: bool = Depends(verify_scheduler_key)):
+    """
+    Send check-in reminders to staff whose shifts ended today without a check-in.
+    Called by Heroku Scheduler (e.g., 10pm and 4pm daily).
+    """
+    try:
+        # Get staff who need reminders
+        result = supabase.rpc('get_staff_needing_checkin_reminder').execute()
+        
+        if not result.data:
+            return {
+                "success": True,
+                "message": "No staff need reminders",
+                "sent": 0,
+                "failed": 0
+            }
+        
+        staff_to_remind = result.data
+        sent = 0
+        failed = 0
+        details = []
+        
+        for staff in staff_to_remind:
+            first_name = staff["full_name"].split()[0] if staff.get("full_name") else ""
+            message = f"Hey {first_name}! How was your shift? Quick 10-sec check-in: https://app.en-place.ai/staff-portal"
+            
+            sms_result = send_sms(staff["phone"], message)
+            
+            if sms_result["success"]:
+                sent += 1
+            else:
+                failed += 1
+            
+            details.append({
+                "staff_id": staff["staff_id"],
+                "phone": staff["phone"],
+                "success": sms_result["success"],
+                "error": sms_result.get("error")
+            })
+        
+        logger.info(f"Shift check-in reminders: sent={sent}, failed={failed}")
+        
+        return {
+            "success": True,
+            "sent": sent,
+            "failed": failed,
+            "details": details
+        }
+        
+    except Exception as e:
+        logger.error(f"Send shift reminders error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ═══════════════════════════════════════════════════════════════════
 # MANUAL SEND ENDPOINT (for managers)
 # ═══════════════════════════════════════════════════════════════════
