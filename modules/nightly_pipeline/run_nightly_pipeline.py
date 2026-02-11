@@ -29,7 +29,7 @@ from modules.nightly_pipeline.demo_shift_seeder import seed_demo_shifts, ensure_
 from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
 from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
 from modules.nightly_pipeline.baseline_grill_nudge_cleaner import clear_baseline_grill_nudges
-from .release_commissions import release_held_commissions
+from modules.nightly_pipeline.release_commissions import release_held_commissions
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -428,7 +428,7 @@ def run_pipeline(run_date: Optional[date] = None):
         print(f"\n[6/6] Processing held commissions...")
         commission_stats = release_held_commissions(client)
         print(f"      Processed: {commission_stats['processed']}")
-        print(f"      Marked for approval: {commission_stats['marked_pending']}")
+        print(f"      Released: {commission_stats['released']}, Skipped: {commission_stats['skipped_no_connect']}, Failed: {commission_stats['failed']}")
         
         # Log success
         duration = time.time() - start_time

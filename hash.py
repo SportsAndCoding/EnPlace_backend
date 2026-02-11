@@ -1,2 +1,2 @@
 import bcrypt
-print(bcrypt.hashpw(b'BondsRulezGriffey$uck$', bcrypt.gensalt()).decode())
+print(bcrypt.hashpw(b'Fr3ck3lS', bcrypt.gensalt()).decode())
