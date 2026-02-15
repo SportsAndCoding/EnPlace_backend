@@ -279,11 +279,11 @@ def _generate_mood_sync_events(
     Threshold: 0.8 (moods within 1 point of each other).
     Weight: 0.05 * similarity.
     """
-    result = supabase.table("checkins") \
-        .select("staff_id, mood_rating") \
+    result = supabase.table("sse_daily_checkins") \
+        .select("staff_id, mood_emoji") \
         .eq("restaurant_id", restaurant_id) \
         .eq("checkin_date", date_str) \
-        .not_.is_("mood_rating", "null") \
+        .not_.is_("mood_emoji", "null") \
         .execute()
 
     if not result.data or len(result.data) < 2:
@@ -292,8 +292,8 @@ def _generate_mood_sync_events(
     # Deduplicate: one check-in per staff per day (take latest / any)
     staff_moods: Dict[str, int] = {}
     for row in result.data:
-        if row["staff_id"] and row["mood_rating"] is not None:
-            staff_moods[row["staff_id"]] = row["mood_rating"]
+        if row["staff_id"] and row["mood_emoji"] is not None:
+            staff_moods[row["staff_id"]] = row["mood_emoji"]
 
     if len(staff_moods) < 2:
         return []

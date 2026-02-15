@@ -83,7 +83,7 @@ def run_graph_pipeline(
     try:
         result = supabase.table("restaurants") \
             .select("id, name") \
-            .eq("status", "active") \
+            .in_("status", ["active", "Active"]) \
             .execute()
         restaurants = result.data or []
     except Exception as e:
@@ -218,7 +218,7 @@ def _load_active_staff(restaurant_id: int) -> List[Dict[str, Any]]:
     result = supabase.table("staff") \
         .select("staff_id, position, hire_date, status") \
         .eq("restaurant_id", restaurant_id) \
-        .eq("status", "active") \
+        .in_("status", ["active", "Active"]) \
         .execute()
 
     staff = []
@@ -306,8 +306,8 @@ def _populate_node_moods(
     # Get most recent check-in per staff (last 30 days)
     cutoff = (date.today() - timedelta(days=30)).isoformat()
 
-    checkin_result = supabase.table("checkins") \
-        .select("staff_id, mood_rating, checkin_date") \
+    checkin_result = supabase.table("sse_daily_checkins") \
+        .select("staff_id, mood_emoji, checkin_date") \
         .eq("restaurant_id", restaurant_id) \
         .gte("checkin_date", cutoff) \
         .order("checkin_date", desc=True) \
@@ -317,11 +317,11 @@ def _populate_node_moods(
     mood_history: Dict[str, List[int]] = {}
     for row in (checkin_result.data or []):
         sid = row["staff_id"]
-        if sid not in active_ids or row.get("mood_rating") is None:
+        if sid not in active_ids or row.get("mood_emoji") is None:
             continue
         if sid not in mood_history:
             mood_history[sid] = []
-        mood_history[sid].append(row["mood_rating"])
+        mood_history[sid].append(row["mood_emoji"])
 
     for sid, moods in mood_history.items():
         if not moods:
