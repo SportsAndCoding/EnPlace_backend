@@ -30,6 +30,7 @@ from modules.nightly_pipeline.demo_hire_reset import reset_stable_hire_demo
 from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
 from modules.nightly_pipeline.baseline_grill_nudge_cleaner import clear_baseline_grill_nudges
 from modules.nightly_pipeline.release_commissions import release_held_commissions
+from modules.nightly_pipeline.graph_pipeline import run_graph_pipeline
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -411,6 +412,17 @@ def run_pipeline(run_date: Optional[date] = None):
         # Write flight risk scores
         write_flight_risk_scores(client, all_flight_risk_records, run_date)
         print(f"      Wrote {len(all_flight_risk_records)} flight risk records")
+
+        # Step 4b: Social graph processing
+        print(f"\n[4b/6] Processing social graphs...")
+        graph_stats = run_graph_pipeline(target_date=run_date)
+        print(f"      Processed {graph_stats.get('restaurants_processed', 0)} restaurants")
+        print(f"      Edges updated: {graph_stats.get('total_edges_updated', 0)}")
+        print(f"      Staff scored: {graph_stats.get('total_staff_scored', 0)}")
+        print(f"      Cascades computed: {graph_stats.get('total_cascades_computed', 0)}")
+        if graph_stats.get("errors"):
+            for err in graph_stats["errors"]:
+                print(f"      [ERROR] Restaurant {err['restaurant_id']}: {err['error']}")
         
         # Step 5: Calculate and write restaurant metrics
         print(f"\n[5/5] Calculating restaurant metrics...")

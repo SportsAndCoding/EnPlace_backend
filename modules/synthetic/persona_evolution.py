@@ -221,6 +221,7 @@ def evolve_persona(
     rolling_fair_rate: float,   # 0-1
     rolling_respected_rate: float,  # 0-1
     staff_id: str = "unknown",
+    exit_probability_modifier: float = 1.0,
 ) -> Dict[str, Any]:
     """
     Evaluate whether a staff member's persona should evolve based on tenure
@@ -234,6 +235,11 @@ def evolve_persona(
         rolling_fair_rate: 0-1 percentage of days felt fair
         rolling_respected_rate: 0-1 percentage of days felt respected
         staff_id: Staff identifier for deterministic randomness
+        exit_probability_modifier: Multiplier on exit probability from
+            social graph contagion. Default 1.0 (no effect). Values > 1.0
+            increase exit likelihood (e.g. after a connected coworker quit).
+            Applied ONLY to the probabilistic exit check, not to the
+            immediate/guaranteed exit conditions.
 
     Returns:
         dict with keys:
@@ -288,6 +294,9 @@ def evolve_persona(
         fair_rate=fair_rate,
         respected_rate=respected_rate,
     )
+    
+    # Apply contagion modifier (from social graph exit shocks)
+    exit_prob *= exit_probability_modifier
     
     roll = _deterministic_random(staff_id, tenure_days, "exit_check")
     if roll < exit_prob:

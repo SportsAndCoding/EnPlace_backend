@@ -209,6 +209,8 @@ from routes.stripe_connect import router as stripe_connect_router
 app.include_router(stripe_connect_router)
 from routes.stripe_connect import router as stripe_connect_router
 app.include_router(stripe_connect_router)
+from routes.social_graph import router as social_graph_router
+app.include_router(social_graph_router)
 
 
 @app.get("/")
