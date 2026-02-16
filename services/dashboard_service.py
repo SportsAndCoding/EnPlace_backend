@@ -1198,7 +1198,8 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 "alignment": "Alignment Gap",
                 "mood_drop": "Mood Alert",
                 "preference_drift": "Preference Drift",
-                "scheduling_conflict": "Schedule Conflict"
+                "scheduling_conflict": "Schedule Conflict",
+                "cascade_risk": "Cascade Risk"
             }
             event_label = event_labels.get(event_type, event_type.replace("_", " ").title())
 
@@ -1213,6 +1214,8 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
             source_type = esc.get("source_type", "mood")
             if staff_name and source_type == "schedule":
                 desc = f"{staff_name} ({staff_position})" if staff_position else staff_name
+            elif staff_name and source_type == "graph":
+                desc = f"Check in with {staff_name}" + (f" ({staff_position})" if staff_position else "")
             else:
                 desc = "Multiple staff affected"
 

@@ -161,5 +161,19 @@ async def deactivate_staff_member(
         ip_address=ip_address,
         user_agent=user_agent
     )
-    
+
+    # Trigger cascade analysis — create escalations for at-risk connected staff
+    departed_name = result.data[0].get("full_name", "A team member") if result.data else "A team member"
+    try:
+        cascade_result = trigger_exit_cascade(
+            departed_staff_id=staff_id,
+            restaurant_id=restaurant_id,
+            departed_name=departed_name,
+        )
+        if cascade_result.get("escalations_created"):
+            print(f"[CASCADE] {departed_name} exit triggered {cascade_result['escalations_created']} escalations")
+    except Exception as e:
+        # Never block deactivation if cascade fails
+        print(f"[CASCADE] Trigger failed (non-blocking): {e}")
+
     return result.data[0]
