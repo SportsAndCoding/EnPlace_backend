@@ -95,7 +95,7 @@ def trigger_exit_cascade(
             follow_prob = person.get("follow_probability", 0)
 
             # Skip very low probability connections
-            if follow_prob < 0.05:
+            if follow_prob < 0.01:
                 continue
 
             person_name = names.get(sid, sid)
