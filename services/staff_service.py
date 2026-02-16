@@ -4,6 +4,7 @@ from datetime import datetime
 from database.supabase_client import get_supabase
 from models.staff import StaffCreate, StaffUpdate
 from services.audit_service import log_staff_change
+from services.cascade_trigger import trigger_exit_cascade
 
 logger = logging.getLogger(__name__)
 
