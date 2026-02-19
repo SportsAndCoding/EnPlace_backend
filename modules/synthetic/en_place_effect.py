@@ -30,8 +30,16 @@ COHORT TYPES:
 
 CALIBRATION TARGETS (aggregate, with variance):
   Without EP:  75-80% annual turnover (some restaurants 60%, some 95%+)
-  With EP:     52-58% annual turnover (some 45%, some 65%)
+  With EP:     52-58% annual turnover (some 42%, some 68%)
   Long-term:   40% (33% unavoidable life changes + 7% wiggle room)
+
+CALIBRATION v2 NOTES:
+  Base simulation produces ~71% turnover at modifier 1.0.
+  To hit 55% target, the effective exit modifier must be ~0.50-0.55 center.
+  Previous v1 had WITH_EP multipliers at 0.64-0.73 → only reached 67%.
+  v2 lowers base WITH_EP multipliers to 0.45-0.58 range.
+  Effectiveness variance tightened: floor raised so even poorly-adopted
+  EP restaurants still see meaningful benefit.
 """
 
 import hashlib
@@ -42,41 +50,47 @@ from typing import Dict, Any, Optional
 # INDUSTRY BASELINE EXIT MULTIPLIERS (Without En Place)
 # Applied to the raw simulation's daily exit probability.
 # These push turnover UP toward industry averages.
+#
+# v2: Slightly lowered from v1 to bring control from 82.9% → 77-80%.
 # =====================================================================
 
 _WITHOUT_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
-    "fast_casual":        1.55,   # Industry 110-130%, raw sim ~71% → target ~110%
-    "high_volume_chain":  1.42,   # Industry 95-105%
-    "college_town_cafe":  1.28,   # Industry 85-95%
-    "airport_restaurant": 1.22,   # Industry 78-85%
-    "sports_bar":         1.18,   # Industry 75-80%
-    "bar_and_grille":     1.16,   # Industry 75-80%
-    "hotel_restaurant":   1.16,   # Industry 75-80%
-    "family_diner":       1.14,   # Industry 75-80%
-    "breakfast_cafe":     1.14,   # Industry 75-80%
-    "neighborhood_bistro":1.10,   # Industry 70-80%
-    "upscale_casual":     1.10,   # Industry 70-80%
-    "steakhouse":         0.95,   # Industry 50-70% (fine dining retains better)
+    "fast_casual":        1.45,   # Industry 110-130%
+    "high_volume_chain":  1.35,   # Industry 95-105%
+    "college_town_cafe":  1.22,   # Industry 85-95%
+    "airport_restaurant": 1.18,   # Industry 78-85%
+    "sports_bar":         1.12,   # Industry 75-80%
+    "bar_and_grille":     1.10,   # Industry 75-80%
+    "hotel_restaurant":   1.10,   # Industry 75-80%
+    "family_diner":       1.08,   # Industry 75-80%
+    "breakfast_cafe":     1.08,   # Industry 75-80%
+    "neighborhood_bistro":1.05,   # Industry 70-80%
+    "upscale_casual":     1.05,   # Industry 70-80%
+    "steakhouse":         0.92,   # Industry 50-70% (fine dining retains better)
 }
 
 # =====================================================================
 # EN PLACE NETWORK EXIT MULTIPLIERS (With En Place active)
 # These push turnover DOWN toward mid-50s.
+#
+# v2: Lowered significantly. Base sim is 71% at 1.0 modifier.
+# To reach 55% average, center of effective modifier must be ~0.50.
+# These base values get further modified by per-restaurant effectiveness.
 # =====================================================================
 
 _WITH_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
-    "fast_casual":        0.68,   # Target 54-58%
-    "high_volume_chain":  0.70,   # Target 55-58%
-    "college_town_cafe":  0.69,   # Target 54-57%
-    "airport_restaurant": 0.73,   # Target 56-59%
-    "sports_bar":         0.72,   # Target 55-58%
-    "bar_and_grille":     0.69,   # Target 53-56%
-    "hotel_restaurant":   0.67,   # Target 52-55%
-    "family_diner":       0.64,   # Target 50-53%
-    "breakfast_cafe":     0.64,   # Target 50-53%
-    "neighborhood_bistro":0.62,   # Target 48-52%
-    "upscale_casual":     0.65,   # Target 50-54%
-    "steakhouse":         0.72,   # Target 45-50%
+    "fast_casual":        0.52,   # Target 54-58% (from 110%+ baseline)
+    "high_volume_chain":  0.54,   # Target 55-58%
+    "college_town_cafe":  0.53,   # Target 54-57%
+    "airport_restaurant": 0.56,   # Target 56-59%
+    "sports_bar":         0.55,   # Target 55-58%
+    "bar_and_grille":     0.52,   # Target 53-56%
+    "hotel_restaurant":   0.50,   # Target 52-55%
+    "family_diner":       0.47,   # Target 50-53%
+    "breakfast_cafe":     0.47,   # Target 50-53%
+    "neighborhood_bistro":0.45,   # Target 48-52%
+    "upscale_casual":     0.48,   # Target 50-54%
+    "steakhouse":         0.55,   # Target 45-50% (already lower base)
 }
 
 # =====================================================================
@@ -84,18 +98,21 @@ _WITH_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
 # Shifts to felt_fair_prob and felt_respected_prob in the emotion simulator.
 # Without EP: staff don't feel heard → lower fairness/respect perception.
 # With EP: anonymous check-ins + manager intervention → staff feel valued.
+#
+# v2: Boosted ~50% from v1. These compound through the 30-day rolling
+# window and amplify the exit probability delta over time.
 # =====================================================================
 
 _WITHOUT_EP_EMOTIONAL_OFFSET: Dict[str, float] = {
-    "felt_fair_prob":      -0.08,   # No anonymous feedback → less fairness
-    "felt_respected_prob": -0.06,   # No voice → less respect
-    "felt_safe_prob":      -0.03,   # Slight safety perception dip
+    "felt_fair_prob":      -0.10,   # No anonymous feedback → less fairness
+    "felt_respected_prob": -0.08,   # No voice → less respect
+    "felt_safe_prob":      -0.04,   # Slight safety perception dip
 }
 
 _WITH_EP_EMOTIONAL_OFFSET: Dict[str, float] = {
-    "felt_fair_prob":       0.06,   # Anonymous check-ins → feel heard
-    "felt_respected_prob":  0.05,   # Manager follows up on signals → feel valued
-    "felt_safe_prob":       0.02,   # House Guardian monitoring → slight safety boost
+    "felt_fair_prob":       0.09,   # Anonymous check-ins → feel heard
+    "felt_respected_prob":  0.07,   # Manager follows up on signals → feel valued
+    "felt_safe_prob":       0.03,   # House Guardian monitoring → slight safety boost
 }
 
 
@@ -118,22 +135,24 @@ def _compute_restaurant_effectiveness(restaurant_id: int) -> float:
     """
     Compute a per-restaurant "EP effectiveness" multiplier.
 
-    Three independent axes:
-      management_quality (0.5 - 1.5): Does the GM use EP's recommendations?
-      staff_adoption     (0.6 - 1.4): Do staff check in honestly?
-      culture_baseline   (0.7 - 1.3): Was culture already decent?
+    Three independent axes (v2: tightened ranges, raised floors):
+      management_quality (0.65 - 1.40): Does the GM use EP's recommendations?
+      staff_adoption     (0.70 - 1.30): Do staff check in honestly?
+      culture_baseline   (0.75 - 1.25): Was culture already decent?
 
-    Product ranges from 0.21 (worst case) to 2.73 (best case).
+    Product ranges from ~0.34 (worst case) to ~2.28 (best case).
     Centered around ~1.0 on average.
 
-    We then clamp to [0.4, 1.8] to prevent absurd outliers.
+    v2: Clamped to [0.55, 1.6] (raised floor from 0.4).
+    This ensures even poorly-adopted EP restaurants see real benefit.
+    The worst EP restaurant should still noticeably outperform control.
     """
-    mgmt = _deterministic_variance(restaurant_id, "mgmt_quality", 0.5, 1.5)
-    adopt = _deterministic_variance(restaurant_id, "staff_adoption", 0.6, 1.4)
-    culture = _deterministic_variance(restaurant_id, "culture_baseline", 0.7, 1.3)
+    mgmt = _deterministic_variance(restaurant_id, "mgmt_quality", 0.65, 1.40)
+    adopt = _deterministic_variance(restaurant_id, "staff_adoption", 0.70, 1.30)
+    culture = _deterministic_variance(restaurant_id, "culture_baseline", 0.75, 1.25)
 
     raw = mgmt * adopt * culture
-    return max(0.4, min(1.8, raw))
+    return max(0.55, min(1.6, raw))
 
 
 def _compute_industry_variance(restaurant_id: int) -> float:
@@ -144,12 +163,15 @@ def _compute_industry_variance(restaurant_id: int) -> float:
     even without tools, some are disaster zones. Family businesses, cultural
     factors, local labor markets all play a role.
 
-    Returns multiplier in [0.70, 1.35]:
+    Returns multiplier in [0.70, 1.30]:
       0.70 = naturally well-run (lower turnover than industry avg)
       1.00 = average
-      1.35 = poorly managed (higher turnover than industry avg)
+      1.30 = poorly managed (higher turnover than industry avg)
+
+    v2: Narrowed from [0.70, 1.35] to [0.70, 1.30] to bring control
+    aggregate down slightly from 82.9%.
     """
-    return _deterministic_variance(restaurant_id, "industry_variance", 0.70, 1.35)
+    return _deterministic_variance(restaurant_id, "industry_variance", 0.70, 1.30)
 
 
 # =====================================================================
@@ -231,24 +253,29 @@ def get_en_place_config(
     industry_var = _compute_industry_variance(restaurant_id)
 
     # Type-specific base multipliers
-    without_base = _WITHOUT_EP_EXIT_MULTIPLIERS.get(profile_key, 1.15)
-    with_base = _WITH_EP_EXIT_MULTIPLIERS.get(profile_key, 0.70)
+    without_base = _WITHOUT_EP_EXIT_MULTIPLIERS.get(profile_key, 1.10)
+    with_base = _WITH_EP_EXIT_MULTIPLIERS.get(profile_key, 0.52)
 
     # Apply industry variance to the WITHOUT multiplier
     # A well-run restaurant without EP still has lower turnover than average
     without_exit_mod = without_base * industry_var
 
     # Apply effectiveness variance to the WITH multiplier
-    # How much does EP actually help THIS specific restaurant?
     # effectiveness > 1.0 = EP helps MORE (lower exit modifier = lower turnover)
     # effectiveness < 1.0 = EP helps LESS (modifier stays higher)
     #
-    # We interpolate between the without and with base:
-    # At effectiveness 0.0 → EP does nothing (stays at without level)
-    # At effectiveness 1.0 → EP delivers expected improvement
-    # At effectiveness 1.8 → EP over-delivers
-    with_exit_mod = without_base - (without_base - with_base) * effectiveness
-    with_exit_mod = max(0.35, min(without_base * 0.95, with_exit_mod))  # Can't be worse than without
+    # v2: Direct scaling approach. The with_base is already calibrated
+    # for effectiveness=1.0. We scale inversely:
+    #   effectiveness 1.5 → modifier drops further (EP over-delivers)
+    #   effectiveness 0.6 → modifier rises (EP under-delivers)
+    #
+    # Formula: with_exit_mod = with_base / effectiveness
+    # This means effectiveness 0.55 → mod = with_base/0.55 (higher, less benefit)
+    #          effectiveness 1.60 → mod = with_base/1.60 (lower, more benefit)
+    with_exit_mod = with_base / effectiveness
+
+    # Clamp: can't be worse than without, can't go below hard floor
+    with_exit_mod = max(0.30, min(without_exit_mod * 0.92, with_exit_mod))
 
     # Emotional offsets with variance applied
     without_emotional = {
