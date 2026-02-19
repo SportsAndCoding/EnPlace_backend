@@ -1,9 +1,12 @@
 """
-calibration_run.py v3
+calibration_run.py v4
 
-FIXED: Uses the SAME restaurant_id for all modifier comparisons.
-The only variable is the exit_modifier itself — same staff, same personas,
-same deterministic seed. This isolates the effect of the modifier.
+Tests the recalibrated low-range multipliers. All tests use SAME rid
+to isolate modifier as only variable.
+
+Part 1: Fine-grained modifier sweep in the 0.08-0.35 range
+Part 2: WITHOUT vs WITH pairs at proposed type-specific values
+Part 3: Stable Hire compound effect
 
 Run: python calibration_run.py
 """
@@ -32,11 +35,10 @@ WEIGHTS = {
 
 HEADCOUNT = 50
 DAYS = 365
-FIXED_RID = 7777  # Same restaurant for all tests
+RID = 7777
 
 
-def make_flat_ep_config(modifier):
-    """Flat modifier applied from day 0 through entire sim."""
+def make_ep(modifier):
     return {
         "adoption_day": 0,
         "restaurant_effectiveness": 1.0,
@@ -47,136 +49,105 @@ def make_flat_ep_config(modifier):
     }
 
 
-def run_with_modifier(modifier, rid=FIXED_RID, profile_key="fast_casual"):
-    profile = get_profile(profile_key)
+def run(modifier, rid=RID, weights=WEIGHTS):
+    profile = get_profile("fast_casual")
     results = simulate_restaurant(
         restaurant_id=rid,
         number_of_staff=HEADCOUNT,
         simulation_days=DAYS,
-        persona_weights=WEIGHTS,
+        persona_weights=weights,
         restaurant_profile=profile,
         enable_contagion=False,
-        en_place_config=make_flat_ep_config(modifier),
+        en_place_config=make_ep(modifier),
         enable_replacement_hiring=True,
     )
     sm = results["staff_master"]
-    total = len(sm)
     exits = sum(1 for s in sm if s["final_persona"] == "exit")
     annual = (exits / HEADCOUNT) * 100
 
     originals = [s for s in sm if s["hire_day"] == 0]
     orig_exits = sum(1 for s in originals if s["final_persona"] == "exit")
-    l1 = (orig_exits / len(originals) * 100) if originals else 0
 
     replacements = [s for s in sm if s["hire_day"] > 0]
-    eligible = [s for s in replacements if s["hire_day"] + 90 <= DAYS]
-    survived = sum(1 for s in eligible if s["total_days"] >= 90)
-    l2 = (survived / len(eligible) * 100) if eligible else 0
+    elig = [s for s in replacements if s["hire_day"] + 90 <= DAYS]
+    surv = sum(1 for s in elig if s["total_days"] >= 90)
+    l2 = (surv / len(elig) * 100) if elig else 0
 
-    cliff_surv = [s for s in eligible if s["total_days"] >= 90]
-    cliff_exit = sum(1 for s in cliff_surv if s["final_persona"] == "exit")
-    l3 = ((len(cliff_surv) - cliff_exit) / len(cliff_surv) * 100) if cliff_surv else 0
-
-    return {
-        "exits": exits, "annual": annual, "records": total,
-        "l1_exit_pct": l1, "l2_cliff_survival": l2, "l3_retention": l3,
-    }
+    return {"exits": exits, "annual": annual, "records": len(sm),
+            "l1_exit": (orig_exits / 50 * 100), "l2_surv": l2}
 
 
 # =====================================================
-# PART 1: Modifier sweep (same rid for all)
+# PART 1: Fine-grained sweep
 # =====================================================
-print("=" * 80)
-print("PART 1: Modifier → Turnover (same restaurant, same staff, only modifier changes)")
-print(f"  rid={FIXED_RID}, profile=fast_casual, headcount={HEADCOUNT}")
-print("=" * 80)
+print("=" * 70)
+print(f"PART 1: Modifier sweep (rid={RID}, headcount={HEADCOUNT})")
+print("=" * 70)
 
-MODIFIERS = [1.0, 0.80, 0.65, 0.50, 0.40, 0.35, 0.30, 0.25, 0.20]
+MODS = [0.08, 0.10, 0.11, 0.12, 0.14, 0.15, 0.17, 0.18,
+        0.20, 0.23, 0.25, 0.28, 0.30, 0.35]
 
-print(f"\n  {'Mod':>6} {'Exits':>6} {'Ann%':>6} {'L1 Exit%':>9} {'L2 Cliff%':>10} {'L3 Retain%':>11} {'Records':>8}")
-print(f"  {'-'*6} {'-'*6} {'-'*6} {'-'*9} {'-'*10} {'-'*11} {'-'*8}")
+print(f"\n  {'Mod':>5} {'Exits':>6} {'Ann%':>6} {'L1 Exit%':>9} {'L2 Surv%':>9}")
+print(f"  {'-'*5} {'-'*6} {'-'*6} {'-'*9} {'-'*9}")
 
-for mod in MODIFIERS:
-    r = run_with_modifier(mod)
-    print(f"  {mod:>6.2f} {r['exits']:>6} {r['annual']:>5.0f}% {r['l1_exit_pct']:>8.0f}% "
-          f"{r['l2_cliff_survival']:>9.0f}% {r['l3_retention']:>10.0f}% {r['records']:>8}")
+for m in MODS:
+    r = run(m)
+    print(f"  {m:>5.2f} {r['exits']:>6} {r['annual']:>5.0f}% {r['l1_exit']:>8.0f}% {r['l2_surv']:>8.0f}%")
 
 
 # =====================================================
-# PART 2: Type-specific spot checks (same rid per type)
+# PART 2: Proposed WITHOUT/WITH pairs (same rid)
 # =====================================================
-print(f"\n{'='*80}")
-print("PART 2: Without vs With EP by type (same rid per type)")
-print("=" * 80)
+print(f"\n{'='*70}")
+print("PART 2: Proposed type multiplier pairs (same rid for each pair)")
+print("=" * 70)
 
-SPOT_CHECKS = [
-    ("fast_casual",        0.78, 0.50),
-    ("high_volume_chain",  0.70, 0.45),
-    ("college_town_cafe",  0.63, 0.42),
-    ("airport_restaurant", 0.55, 0.38),
-    ("sports_bar",         0.50, 0.35),
-    ("bar_and_grille",     0.49, 0.34),
-    ("hotel_restaurant",   0.47, 0.32),
-    ("upscale_casual",     0.45, 0.31),
-    ("family_diner",       0.44, 0.30),
-    ("breakfast_cafe",     0.44, 0.30),
-    ("neighborhood_bistro",0.42, 0.28),
-    ("steakhouse",         0.36, 0.25),
+PAIRS = [
+    ("fast_casual",        0.35, 0.27),
+    ("high_volume_chain",  0.28, 0.22),
+    ("college_town_cafe",  0.23, 0.18),
+    ("airport_restaurant", 0.20, 0.16),
+    ("sports_bar",         0.18, 0.14),
+    ("bar_and_grille",     0.17, 0.13),
+    ("hotel_restaurant",   0.16, 0.12),
+    ("upscale_casual",     0.15, 0.12),
+    ("family_diner",       0.15, 0.11),
+    ("breakfast_cafe",     0.15, 0.11),
+    ("neighborhood_bistro",0.14, 0.11),
+    ("steakhouse",         0.11, 0.08),
 ]
 
-print(f"\n  {'Type':<22} {'W/O':>5} {'Exits':>6} {'Ann%':>6}  {'W/':>5} {'Exits':>6} {'Ann%':>6} {'Delta':>6}")
-print(f"  {'-'*22} {'-'*5} {'-'*6} {'-'*6}  {'-'*5} {'-'*6} {'-'*6} {'-'*6}")
+print(f"\n  {'Type':<22} {'W/O':>5} {'Ann%':>6}  {'W/':>5} {'Ann%':>6} {'Delta':>6}")
+print(f"  {'-'*22} {'-'*5} {'-'*6}  {'-'*5} {'-'*6} {'-'*6}")
 
-for pkey, wo_mod, w_mod in SPOT_CHECKS:
-    # SAME rid for both — only modifier changes
-    rid = 8000 + hash(pkey) % 1000
-
-    wo = run_with_modifier(wo_mod, rid=rid, profile_key=pkey)
-    wi = run_with_modifier(w_mod, rid=rid, profile_key=pkey)
-
-    delta = wo["annual"] - wi["annual"]
-    print(f"  {pkey:<22} {wo_mod:>5.2f} {wo['exits']:>6} {wo['annual']:>5.0f}%  "
-          f"{w_mod:>5.2f} {wi['exits']:>6} {wi['annual']:>5.0f}% {delta:>+5.0f}")
+for pkey, wo, wi in PAIRS:
+    r_wo = run(wo)
+    r_wi = run(wi)
+    delta = r_wo["annual"] - r_wi["annual"]
+    print(f"  {pkey:<22} {wo:>5.2f} {r_wo['annual']:>5.0f}%  {wi:>5.2f} {r_wi['annual']:>5.0f}% {delta:>+5.0f}")
 
 
 # =====================================================
-# PART 3: L2 Stable Hire effect preview
+# PART 3: Stable Hire compound effect at different mods
 # =====================================================
-print(f"\n{'='*80}")
-print("PART 3: Stable Hire effect on cliff survival (same rid, with_mod=0.35)")
-print("=" * 80)
+print(f"\n{'='*70}")
+print("PART 3: Stable Hire impact at different modifier levels")
+print("=" * 70)
 
 from modules.synthetic.en_place_effect import STABLE_HIRE_PERSONA_WEIGHTS
 
-# Without Stable Hire: normal weights at modifier 0.35
-r_normal = run_with_modifier(0.35, rid=FIXED_RID)
+SH_MODS = [0.27, 0.18, 0.12, 0.08]
 
-# With Stable Hire: use stable hire weights for ALL hires to see max effect
-profile = get_profile("fast_casual")
-results_sh = simulate_restaurant(
-    restaurant_id=FIXED_RID,
-    number_of_staff=HEADCOUNT,
-    simulation_days=DAYS,
-    persona_weights=STABLE_HIRE_PERSONA_WEIGHTS,  # Stable Hire weights for ALL
-    restaurant_profile=profile,
-    enable_contagion=False,
-    en_place_config=make_flat_ep_config(0.35),
-    enable_replacement_hiring=True,
-)
-sm_sh = results_sh["staff_master"]
-sh_exits = sum(1 for s in sm_sh if s["final_persona"] == "exit")
-sh_annual = (sh_exits / HEADCOUNT) * 100
-eligible_sh = [s for s in sm_sh if s["hire_day"] > 0 and s["hire_day"] + 90 <= DAYS]
-surv_sh = sum(1 for s in eligible_sh if s["total_days"] >= 90)
-l2_sh = (surv_sh / len(eligible_sh) * 100) if eligible_sh else 0
+print(f"\n  {'Mod':>5} {'Normal':>8} {'StabHire':>9} {'Delta':>6} {'L2 Norm':>8} {'L2 SH':>7}")
+print(f"  {'-'*5} {'-'*8} {'-'*9} {'-'*6} {'-'*8} {'-'*7}")
 
-print(f"\n  Normal weights @ 0.35:      {r_normal['annual']:.0f}% annual, "
-      f"L2 cliff survival: {r_normal['l2_cliff_survival']:.0f}%")
-print(f"  Stable Hire weights @ 0.35: {sh_annual:.0f}% annual, "
-      f"L2 cliff survival: {l2_sh:.0f}%")
-print(f"  Stable Hire impact:         {r_normal['annual'] - sh_annual:+.0f} pts annual, "
-      f"{l2_sh - r_normal['l2_cliff_survival']:+.0f} pts cliff survival")
+for m in SH_MODS:
+    r_norm = run(m, weights=WEIGHTS)
+    r_sh = run(m, weights=STABLE_HIRE_PERSONA_WEIGHTS)
+    delta = r_norm["annual"] - r_sh["annual"]
+    print(f"  {m:>5.2f} {r_norm['annual']:>7.0f}% {r_sh['annual']:>8.0f}% {delta:>+5.0f} "
+          f"{r_norm['l2_surv']:>7.0f}% {r_sh['l2_surv']:>6.0f}%")
 
-print(f"\n{'='*80}")
+print(f"\n{'='*70}")
 print("Done.")
-print(f"{'='*80}")
+print(f"{'='*70}")

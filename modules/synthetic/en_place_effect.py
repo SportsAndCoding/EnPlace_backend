@@ -1,48 +1,42 @@
 """
 modules/synthetic/en_place_effect.py
 
-En Place Effect Engine v3 — Calibrated for Replacement Hiring
+En Place Effect Engine v4 — Calibrated from Empirical Data
 
-CALIBRATION BASIS (modifier 1.0, replacement hiring ON):
-  - 50 staff, 365 days → 105 exits, 210% annual turnover
-  - L1 originals: 76% exit (38/50)
-  - L2 cliff failure: 52% of replacements exit within 90 days
-  - L3 post-cliff: 27% of 90d survivors still exit
+CALIBRATION BASIS (modifier 1.0, replacement hiring, same rid):
+  Modifier → Annual Turnover (50 staff, 365 days, fast_casual):
+    1.00 → 216%    0.50 → 144%    0.30 → 122%    0.20 → 90%
+    0.80 → 198%    0.40 → 128%    0.25 → 108%
 
-TWO LEVERS:
+  Stable Hire effect at modifier 0.35:
+    Normal weights → 128% annual, Stable Hire weights → 64% annual (50% reduction)
 
-  1. EXIT PROBABILITY MODIFIER — multiplier on daily exit probability.
-     WITHOUT EP: type-specific multiplier producing industry-realistic rates.
-     WITH EP: lower multiplier producing En Place network rates.
+THREE LEVERS:
 
-  2. EMOTIONAL OFFSET — shifts to felt_fair/respected/safe probabilities.
-     Compounds through the 30-day rolling window, creating persistent
-     emotional climate improvement that reduces exit triggers.
+  1. EXIT MODIFIER — scales daily exit probability.
+     WITHOUT EP: type-specific modifier producing realistic industry rates.
+     WITH EP: ~20-25% lower modifier (modest improvement for originals/L3).
 
-THIRD LEVER (new in v3):
+  2. EMOTIONAL OFFSET — shifts felt_fair/respected/safe probabilities.
+     Compounds through 30-day rolling window. Provides L1 and L3 benefit.
 
-  3. STABLE HIRE PERSONA SHIFT — replacement hires made after EP adoption
-     use different persona weights. Stable Hire screens out high-risk
-     candidates (overwhelmed_rookie, ghoster_in_training) and favors
-     resilient profiles (enthusiastic_rookie, workhorse). This directly
-     attacks the 90-day cliff failure rate (Level 2).
+  3. STABLE HIRE PERSONA WEIGHTS — post-EP replacement hires use shifted
+     persona distribution. Screens out high-risk candidates (overwhelmed,
+     ghosters), favors resilient profiles. This is the BIGGEST lever —
+     directly breaks the 90-day cliff churn cycle (L2).
 
-COHORT DESIGN:
-  All 100 restaurants adopt EP at day 183. Each restaurant is its own
-  control — pre-adoption (days 0-182) vs post-adoption (days 183-365).
-
-VOLATILITY:
-  Per-restaurant variance via three deterministic axes ensures
-  no two restaurants perform identically.
-
-ESTIMATED MODIFIER-TO-TURNOVER MAPPING (non-linear due to churn cycle):
-  modifier 1.00 → ~210% annual turnover
-  modifier 0.80 → ~160%
-  modifier 0.65 → ~120%
-  modifier 0.55 → ~95%
-  modifier 0.45 → ~75%
-  modifier 0.35 → ~55%
-  modifier 0.28 → ~42%
+INDUSTRY BENCHMARKS (annual turnover incl replacement churn):
+  QSR / Fast Casual:    130-150%
+  High Volume Chain:    100-120%
+  College Town / Cafe:   90-100%
+  Airport:               80-90%
+  Sports Bar:            75-85%
+  Bar & Grille:          73-80%
+  Hotel Restaurant:      70-78%
+  Full-Service Casual:   68-75%
+  Family / Breakfast:    65-75%
+  Neighborhood Bistro:   60-70%
+  Fine Dining:           50-60%
 """
 
 import hashlib
@@ -52,55 +46,50 @@ from typing import Dict, Any, Optional
 # =====================================================================
 # INDUSTRY BASELINE EXIT MULTIPLIERS (Without En Place)
 #
-# These produce realistic industry turnover rates when applied to
-# the base simulation WITH replacement hiring.
-#
-# Mapping: modifier → approximate annual turnover
-#   0.80 → ~160%, 0.65 → ~120%, 0.55 → ~95%, 0.45 → ~75%, 0.35 → ~55%
+# Calibrated from empirical modifier-to-turnover curve.
+# Interpolated targets with per-restaurant variance applied on top.
 # =====================================================================
 
 _WITHOUT_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
-    "fast_casual":        0.78,   # Target ~150% (QSR industry avg)
-    "high_volume_chain":  0.70,   # Target ~130%
-    "college_town_cafe":  0.63,   # Target ~115% (seasonal + student workforce)
-    "airport_restaurant": 0.55,   # Target ~95%
-    "sports_bar":         0.50,   # Target ~85%
-    "bar_and_grille":     0.49,   # Target ~83%
-    "hotel_restaurant":   0.47,   # Target ~80%
-    "upscale_casual":     0.45,   # Target ~75%
-    "family_diner":       0.44,   # Target ~73%
-    "breakfast_cafe":     0.44,   # Target ~73%
-    "neighborhood_bistro":0.42,   # Target ~70%
-    "steakhouse":         0.36,   # Target ~58% (fine dining retains better)
+    "fast_casual":        0.35,   # → ~128% (QSR/fast casual range)
+    "high_volume_chain":  0.28,   # → ~115% (high volume chain)
+    "college_town_cafe":  0.23,   # → ~100% (seasonal student workforce)
+    "airport_restaurant": 0.20,   # → ~90%  (transient labor market)
+    "sports_bar":         0.18,   # → ~83%  (bar/nightlife churn)
+    "bar_and_grille":     0.17,   # → ~80%  (casual dining)
+    "hotel_restaurant":   0.16,   # → ~77%  (hotel F&B)
+    "upscale_casual":     0.15,   # → ~74%  (upscale casual)
+    "family_diner":       0.15,   # → ~74%  (family dining)
+    "breakfast_cafe":     0.15,   # → ~74%  (breakfast/brunch)
+    "neighborhood_bistro":0.14,   # → ~70%  (neighborhood spot)
+    "steakhouse":         0.11,   # → ~58%  (fine dining retains)
 }
 
 # =====================================================================
 # EN PLACE NETWORK EXIT MULTIPLIERS (With En Place active)
 #
-# Target: 30-40% reduction from industry baseline.
-# Combined with emotional offsets and Stable Hire, produces mid-50s
-# aggregate across the network.
+# ~20-25% lower than WITHOUT_EP modifier.
+# This provides modest L1 (original staff) and L3 (post-cliff) benefit.
+# The heavy lifting on L2 (cliff survival) comes from Stable Hire.
 # =====================================================================
 
 _WITH_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
-    "fast_casual":        0.50,   # 150% → ~85%  (43% reduction)
-    "high_volume_chain":  0.45,   # 130% → ~75%  (42% reduction)
-    "college_town_cafe":  0.42,   # 115% → ~68%  (41% reduction)
-    "airport_restaurant": 0.38,   # 95%  → ~60%  (37% reduction)
-    "sports_bar":         0.35,   # 85%  → ~55%  (35% reduction)
-    "bar_and_grille":     0.34,   # 83%  → ~53%  (36% reduction)
-    "hotel_restaurant":   0.32,   # 80%  → ~48%  (40% reduction)
-    "upscale_casual":     0.31,   # 75%  → ~46%  (39% reduction)
-    "family_diner":       0.30,   # 73%  → ~44%  (40% reduction)
-    "breakfast_cafe":     0.30,   # 73%  → ~44%  (40% reduction)
-    "neighborhood_bistro":0.28,   # 70%  → ~42%  (40% reduction)
-    "steakhouse":         0.25,   # 58%  → ~36%  (38% reduction)
+    "fast_casual":        0.27,   # 23% reduction from 0.35
+    "high_volume_chain":  0.22,   # 21% reduction from 0.28
+    "college_town_cafe":  0.18,   # 22% reduction from 0.23
+    "airport_restaurant": 0.16,   # 20% reduction from 0.20
+    "sports_bar":         0.14,   # 22% reduction from 0.18
+    "bar_and_grille":     0.13,   # 24% reduction from 0.17
+    "hotel_restaurant":   0.12,   # 25% reduction from 0.16
+    "upscale_casual":     0.12,   # 20% reduction from 0.15
+    "family_diner":       0.11,   # 27% reduction from 0.15
+    "breakfast_cafe":     0.11,   # 27% reduction from 0.15
+    "neighborhood_bistro":0.11,   # 21% reduction from 0.14
+    "steakhouse":         0.08,   # 27% reduction from 0.11
 }
 
 # =====================================================================
 # EMOTIONAL OFFSETS
-# Without EP: no feedback loop → staff feel less heard
-# With EP: anonymous check-ins → staff feel valued
 # =====================================================================
 
 _WITHOUT_EP_EMOTIONAL_OFFSET: Dict[str, float] = {
@@ -117,11 +106,22 @@ _WITH_EP_EMOTIONAL_OFFSET: Dict[str, float] = {
 
 # =====================================================================
 # STABLE HIRE PERSONA WEIGHTS
-# Post-EP replacement hires use these shifted weights.
-# Stable Hire psychological screening:
-#   - Filters out high-risk profiles (overwhelmed, ghosters)
-#   - Favors resilient, engaged candidates
-#   - Directly reduces 90-day cliff failure rate (Level 2)
+#
+# The biggest lever. Calibration showed 50% reduction in annual turnover
+# just from persona weight shift (128% → 64% at same modifier).
+#
+# Post-EP replacement hires use these weights. Stable Hire screens:
+#   - overwhelmed_rookie: 10% → 3% (anxiety/fit issues detected)
+#   - ghoster_in_training: 5% → 1% (reliability red flags caught)
+#   - burned_idealist: 5% → 2% (burnout history detected)
+#   - lazy_rookie: 14% → 10% (attitude flagged)
+#   - snarky_rookie: 15% → 10% (attitude flagged)
+#
+# Favors resilient candidates:
+#   - enthusiastic_rookie: 25% → 32% (engaged candidates found)
+#   - workhorse: 15% → 22% (experienced hires prioritized)
+#   - social_glue: 5% → 8% (team players identified)
+#   - emerging_leader: 3% → 6% (leadership potential spotted)
 # =====================================================================
 
 DEFAULT_PERSONA_WEIGHTS: Dict[str, float] = {
@@ -140,27 +140,26 @@ DEFAULT_PERSONA_WEIGHTS: Dict[str, float] = {
 }
 
 STABLE_HIRE_PERSONA_WEIGHTS: Dict[str, float] = {
-    "enthusiastic_rookie":   0.32,   # +0.07: better candidates found
-    "lazy_rookie":           0.10,   # -0.04: some screened out
-    "snarky_rookie":         0.10,   # -0.05: attitude flagged in screening
-    "overwhelmed_rookie":    0.03,   # -0.07: anxiety/fit issues detected
-    "workhorse":             0.22,   # +0.07: experienced hires prioritized
-    "social_glue":           0.08,   # +0.03: team players identified
-    "ghoster_in_training":   0.01,   # -0.04: reliability red flags caught
-    "burned_idealist":       0.02,   # -0.03: burnout history detected
-    "emerging_leader":       0.06,   # +0.03: leadership potential spotted
-    "quiet_pro":             0.03,   # +0.02: steady performers valued
-    "cynical_anchor":        0.02,   # +0.01: experience valued despite attitude
-    "flight_risk_veteran":   0.01,   # same: hard to detect in screening
+    "enthusiastic_rookie":   0.32,
+    "lazy_rookie":           0.10,
+    "snarky_rookie":         0.10,
+    "overwhelmed_rookie":    0.03,
+    "workhorse":             0.22,
+    "social_glue":           0.08,
+    "ghoster_in_training":   0.01,
+    "burned_idealist":       0.02,
+    "emerging_leader":       0.06,
+    "quiet_pro":             0.03,
+    "cynical_anchor":        0.02,
+    "flight_risk_veteran":   0.01,
 }
 
 
 # =====================================================================
-# PER-RESTAURANT VOLATILITY ENGINE
+# PER-RESTAURANT VOLATILITY
 # =====================================================================
 
 def _deterministic_variance(restaurant_id: int, salt: str, low: float, high: float) -> float:
-    """Deterministic float in [low, high] for a restaurant + salt."""
     seed = hashlib.sha256(f"{restaurant_id}:{salt}".encode()).hexdigest()
     normalized = (int(seed[:12], 16) % 10000) / 10000.0
     return low + normalized * (high - low)
@@ -168,28 +167,19 @@ def _deterministic_variance(restaurant_id: int, salt: str, low: float, high: flo
 
 def _compute_restaurant_effectiveness(restaurant_id: int) -> float:
     """
-    Per-restaurant EP effectiveness (three-axis variance).
-
-    management_quality (0.65 - 1.35): Does the GM use EP recommendations?
-    staff_adoption     (0.70 - 1.30): Do staff check in honestly?
-    culture_baseline   (0.80 - 1.20): Was culture already decent?
-
-    Clamped to [0.60, 1.50]. Floor ensures even poorly-adopted EP
-    restaurants see meaningful benefit.
+    Per-restaurant EP effectiveness. Three axes:
+      management_quality (0.65-1.35), staff_adoption (0.70-1.30),
+      culture_baseline (0.80-1.20). Clamped to [0.60, 1.50].
     """
     mgmt = _deterministic_variance(restaurant_id, "mgmt_quality", 0.65, 1.35)
     adopt = _deterministic_variance(restaurant_id, "staff_adoption", 0.70, 1.30)
     culture = _deterministic_variance(restaurant_id, "culture_baseline", 0.80, 1.20)
-    raw = mgmt * adopt * culture
-    return max(0.60, min(1.50, raw))
+    return max(0.60, min(1.50, mgmt * adopt * culture))
 
 
 def _compute_industry_variance(restaurant_id: int) -> float:
-    """
-    Per-restaurant baseline variance (natural industry variation).
-    Returns multiplier in [0.75, 1.25].
-    """
-    return _deterministic_variance(restaurant_id, "industry_variance", 0.75, 1.25)
+    """Per-restaurant baseline variance [0.80, 1.20]."""
+    return _deterministic_variance(restaurant_id, "industry_variance", 0.80, 1.20)
 
 
 # =====================================================================
@@ -197,10 +187,6 @@ def _compute_industry_variance(restaurant_id: int) -> float:
 # =====================================================================
 
 def _adoption_ramp(days_since_adoption: int) -> float:
-    """
-    Returns 0.0 to 1.0 representing EP effect activation.
-    Day 0: 0.10, Day 7: 0.30, Day 14: 0.55, Day 30: 0.85, Day 60+: 1.00
-    """
     if days_since_adoption <= 0:
         return 0.10
     elif days_since_adoption <= 7:
@@ -224,11 +210,6 @@ def get_en_place_config(
     profile_key: str,
     adoption_day: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Generate complete En Place effect configuration for a restaurant.
-
-    Returns config dict with all parameters needed by the simulation runner.
-    """
     if adoption_day is None:
         return {
             "adoption_day": None,
@@ -242,22 +223,19 @@ def get_en_place_config(
     effectiveness = _compute_restaurant_effectiveness(restaurant_id)
     industry_var = _compute_industry_variance(restaurant_id)
 
-    # Type-specific base multipliers
-    without_base = _WITHOUT_EP_EXIT_MULTIPLIERS.get(profile_key, 0.50)
-    with_base = _WITH_EP_EXIT_MULTIPLIERS.get(profile_key, 0.35)
+    without_base = _WITHOUT_EP_EXIT_MULTIPLIERS.get(profile_key, 0.18)
+    with_base = _WITH_EP_EXIT_MULTIPLIERS.get(profile_key, 0.14)
 
-    # Apply industry variance to WITHOUT (natural variation)
+    # Industry variance on WITHOUT (natural variation)
     without_exit_mod = without_base * industry_var
 
-    # Apply effectiveness to WITH (how well this restaurant uses EP)
-    # effectiveness > 1.0 → EP over-delivers (lower modifier)
-    # effectiveness < 1.0 → EP under-delivers (higher modifier)
+    # Effectiveness on WITH (how well this restaurant uses EP)
+    # Higher effectiveness → lower modifier → better retention
     with_exit_mod = with_base / effectiveness
 
-    # Clamp: can't be worse than without, can't go below 0.15
-    with_exit_mod = max(0.15, min(without_exit_mod * 0.90, with_exit_mod))
+    # Clamp: WITH can't exceed WITHOUT, floor at 0.05
+    with_exit_mod = max(0.05, min(without_exit_mod * 0.92, with_exit_mod))
 
-    # Emotional offsets with variance
     without_emotional = {
         k: round(v * industry_var, 4)
         for k, v in _WITHOUT_EP_EMOTIONAL_OFFSET.items()
@@ -267,14 +245,11 @@ def get_en_place_config(
         for k, v in _WITH_EP_EMOTIONAL_OFFSET.items()
     }
 
-    # Stable Hire weights (effectiveness modulates how much the shift helps)
-    # High effectiveness = more of the ideal shift applied
-    # Low effectiveness = weights stay closer to default
+    # Stable Hire weights scaled by effectiveness
     stable_hire = {}
     for persona in DEFAULT_PERSONA_WEIGHTS:
         default_w = DEFAULT_PERSONA_WEIGHTS[persona]
         ideal_w = STABLE_HIRE_PERSONA_WEIGHTS[persona]
-        # Interpolate based on effectiveness (0.6 → 60% of shift, 1.5 → 100%)
         shift_pct = min(1.0, effectiveness)
         stable_hire[persona] = round(
             default_w + (ideal_w - default_w) * shift_pct, 4
@@ -300,10 +275,6 @@ def get_daily_effect(
     en_place_config: Dict[str, Any],
     day_index: int,
 ) -> Dict[str, Any]:
-    """
-    Get the EP effect for a specific simulation day.
-    Handles transition from without → with EP including adoption ramp.
-    """
     adoption_day = en_place_config.get("adoption_day")
 
     if adoption_day is None:
@@ -317,7 +288,6 @@ def get_daily_effect(
     without = en_place_config["without_ep"]
     with_ep = en_place_config["with_ep"]
 
-    # Before adoption — full industry baseline
     if day_index < adoption_day:
         return {
             "en_place_active": False,
@@ -326,7 +296,6 @@ def get_daily_effect(
             "ramp_factor": 0.0,
         }
 
-    # After adoption — ramp up to full EP effect
     days_since = day_index - adoption_day
     ramp = _adoption_ramp(days_since)
 
