@@ -3,18 +3,22 @@ modules/synthetic/restaurant_simulation_runner.py
 
 Restaurant-level orchestration for the En Place synthetic staffing simulation.
 
-ARCHITECTURE v3 — REPLACEMENT HIRING + STABLE HIRE:
+ARCHITECTURE v4 — LIFE EVENT EXITS:
 
-    When a staff member exits, a replacement is hired the next day.
-    The restaurant maintains target headcount throughout the simulation.
+    Two independent exit paths per day per staff member:
 
-    If En Place is active at time of hire, replacement uses Stable Hire
-    persona weights (shifted toward more resilient candidates). This is
-    the third lever — it directly attacks the 90-day cliff failure rate.
+    1. PERSONA EVOLUTION EXIT — from evolve_persona(). Driven by emotional
+       state, tenure, persona type. Modified by EP exit_modifier.
+       This is the PREVENTABLE turnover that En Place reduces.
 
-    Each staff member tracks hire_day for period-based analysis.
+    2. LIFE EVENT EXIT — flat daily probability representing unavoidable
+       turnover: moving, school, family, career change, pregnancy, etc.
+       NOT modified by EP. Applies equally pre and post adoption.
+       Creates realistic post-EP floor (~27% annual) and ensures
+       enough replacement hires for L2 (cliff survival) to be measurable.
 
-DETERMINISM: All output is fully deterministic given the same inputs.
+    Life event check runs AFTER persona evolution. If persona evolution
+    already triggered an exit, life event is skipped (can't quit twice).
 """
 
 from __future__ import annotations
@@ -30,9 +34,15 @@ from modules.synthetic.personas import PERSONA_DEFINITIONS
 
 
 def _deterministic_staff_id(restaurant_id: int, index: int) -> str:
-    """Generate a stable staff_id from restaurant_id and staff index."""
     key = f"{restaurant_id}:{index}"
     return hashlib.sha1(key.encode()).hexdigest()
+
+
+def _deterministic_random(staff_id: str, day_index: int, salt: str) -> float:
+    """Deterministic float [0, 1) for life event checks."""
+    seed = f"{staff_id}:{day_index}:{salt}"
+    h = int(hashlib.sha256(seed.encode()).hexdigest(), 16)
+    return (h % 1_000_000) / 1_000_000
 
 
 def _choose_persona_deterministically(
@@ -40,7 +50,6 @@ def _choose_persona_deterministically(
     restaurant_id: int,
     staff_index: int,
 ) -> str:
-    """Select a starting persona using fully deterministic weighted choice."""
     total = sum(weights.values())
     if abs(total - 1.0) > 0.01:
         raise ValueError(f"persona_weights must sum to ~1.0, got {total:.6f}")
@@ -65,7 +74,6 @@ def _compute_rolling_averages(
     history: Deque[Dict[str, Any]],
     window: int = 30,
 ) -> Dict[str, float]:
-    """Compute rolling averages from emotion history."""
     if not history:
         return {
             "mood": 3.0,
@@ -92,7 +100,6 @@ def _create_staff_state(
     hire_day: int,
     hired_with_stable_hire: bool = False,
 ) -> Dict[str, Any]:
-    """Create initial mutable state for a staff member."""
     return {
         "staff_id": staff_id,
         "staff_index": staff_index,
@@ -111,6 +118,21 @@ def _create_staff_state(
     }
 
 
+# Life event exit reasons (deterministically selected)
+_LIFE_EVENT_REASONS = [
+    "relocated - moving to another city",
+    "going back to school",
+    "family emergency - needed to leave workforce",
+    "career change - left restaurant industry",
+    "childcare responsibilities",
+    "health issue - extended leave needed",
+    "spouse/partner job relocation",
+    "better opportunity elsewhere - poached",
+    "seasonal worker - planned departure",
+    "personal reasons - voluntary resignation",
+]
+
+
 def simulate_restaurant(
     restaurant_id: int,
     number_of_staff: int,
@@ -123,30 +145,6 @@ def simulate_restaurant(
     en_place_config: Optional[Dict[str, Any]] = None,
     enable_replacement_hiring: bool = True,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Simulate an entire restaurant's staffing history.
-
-    Parameters
-    ----------
-    restaurant_id : int
-        Unique identifier for the restaurant.
-    number_of_staff : int
-        Target headcount (maintained via replacement hiring).
-    simulation_days : int
-        Length of the simulation in days.
-    persona_weights : Dict[str, float]
-        Default persona distribution for hires.
-    restaurant_profile : Dict[str, Any]
-        Restaurant config affecting behavior patterns.
-    enable_contagion : bool
-        When True, activates social graph modules.
-    graph_snapshot_interval : int
-        Days between graph snapshots (contagion only).
-    en_place_config : dict or None
-        From en_place_effect.get_en_place_config(). Includes stable_hire_weights.
-    enable_replacement_hiring : bool
-        When True (default), exited staff are replaced next day.
-    """
     if number_of_staff < 1:
         raise ValueError("number_of_staff must be >= 1")
     if simulation_days < 1:
@@ -158,15 +156,17 @@ def simulate_restaurant(
     _get_daily_effect = None
     _stable_hire_weights = None
     _adoption_day = None
+    _life_event_prob = 0.0  # Default: no life events unless configured
 
     if en_place_config is not None:
         from modules.synthetic.en_place_effect import get_daily_effect
         _get_daily_effect = get_daily_effect
         _stable_hire_weights = en_place_config.get("stable_hire_weights")
         _adoption_day = en_place_config.get("adoption_day")
+        _life_event_prob = en_place_config.get("life_event_daily_prob", 0.0)
 
     # ------------------------------------------------------------------
-    # Contagion setup (lazy imports)
+    # Contagion setup
     # ------------------------------------------------------------------
     graph = None
     mood_buffer = None
@@ -284,7 +284,7 @@ def simulate_restaurant(
             )
             graph.update_daily(day_index, pairwise_events)
 
-        # === STEP 5: Persona evolution ===
+        # === STEP 5: Persona evolution + Life events ===
         todays_exits: List[Dict[str, Any]] = []
 
         for sid in active_staff_ids:
@@ -296,6 +296,7 @@ def simulate_restaurant(
             contagion_modifier = shock_modifiers.get(sid, 1.0)
             combined_modifier = ep_exit_modifier * contagion_modifier
 
+            # --- EXIT PATH 1: Persona evolution (preventable) ---
             evolution = evolve_persona(
                 current_persona=state["current_persona"],
                 tenure_days=state["tenure_days"],
@@ -308,7 +309,27 @@ def simulate_restaurant(
             )
 
             new_persona = evolution["new_persona"]
+            exit_this_day = False
+            exit_reason = None
 
+            if evolution["changed"] and new_persona == "exit":
+                exit_this_day = True
+                exit_reason = evolution["reason"]
+            elif evolution["changed"]:
+                state["current_persona"] = new_persona
+
+            # --- EXIT PATH 2: Life event (unavoidable) ---
+            # Only if not already exiting from persona evolution
+            if not exit_this_day and _life_event_prob > 0:
+                roll = _deterministic_random(sid, day_index, "life_event")
+                if roll < _life_event_prob:
+                    exit_this_day = True
+                    # Deterministic reason selection
+                    reason_idx = int(_deterministic_random(sid, day_index, "life_reason") * len(_LIFE_EVENT_REASONS))
+                    reason_idx = min(reason_idx, len(_LIFE_EVENT_REASONS) - 1)
+                    exit_reason = _LIFE_EVENT_REASONS[reason_idx]
+
+            # --- Record outputs ---
             base = {
                 "staff_id": sid,
                 "restaurant_id": restaurant_id,
@@ -329,21 +350,20 @@ def simulate_restaurant(
                 **todays_behaviors[sid],
             })
 
-            if evolution["changed"]:
-                state["current_persona"] = new_persona
-                if new_persona == "exit":
-                    state["exited"] = True
-                    state["exit_day"] = day_index + 1
-                    state["exit_reason"] = evolution["reason"]
-                    state["final_persona"] = "exit"
-                    state["en_place_active_on_exit"] = ep_active_today
-                    todays_exits.append({
-                        "staff_id": sid,
-                        "exit_reason": evolution["reason"],
-                        "day_index": day_index,
-                    })
+            if exit_this_day:
+                state["exited"] = True
+                state["exit_day"] = day_index + 1
+                state["exit_reason"] = exit_reason
+                state["current_persona"] = "exit"
+                state["final_persona"] = "exit"
+                state["en_place_active_on_exit"] = ep_active_today
+                todays_exits.append({
+                    "staff_id": sid,
+                    "exit_reason": exit_reason,
+                    "day_index": day_index,
+                })
             else:
-                state["final_persona"] = new_persona
+                state["final_persona"] = state["current_persona"]
 
             if graph is not None:
                 graph.update_node_state(
@@ -401,7 +421,6 @@ def simulate_restaurant(
 
                 new_id = _deterministic_staff_id(restaurant_id, new_index)
 
-                # Use Stable Hire weights if EP is active
                 use_stable_hire = (
                     ep_active_today
                     and _stable_hire_weights is not None
@@ -443,7 +462,7 @@ def simulate_restaurant(
             graph_snapshots.append(snapshot)
 
     # ------------------------------------------------------------------
-    # Build staff master for ALL staff
+    # Build staff master
     # ------------------------------------------------------------------
     staff_master: List[Dict[str, Any]] = []
 

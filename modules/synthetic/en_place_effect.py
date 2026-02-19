@@ -1,42 +1,46 @@
 """
 modules/synthetic/en_place_effect.py
 
-En Place Effect Engine v4 — Calibrated from Empirical Data
+En Place Effect Engine v5 — With Life Event Baseline
 
-CALIBRATION BASIS (modifier 1.0, replacement hiring, same rid):
-  Modifier → Annual Turnover (50 staff, 365 days, fast_casual):
-    1.00 → 216%    0.50 → 144%    0.30 → 122%    0.20 → 90%
-    0.80 → 198%    0.40 → 128%    0.25 → 108%
+THE ZERO-TURNOVER PROBLEM (v4):
+  Post-EP showed 0% turnover for most restaurants because:
+  1. Survivors at day 183 are disproportionately veterans (base_exit_prob=0.001)
+  2. Low WITH_EP modifiers (0.08-0.15) on already-low base prob → essentially zero exits
+  3. Zero exits → zero replacement hires → L2 unmeasurable → story broken
 
-  Stable Hire effect at modifier 0.35:
-    Normal weights → 128% annual, Stable Hire weights → 64% annual (50% reduction)
+THE FIX — LIFE EVENT EXIT RATE:
+  Even the best restaurant loses people to life changes: moving, going back
+  to school, family emergency, career change, pregnancy, etc. These exits
+  are UNAVOIDABLE and not influenced by En Place.
+
+  life_event_daily_prob = 0.00085 → ~27% annual baseline turnover
+
+  This represents the floor of unavoidable turnover. En Place reduces
+  PREVENTABLE turnover (the other 73% of exits), not ALL turnover.
+
+  Pre-EP: life events barely change the numbers (churn cycle dominates)
+  Post-EP: life events create enough exits for realistic 35-50% annual + L2 measurability
+
+  Maps directly to the En Place narrative:
+    Industry baseline: 75-150% annual (depending on type)
+    En Place network:  45-65% annual (unavoidable ~27% + some preventable)
+    Long-term goal:    40% (theoretical floor at 33% unavoidable + 7%)
 
 THREE LEVERS:
 
-  1. EXIT MODIFIER — scales daily exit probability.
-     WITHOUT EP: type-specific modifier producing realistic industry rates.
-     WITH EP: ~20-25% lower modifier (modest improvement for originals/L3).
+  1. EXIT MODIFIER — scales daily exit probability from persona_evolution.
+     WITHOUT EP: type-specific modifier (industry baseline).
+     WITH EP: ~20-25% lower (modest improvement on preventable exits).
 
   2. EMOTIONAL OFFSET — shifts felt_fair/respected/safe probabilities.
-     Compounds through 30-day rolling window. Provides L1 and L3 benefit.
+     Compounds through 30-day rolling window.
 
-  3. STABLE HIRE PERSONA WEIGHTS — post-EP replacement hires use shifted
-     persona distribution. Screens out high-risk candidates (overwhelmed,
-     ghosters), favors resilient profiles. This is the BIGGEST lever —
-     directly breaks the 90-day cliff churn cycle (L2).
+  3. STABLE HIRE — post-EP replacement hires use shifted persona weights.
+     Screens out high-risk candidates. Breaks the 90-day cliff cycle.
 
-INDUSTRY BENCHMARKS (annual turnover incl replacement churn):
-  QSR / Fast Casual:    130-150%
-  High Volume Chain:    100-120%
-  College Town / Cafe:   90-100%
-  Airport:               80-90%
-  Sports Bar:            75-85%
-  Bar & Grille:          73-80%
-  Hotel Restaurant:      70-78%
-  Full-Service Casual:   68-75%
-  Family / Breakfast:    65-75%
-  Neighborhood Bistro:   60-70%
-  Fine Dining:           50-60%
+  + LIFE EVENT BASELINE — flat daily exit probability representing
+     unavoidable turnover. NOT modified by EP. Applied in runner.
 """
 
 import hashlib
@@ -44,48 +48,64 @@ from typing import Dict, Any, Optional
 
 
 # =====================================================================
+# LIFE EVENT BASELINE
+#
+# Unavoidable exits that EP cannot prevent. Applied as a separate
+# daily check in the simulation runner, independent of EP modifier.
+#
+# 0.00085/day → ~27% annual (1 - (1-0.00085)^365 = 0.267)
+# This is the theoretical floor of turnover for any restaurant.
+# =====================================================================
+
+LIFE_EVENT_DAILY_PROB = 0.00085
+
+
+# =====================================================================
 # INDUSTRY BASELINE EXIT MULTIPLIERS (Without En Place)
 #
-# Calibrated from empirical modifier-to-turnover curve.
-# Interpolated targets with per-restaurant variance applied on top.
+# Applied to persona_evolution's daily exit probability.
+# Combined with life events, produces industry-realistic annual rates.
+#
+# These drive the PREVENTABLE portion of turnover.
+# Total pre-EP annual = life_events(~27%) + modified_churn(varies by type)
 # =====================================================================
 
 _WITHOUT_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
-    "fast_casual":        0.35,   # → ~128% (QSR/fast casual range)
-    "high_volume_chain":  0.28,   # → ~115% (high volume chain)
-    "college_town_cafe":  0.23,   # → ~100% (seasonal student workforce)
-    "airport_restaurant": 0.20,   # → ~90%  (transient labor market)
-    "sports_bar":         0.18,   # → ~83%  (bar/nightlife churn)
-    "bar_and_grille":     0.17,   # → ~80%  (casual dining)
-    "hotel_restaurant":   0.16,   # → ~77%  (hotel F&B)
-    "upscale_casual":     0.15,   # → ~74%  (upscale casual)
-    "family_diner":       0.15,   # → ~74%  (family dining)
-    "breakfast_cafe":     0.15,   # → ~74%  (breakfast/brunch)
-    "neighborhood_bistro":0.14,   # → ~70%  (neighborhood spot)
-    "steakhouse":         0.11,   # → ~58%  (fine dining retains)
+    "fast_casual":        0.35,   # +churn → ~130-150% total
+    "high_volume_chain":  0.28,   # +churn → ~100-120% total
+    "college_town_cafe":  0.23,   # +churn → ~90-100% total
+    "airport_restaurant": 0.20,   # +churn → ~80-90% total
+    "sports_bar":         0.18,   # +churn → ~75-85% total
+    "bar_and_grille":     0.17,   # +churn → ~73-80% total
+    "hotel_restaurant":   0.16,   # +churn → ~70-78% total
+    "upscale_casual":     0.15,   # +churn → ~68-75% total
+    "family_diner":       0.15,   # +churn → ~65-75% total
+    "breakfast_cafe":     0.15,   # +churn → ~65-75% total
+    "neighborhood_bistro":0.14,   # +churn → ~60-70% total
+    "steakhouse":         0.11,   # +churn → ~50-60% total
 }
 
 # =====================================================================
 # EN PLACE NETWORK EXIT MULTIPLIERS (With En Place active)
 #
-# ~20-25% lower than WITHOUT_EP modifier.
-# This provides modest L1 (original staff) and L3 (post-cliff) benefit.
-# The heavy lifting on L2 (cliff survival) comes from Stable Hire.
+# ~20-25% lower than WITHOUT modifier.
+# Reduces PREVENTABLE exits. Life events still occur independently.
+# Combined with Stable Hire on replacements → 45-65% total post-EP.
 # =====================================================================
 
 _WITH_EP_EXIT_MULTIPLIERS: Dict[str, float] = {
-    "fast_casual":        0.27,   # 23% reduction from 0.35
-    "high_volume_chain":  0.22,   # 21% reduction from 0.28
-    "college_town_cafe":  0.18,   # 22% reduction from 0.23
-    "airport_restaurant": 0.16,   # 20% reduction from 0.20
-    "sports_bar":         0.14,   # 22% reduction from 0.18
-    "bar_and_grille":     0.13,   # 24% reduction from 0.17
-    "hotel_restaurant":   0.12,   # 25% reduction from 0.16
-    "upscale_casual":     0.12,   # 20% reduction from 0.15
-    "family_diner":       0.11,   # 27% reduction from 0.15
-    "breakfast_cafe":     0.11,   # 27% reduction from 0.15
-    "neighborhood_bistro":0.11,   # 21% reduction from 0.14
-    "steakhouse":         0.08,   # 27% reduction from 0.11
+    "fast_casual":        0.27,
+    "high_volume_chain":  0.22,
+    "college_town_cafe":  0.18,
+    "airport_restaurant": 0.16,
+    "sports_bar":         0.14,
+    "bar_and_grille":     0.13,
+    "hotel_restaurant":   0.12,
+    "upscale_casual":     0.12,
+    "family_diner":       0.11,
+    "breakfast_cafe":     0.11,
+    "neighborhood_bistro":0.11,
+    "steakhouse":         0.08,
 }
 
 # =====================================================================
@@ -106,22 +126,6 @@ _WITH_EP_EMOTIONAL_OFFSET: Dict[str, float] = {
 
 # =====================================================================
 # STABLE HIRE PERSONA WEIGHTS
-#
-# The biggest lever. Calibration showed 50% reduction in annual turnover
-# just from persona weight shift (128% → 64% at same modifier).
-#
-# Post-EP replacement hires use these weights. Stable Hire screens:
-#   - overwhelmed_rookie: 10% → 3% (anxiety/fit issues detected)
-#   - ghoster_in_training: 5% → 1% (reliability red flags caught)
-#   - burned_idealist: 5% → 2% (burnout history detected)
-#   - lazy_rookie: 14% → 10% (attitude flagged)
-#   - snarky_rookie: 15% → 10% (attitude flagged)
-#
-# Favors resilient candidates:
-#   - enthusiastic_rookie: 25% → 32% (engaged candidates found)
-#   - workhorse: 15% → 22% (experienced hires prioritized)
-#   - social_glue: 5% → 8% (team players identified)
-#   - emerging_leader: 3% → 6% (leadership potential spotted)
 # =====================================================================
 
 DEFAULT_PERSONA_WEIGHTS: Dict[str, float] = {
@@ -166,11 +170,6 @@ def _deterministic_variance(restaurant_id: int, salt: str, low: float, high: flo
 
 
 def _compute_restaurant_effectiveness(restaurant_id: int) -> float:
-    """
-    Per-restaurant EP effectiveness. Three axes:
-      management_quality (0.65-1.35), staff_adoption (0.70-1.30),
-      culture_baseline (0.80-1.20). Clamped to [0.60, 1.50].
-    """
     mgmt = _deterministic_variance(restaurant_id, "mgmt_quality", 0.65, 1.35)
     adopt = _deterministic_variance(restaurant_id, "staff_adoption", 0.70, 1.30)
     culture = _deterministic_variance(restaurant_id, "culture_baseline", 0.80, 1.20)
@@ -178,7 +177,6 @@ def _compute_restaurant_effectiveness(restaurant_id: int) -> float:
 
 
 def _compute_industry_variance(restaurant_id: int) -> float:
-    """Per-restaurant baseline variance [0.80, 1.20]."""
     return _deterministic_variance(restaurant_id, "industry_variance", 0.80, 1.20)
 
 
@@ -218,6 +216,7 @@ def get_en_place_config(
             "without_ep": {"exit_modifier": 1.0, "emotional_offset": {}},
             "with_ep": {"exit_modifier": 1.0, "emotional_offset": {}},
             "stable_hire_weights": None,
+            "life_event_daily_prob": LIFE_EVENT_DAILY_PROB,
         }
 
     effectiveness = _compute_restaurant_effectiveness(restaurant_id)
@@ -226,14 +225,8 @@ def get_en_place_config(
     without_base = _WITHOUT_EP_EXIT_MULTIPLIERS.get(profile_key, 0.18)
     with_base = _WITH_EP_EXIT_MULTIPLIERS.get(profile_key, 0.14)
 
-    # Industry variance on WITHOUT (natural variation)
     without_exit_mod = without_base * industry_var
-
-    # Effectiveness on WITH (how well this restaurant uses EP)
-    # Higher effectiveness → lower modifier → better retention
     with_exit_mod = with_base / effectiveness
-
-    # Clamp: WITH can't exceed WITHOUT, floor at 0.05
     with_exit_mod = max(0.05, min(without_exit_mod * 0.92, with_exit_mod))
 
     without_emotional = {
@@ -245,7 +238,6 @@ def get_en_place_config(
         for k, v in _WITH_EP_EMOTIONAL_OFFSET.items()
     }
 
-    # Stable Hire weights scaled by effectiveness
     stable_hire = {}
     for persona in DEFAULT_PERSONA_WEIGHTS:
         default_w = DEFAULT_PERSONA_WEIGHTS[persona]
@@ -268,6 +260,7 @@ def get_en_place_config(
             "emotional_offset": with_emotional,
         },
         "stable_hire_weights": stable_hire,
+        "life_event_daily_prob": LIFE_EVENT_DAILY_PROB,
     }
 
 
