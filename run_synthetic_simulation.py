@@ -1,15 +1,28 @@
 """
 run_synthetic_simulation.py
 
-Runs the full synthetic staffing simulation across 100 restaurants,
+Runs the full synthetic staffing simulation across 120 restaurants in 3 cohorts,
 producing 5 output tables: staff_master, daily_emotions, daily_behavior,
 graph_snapshots, and exit_cascades.
+
+COHORTS:
+    Control (20 restaurants, IDs 301-320):
+        Never adopt En Place. Run with industry-baseline exit penalties.
+        These produce 75-80% average turnover with natural variance.
+
+    Adopters (80 restaurants, IDs 101-200):
+        Start without En Place, adopt on a staggered schedule (day 45-210).
+        Shows the turnover curve bending after adoption. This is the story.
+
+    Day-1 Network (20 restaurants, IDs 201-220):
+        On En Place from day 0. Full benefit. Best-case reference.
+        Target: 52-58% average turnover.
 
 OUTPUT MODES:
     CSV:      Flat files for staff_master, daily_emotions, daily_behavior,
               exit_cascades. Graph snapshots get JSONL (one JSON object per line)
               because they contain nested visualization payloads.
-    SUPABASE: Direct batch insert into all 6 synthetic_* tables.
+    SUPABASE: Direct batch insert into all synthetic_* tables.
 
 USAGE:
     python run_synthetic_simulation.py                  # CSV only
@@ -30,115 +43,122 @@ from typing import Dict, Any, List
 
 from modules.synthetic.restaurant_profiles import get_profile, list_profile_keys
 from modules.synthetic.restaurant_simulation_runner import simulate_restaurant
+from modules.synthetic.en_place_effect import get_en_place_config
 
 
 # -------------------------------------------------------------
 # 1. CONFIGURATION
 # -------------------------------------------------------------
 
-RESTAURANTS_TO_SIMULATE = [
-    (101, "steakhouse", 50, 365),
-    (102, "sports_bar", 60, 365),
-    (103, "fast_casual", 40, 365),
-    (104, "neighborhood_bistro", 35, 365),
-    (105, "upscale_casual", 55, 365),
-    (106, "family_diner", 30, 365),
-    (107, "breakfast_cafe", 28, 365),
-    (108, "bar_and_grille", 65, 365),
-    (109, "high_volume_chain", 75, 365),
-    (110, "college_town_cafe", 38, 365),
-    (111, "hotel_restaurant", 52, 365),
-    (112, "airport_restaurant", 70, 365),
-    (113, "steakhouse", 45, 365),
-    (114, "sports_bar", 62, 365),
-    (115, "fast_casual", 42, 365),
-    (116, "neighborhood_bistro", 33, 365),
-    (117, "upscale_casual", 58, 365),
-    (118, "family_diner", 27, 365),
-    (119, "breakfast_cafe", 25, 365),
-    (120, "bar_and_grille", 63, 365),
-    (121, "high_volume_chain", 78, 365),
-    (122, "college_town_cafe", 41, 365),
-    (123, "hotel_restaurant", 55, 365),
-    (124, "airport_restaurant", 72, 365),
-    (125, "steakhouse", 48, 365),
-    (126, "sports_bar", 59, 365),
-    (127, "fast_casual", 44, 365),
-    (128, "neighborhood_bistro", 34, 365),
-    (129, "upscale_casual", 53, 365),
-    (130, "family_diner", 29, 365),
-    (131, "breakfast_cafe", 26, 365),
-    (132, "bar_and_grille", 60, 365),
-    (133, "high_volume_chain", 80, 365),
-    (134, "college_town_cafe", 43, 365),
-    (135, "hotel_restaurant", 57, 365),
-    (136, "airport_restaurant", 68, 365),
-    (137, "steakhouse", 47, 365),
-    (138, "sports_bar", 61, 365),
-    (139, "fast_casual", 39, 365),
-    (140, "neighborhood_bistro", 37, 365),
-    (141, "upscale_casual", 54, 365),
-    (142, "family_diner", 31, 365),
-    (143, "breakfast_cafe", 29, 365),
-    (144, "bar_and_grille", 66, 365),
-    (145, "high_volume_chain", 76, 365),
-    (146, "college_town_cafe", 36, 365),
-    (147, "hotel_restaurant", 50, 365),
-    (148, "airport_restaurant", 74, 365),
-    (149, "steakhouse", 55, 365),
-    (150, "sports_bar", 64, 365),
-    (151, "fast_casual", 41, 365),
-    (152, "neighborhood_bistro", 32, 365),
-    (153, "upscale_casual", 56, 365),
-    (154, "family_diner", 33, 365),
-    (155, "breakfast_cafe", 27, 365),
-    (156, "bar_and_grille", 67, 365),
-    (157, "high_volume_chain", 73, 365),
-    (158, "college_town_cafe", 40, 365),
-    (159, "hotel_restaurant", 53, 365),
-    (160, "airport_restaurant", 69, 365),
-    (161, "steakhouse", 49, 365),
-    (162, "sports_bar", 60, 365),
-    (163, "fast_casual", 46, 365),
-    (164, "neighborhood_bistro", 35, 365),
-    (165, "upscale_casual", 59, 365),
-    (166, "family_diner", 28, 365),
-    (167, "breakfast_cafe", 24, 365),
-    (168, "bar_and_grille", 62, 365),
-    (169, "high_volume_chain", 77, 365),
-    (170, "college_town_cafe", 39, 365),
-    (171, "hotel_restaurant", 51, 365),
-    (172, "airport_restaurant", 75, 365),
-    (173, "steakhouse", 52, 365),
-    (174, "sports_bar", 63, 365),
-    (175, "fast_casual", 43, 365),
-    (176, "neighborhood_bistro", 36, 365),
-    (177, "upscale_casual", 57, 365),
-    (178, "family_diner", 30, 365),
-    (179, "breakfast_cafe", 26, 365),
-    (180, "bar_and_grille", 64, 365),
-    (181, "high_volume_chain", 79, 365),
-    (182, "college_town_cafe", 37, 365),
-    (183, "hotel_restaurant", 54, 365),
-    (184, "airport_restaurant", 71, 365),
-    (185, "steakhouse", 46, 365),
-    (186, "sports_bar", 58, 365),
-    (187, "fast_casual", 45, 365),
-    (188, "neighborhood_bistro", 34, 365),
-    (189, "upscale_casual", 52, 365),
-    (190, "family_diner", 32, 365),
-    (191, "breakfast_cafe", 25, 365),
-    (192, "bar_and_grille", 61, 365),
-    (193, "high_volume_chain", 74, 365),
-    (194, "college_town_cafe", 42, 365),
-    (195, "hotel_restaurant", 56, 365),
-    (196, "airport_restaurant", 73, 365),
-    (197, "steakhouse", 53, 365),
-    (198, "sports_bar", 65, 365),
-    (199, "fast_casual", 47, 365),
-    (200, "neighborhood_bistro", 38, 365),
+# Restaurant type rotation for even distribution across cohorts
+_PROFILE_ROTATION = [
+    "steakhouse", "sports_bar", "fast_casual", "neighborhood_bistro",
+    "upscale_casual", "family_diner", "breakfast_cafe", "bar_and_grille",
+    "high_volume_chain", "college_town_cafe", "hotel_restaurant",
+    "airport_restaurant",
 ]
 
+# Staff counts vary by type (realistic sizing)
+_STAFF_COUNTS = {
+    "steakhouse":         (45, 55),
+    "sports_bar":         (55, 65),
+    "fast_casual":        (38, 48),
+    "neighborhood_bistro":(30, 40),
+    "upscale_casual":     (50, 60),
+    "family_diner":       (25, 35),
+    "breakfast_cafe":     (22, 30),
+    "bar_and_grille":     (58, 68),
+    "high_volume_chain":  (70, 82),
+    "college_town_cafe":  (34, 44),
+    "hotel_restaurant":   (48, 58),
+    "airport_restaurant": (65, 76),
+}
+
+
+def _deterministic_staff_count(restaurant_id: int, profile_key: str) -> int:
+    """Pick a deterministic staff count within range for this restaurant."""
+    import hashlib
+    low, high = _STAFF_COUNTS.get(profile_key, (40, 60))
+    seed = int(hashlib.sha256(f"{restaurant_id}:staff_count".encode()).hexdigest()[:8], 16)
+    return low + (seed % (high - low + 1))
+
+
+def _deterministic_adoption_day(restaurant_id: int) -> int:
+    """
+    Pick a deterministic adoption day for adopter restaurants.
+    Range: day 45 to day 210 (weeks 6-30).
+    Weighted toward earlier adoption (most join in first 4 months).
+    """
+    import hashlib
+    seed = int(hashlib.sha256(f"{restaurant_id}:adoption_day".encode()).hexdigest()[:8], 16)
+    normalized = (seed % 1000) / 1000.0
+    # Skew toward earlier: use square root to bias toward lower values
+    skewed = normalized ** 0.7  # mild early-bias
+    return int(45 + skewed * (210 - 45))
+
+
+def build_restaurant_configs() -> List[Dict[str, Any]]:
+    """
+    Build the full list of restaurant simulation configurations.
+
+    Returns list of dicts with:
+        restaurant_id, profile_key, num_staff, num_days, cohort, adoption_day
+    """
+    configs = []
+
+    # ------------------------------------------------------------------
+    # COHORT 1: Control Group (IDs 301-320) — Never adopt EP
+    # 20 restaurants, ~2 per type, evenly distributed
+    # ------------------------------------------------------------------
+    for i in range(20):
+        rid = 301 + i
+        profile_key = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
+        configs.append({
+            "restaurant_id": rid,
+            "profile_key": profile_key,
+            "num_staff": _deterministic_staff_count(rid, profile_key),
+            "num_days": 365,
+            "cohort": "control",
+            "adoption_day": 9999,  # Never adopts within simulation window
+        })
+
+    # ------------------------------------------------------------------
+    # COHORT 2: Adopters (IDs 101-180) — Staggered adoption
+    # 80 restaurants, various adoption days between day 45-210
+    # ------------------------------------------------------------------
+    for i in range(80):
+        rid = 101 + i
+        profile_key = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
+        adoption_day = _deterministic_adoption_day(rid)
+        configs.append({
+            "restaurant_id": rid,
+            "profile_key": profile_key,
+            "num_staff": _deterministic_staff_count(rid, profile_key),
+            "num_days": 365,
+            "cohort": "adopter",
+            "adoption_day": adoption_day,
+        })
+
+    # ------------------------------------------------------------------
+    # COHORT 3: Day-1 Network (IDs 201-220) — EP from day 0
+    # 20 restaurants, ~2 per type
+    # ------------------------------------------------------------------
+    for i in range(20):
+        rid = 201 + i
+        profile_key = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
+        configs.append({
+            "restaurant_id": rid,
+            "profile_key": profile_key,
+            "num_staff": _deterministic_staff_count(rid, profile_key),
+            "num_days": 365,
+            "cohort": "day1",
+            "adoption_day": 0,
+        })
+
+    return configs
+
+
+RESTAURANTS_TO_SIMULATE = build_restaurant_configs()
 
 DEFAULT_PERSONA_WEIGHTS = {
     "enthusiastic_rookie": 0.25,
@@ -332,6 +352,7 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
             "synthetic_daily_behavior",
             "synthetic_graph_snapshots",
             "synthetic_exit_cascades",
+            "synthetic_restaurants",
         ]:
             truncate_table(table)
 
@@ -341,16 +362,44 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
     combined_daily_behavior = []
     combined_graph_snapshots = []
     combined_exit_cascades = []
+    combined_restaurant_meta = []
+
+    # Cohort-level tracking for summary
+    cohort_stats = {
+        "control": {"restaurants": 0, "staff": 0, "exits": 0},
+        "adopter": {"restaurants": 0, "staff": 0, "exits": 0},
+        "day1":    {"restaurants": 0, "staff": 0, "exits": 0},
+    }
 
     total_restaurants = len(RESTAURANTS_TO_SIMULATE)
     sim_start = time.time()
 
-    for idx, (restaurant_id, profile_key, num_staff, num_days) in enumerate(RESTAURANTS_TO_SIMULATE):
+    for idx, config in enumerate(RESTAURANTS_TO_SIMULATE):
+        restaurant_id = config["restaurant_id"]
+        profile_key = config["profile_key"]
+        num_staff = config["num_staff"]
+        num_days = config["num_days"]
+        cohort = config["cohort"]
+        adoption_day = config["adoption_day"]
+
         r_start = time.time()
         print(f"\n=== [{idx + 1}/{total_restaurants}] Restaurant {restaurant_id} "
-              f"({profile_key}, {num_staff} staff, {num_days} days) ===")
+              f"({profile_key}, {num_staff} staff, {num_days} days, "
+              f"cohort={cohort}, adoption_day={adoption_day}) ===")
 
         profile = get_profile(profile_key)
+
+        # Generate En Place effect config for this restaurant
+        ep_config = get_en_place_config(
+            restaurant_id=restaurant_id,
+            profile_key=profile_key,
+            adoption_day=adoption_day,
+        )
+
+        print(f"  EP effectiveness: {ep_config['restaurant_effectiveness']:.2f}, "
+              f"industry variance: {ep_config['industry_variance']:.2f}")
+        print(f"  Without EP exit mod: {ep_config['without_ep']['exit_modifier']:.3f}, "
+              f"With EP exit mod: {ep_config['with_ep']['exit_modifier']:.3f}")
 
         results = simulate_restaurant(
             restaurant_id=restaurant_id,
@@ -360,14 +409,15 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
             restaurant_profile=profile,
             enable_contagion=True,
             graph_snapshot_interval=GRAPH_SNAPSHOT_INTERVAL,
+            en_place_config=ep_config,
         )
 
-        # Core tables (unchanged)
+        # Core tables
         combined_staff_master.extend(results["staff_master"])
         combined_daily_emotions.extend(results["daily_emotions"])
         combined_daily_behavior.extend(results["daily_behavior"])
 
-        # Graph tables (new)
+        # Graph tables
         graph_snap_rows = flatten_graph_snapshots(
             results["graph_snapshots"], restaurant_id
         )
@@ -377,16 +427,51 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
         combined_graph_snapshots.extend(graph_snap_rows)
         combined_exit_cascades.extend(cascade_rows)
 
-        r_elapsed = time.time() - r_start
+        # Restaurant metadata
         exits = sum(1 for s in results["staff_master"] if s["final_persona"] == "exit")
-        print(f"  Done in {r_elapsed:.1f}s — {exits} exits, "
+        turnover_rate = (exits / num_staff * 100) if num_staff > 0 else 0
+
+        restaurant_meta = {
+            "restaurant_id": restaurant_id,
+            "profile_key": profile_key,
+            "num_staff": num_staff,
+            "num_days": num_days,
+            "cohort": cohort,
+            "adoption_day": adoption_day if adoption_day < 9999 else None,
+            "ep_effectiveness": ep_config["restaurant_effectiveness"],
+            "industry_variance": ep_config["industry_variance"],
+            "without_ep_exit_mod": ep_config["without_ep"]["exit_modifier"],
+            "with_ep_exit_mod": ep_config["with_ep"]["exit_modifier"],
+            "total_exits": exits,
+            "turnover_rate": round(turnover_rate, 1),
+        }
+        combined_restaurant_meta.append(restaurant_meta)
+
+        # Cohort tracking
+        cohort_stats[cohort]["restaurants"] += 1
+        cohort_stats[cohort]["staff"] += num_staff
+        cohort_stats[cohort]["exits"] += exits
+
+        r_elapsed = time.time() - r_start
+        print(f"  Done in {r_elapsed:.1f}s — {exits}/{num_staff} exits "
+              f"({turnover_rate:.1f}% turnover), "
               f"{len(results['graph_snapshots'])} snapshots, "
               f"{len(results['exit_cascades'])} cascades")
 
         # ---------------------------------------------------------
-        # Per-restaurant upload (reduces peak memory for 100 restaurants)
+        # Per-restaurant upload (reduces peak memory)
         # ---------------------------------------------------------
         if upload_supabase:
+            # Upload restaurant metadata
+            sb_restaurant = {
+                "restaurant_id": restaurant_id,
+                "profile_key": profile_key,
+                "num_staff": num_staff,
+                "num_days": num_days,
+                "sma_score": None,  # Existing column, compute later
+            }
+            batch_insert("synthetic_restaurants", [sb_restaurant])
+
             inserted = batch_insert("synthetic_staff_master", results["staff_master"])
             print(f"  [DB] staff_master: {inserted}")
 
@@ -413,21 +498,61 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
         write_csv("daily_emotions.csv", combined_daily_emotions)
         write_csv("daily_behavior.csv", combined_daily_behavior)
         write_csv("exit_cascades.csv", combined_exit_cascades)
+        write_csv("restaurant_meta.csv", combined_restaurant_meta)
         write_jsonl("graph_snapshots.jsonl", combined_graph_snapshots)
 
     # ---------------------------------------------------------
     # SUMMARY
     # ---------------------------------------------------------
     total_elapsed = time.time() - sim_start
-    print(f"\n{'='*60}")
+    print(f"\n{'='*70}")
     print(f"ALL SIMULATIONS COMPLETE — {total_elapsed:.1f}s")
-    print(f"{'='*60}")
-    print(f"  Restaurants:     {total_restaurants}")
-    print(f"  Staff master:    {len(combined_staff_master):,}")
-    print(f"  Emotion rows:    {len(combined_daily_emotions):,}")
-    print(f"  Behavior rows:   {len(combined_daily_behavior):,}")
-    print(f"  Graph snapshots: {len(combined_graph_snapshots):,}")
-    print(f"  Exit cascades:   {len(combined_exit_cascades):,}")
+    print(f"{'='*70}")
+    print(f"  Total restaurants:  {total_restaurants}")
+    print(f"  Staff master:       {len(combined_staff_master):,}")
+    print(f"  Emotion rows:       {len(combined_daily_emotions):,}")
+    print(f"  Behavior rows:      {len(combined_daily_behavior):,}")
+    print(f"  Graph snapshots:    {len(combined_graph_snapshots):,}")
+    print(f"  Exit cascades:      {len(combined_exit_cascades):,}")
+
+    print(f"\n{'='*70}")
+    print(f"COHORT RESULTS")
+    print(f"{'='*70}")
+    for cohort_name, stats in cohort_stats.items():
+        if stats["staff"] > 0:
+            turnover = stats["exits"] / stats["staff"] * 100
+            print(f"  {cohort_name:>10}: {stats['restaurants']} restaurants, "
+                  f"{stats['staff']:,} staff, {stats['exits']:,} exits "
+                  f"({turnover:.1f}% turnover)")
+
+    # Per-type breakdown
+    print(f"\n{'='*70}")
+    print(f"TURNOVER BY TYPE AND COHORT")
+    print(f"{'='*70}")
+    type_cohort_stats: Dict[str, Dict[str, Dict[str, int]]] = {}
+    for meta in combined_restaurant_meta:
+        pkey = meta["profile_key"]
+        coh = meta["cohort"]
+        if pkey not in type_cohort_stats:
+            type_cohort_stats[pkey] = {}
+        if coh not in type_cohort_stats[pkey]:
+            type_cohort_stats[pkey][coh] = {"staff": 0, "exits": 0}
+        type_cohort_stats[pkey][coh]["staff"] += meta["num_staff"]
+        type_cohort_stats[pkey][coh]["exits"] += meta["total_exits"]
+
+    print(f"  {'Type':<22} {'Control':>10} {'Adopter':>10} {'Day-1':>10}")
+    print(f"  {'-'*22} {'-'*10} {'-'*10} {'-'*10}")
+    for pkey in _PROFILE_ROTATION:
+        parts = []
+        for coh in ["control", "adopter", "day1"]:
+            data = type_cohort_stats.get(pkey, {}).get(coh, {"staff": 0, "exits": 0})
+            if data["staff"] > 0:
+                rate = data["exits"] / data["staff"] * 100
+                parts.append(f"{rate:>8.1f}%")
+            else:
+                parts.append(f"{'N/A':>9}")
+        print(f"  {pkey:<22} {parts[0]} {parts[1]} {parts[2]}")
+
     print()
 
 

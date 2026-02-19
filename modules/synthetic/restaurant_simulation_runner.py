@@ -19,6 +19,16 @@ ARCHITECTURE CHANGE (v2):
     runner produces identical output to v1 (same per-staff pipeline, just
     restructured). When True, the social graph modules activate.
 
+ARCHITECTURE CHANGE (v3 - En Place Effect):
+    Added optional en_place_config parameter. When provided, the simulation
+    applies different exit probability modifiers and emotional offsets
+    depending on whether En Place is "active" for the current day.
+
+    Before adoption_day: industry baseline penalties (higher turnover)
+    After adoption_day: En Place benefits (lower turnover) with ramp-up
+
+    When en_place_config is None, behavior is identical to v2 (backward compat).
+
 OUTPUT TABLES:
     Always returned (same as v1):
         staff_master    -> one row per employee
@@ -117,6 +127,7 @@ def simulate_restaurant(
     *,
     enable_contagion: bool = False,
     graph_snapshot_interval: int = 7,
+    en_place_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Simulate an entire restaurant's staffing history.
@@ -139,6 +150,10 @@ def simulate_restaurant(
         When False, produces output identical to v1 (no cross-staff effects).
     graph_snapshot_interval : int
         Days between graph snapshots (only used when enable_contagion=True).
+    en_place_config : dict or None
+        Output from en_place_effect.get_en_place_config(). When provided,
+        applies with/without En Place modifiers to exit probability and
+        emotional baselines. When None, no EP effect (backward compatible).
 
     Returns
     -------
@@ -153,6 +168,14 @@ def simulate_restaurant(
         raise ValueError("number_of_staff must be >= 1")
     if simulation_days < 1:
         raise ValueError("simulation_days must be >= 1")
+
+    # ------------------------------------------------------------------
+    # Import EP effect module if config provided
+    # ------------------------------------------------------------------
+    _get_daily_effect = None
+    if en_place_config is not None:
+        from modules.synthetic.en_place_effect import get_daily_effect
+        _get_daily_effect = get_daily_effect
 
     # ------------------------------------------------------------------
     # Lazy imports for contagion modules (avoid import errors when
@@ -202,6 +225,7 @@ def simulate_restaurant(
             "exit_day": None,
             "exit_reason": None,
             "final_persona": start_persona,
+            "en_place_active_on_exit": None,  # Track EP state at time of exit
         }
         active_staff_ids.append(staff_id)
 
@@ -225,6 +249,19 @@ def simulate_restaurant(
             break  # Everyone has quit
 
         # ==============================================================
+        # STEP 0: Compute En Place effect for today
+        # ==============================================================
+        ep_exit_modifier = 1.0
+        ep_emotional_offset = None
+        ep_active_today = False
+
+        if _get_daily_effect is not None and en_place_config is not None:
+            daily_effect = _get_daily_effect(en_place_config, day_index)
+            ep_exit_modifier = daily_effect["exit_modifier"]
+            ep_emotional_offset = daily_effect["emotional_offset"] or None
+            ep_active_today = daily_effect["en_place_active"]
+
+        # ==============================================================
         # STEP 1: Compute emotions for all active staff
         # ==============================================================
         todays_emotions: Dict[str, Dict[str, Any]] = {}
@@ -237,6 +274,7 @@ def simulate_restaurant(
                 previous_emotions=state["previous_emotions"],
                 day_index=day_index,
                 staff_id=sid,
+                emotional_offset=ep_emotional_offset,
             )
             todays_emotions[sid] = emotion_result["output"]
             todays_emotion_results[sid] = emotion_result
@@ -289,6 +327,8 @@ def simulate_restaurant(
         # ==============================================================
         # STEP 5: Persona evolution for all active staff
         # Exit shock modifiers from previous exits are applied here.
+        # EN PLACE EFFECT: ep_exit_modifier is combined with contagion
+        # shock modifier. They stack multiplicatively.
         # ==============================================================
         todays_exits: List[Dict[str, Any]] = []
 
@@ -299,8 +339,10 @@ def simulate_restaurant(
             state["emotion_history"].append(todays_emotions[sid].copy())
             rolling = _compute_rolling_averages(state["emotion_history"])
 
-            # Get exit shock modifier for this staff (default 1.0)
-            modifier = shock_modifiers.get(sid, 1.0)
+            # Combine EP modifier with contagion shock modifier
+            # Both are multiplicative: EP effect × contagion effect
+            contagion_modifier = shock_modifiers.get(sid, 1.0)
+            combined_modifier = ep_exit_modifier * contagion_modifier
 
             evolution = evolve_persona(
                 current_persona=state["current_persona"],
@@ -310,7 +352,7 @@ def simulate_restaurant(
                 rolling_fair_rate=rolling["fair_rate"],
                 rolling_respected_rate=rolling["respected_rate"],
                 staff_id=sid,
-                exit_probability_modifier=modifier,
+                exit_probability_modifier=combined_modifier,
             )
 
             new_persona = evolution["new_persona"]
@@ -345,6 +387,7 @@ def simulate_restaurant(
                     state["exit_day"] = day_index + 1  # human-readable
                     state["exit_reason"] = reason
                     state["final_persona"] = "exit"
+                    state["en_place_active_on_exit"] = ep_active_today
                     todays_exits.append({
                         "staff_id": sid,
                         "exit_reason": reason,
@@ -436,6 +479,8 @@ def simulate_restaurant(
     # ------------------------------------------------------------------
     # Build staff master records
     # ------------------------------------------------------------------
+    ep_adoption_day = en_place_config.get("adoption_day") if en_place_config else None
+
     for sid, state in staff_state.items():
         total_days = state["tenure_days"]  # already incremented past last day
         staff_master.append({
@@ -445,6 +490,7 @@ def simulate_restaurant(
             "final_persona": state["final_persona"],
             "total_days": total_days,
             "exit_day": state["exit_day"],
+            "en_place_active_on_exit": state.get("en_place_active_on_exit"),
         })
 
     return {
