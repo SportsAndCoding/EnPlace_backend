@@ -5,39 +5,26 @@ Restaurant-level orchestration for the En Place synthetic staffing simulation.
 Creates a deterministic cohort of staff, runs them through a DAY-SYNCHRONIZED
 loop, and returns flattened tables for analysis.
 
-ARCHITECTURE CHANGE (v2):
-    The v1 runner delegated each staff member to staff_simulation_runner.py
-    which ran their entire lifecycle independently. Cross-staff interaction
-    was impossible.
+ARCHITECTURE v3 — REPLACEMENT HIRING + EN PLACE EFFECT:
 
-    The v2 runner inverts the loop: DAYS on the outside, ALL STAFF on the
-    inside. Between individual steps, cross-staff operations run:
-    mood contagion, pairwise event generation, graph updates, exit shock
-    propagation.
+    When a staff member exits, a replacement is hired on the next day.
+    The restaurant maintains its target headcount throughout the simulation,
+    just like a real business. New hires get fresh personas, tenure=0, and
+    benefit from (or suffer without) EP based on whether it's active that day.
 
-    This is controlled by the `enable_contagion` flag. When False, the
-    runner produces identical output to v1 (same per-staff pipeline, just
-    restructured). When True, the social graph modules activate.
+    Combined with the En Place effect engine, this creates the before/after
+    story: same restaurant, same environment, same manager — the only thing
+    that changed is En Place activating on adoption_day.
 
-ARCHITECTURE CHANGE (v3 - En Place Effect):
-    Added optional en_place_config parameter. When provided, the simulation
-    applies different exit probability modifiers and emotional offsets
-    depending on whether En Place is "active" for the current day.
-
-    Before adoption_day: industry baseline penalties (higher turnover)
-    After adoption_day: En Place benefits (lower turnover) with ramp-up
-
-    When en_place_config is None, behavior is identical to v2 (backward compat).
+    Each staff member tracks their own hire_day so turnover can be calculated
+    per period rather than cumulatively.
 
 OUTPUT TABLES:
-    Always returned (same as v1):
-        staff_master    -> one row per employee
-        daily_emotions  -> one row per employee per simulated day
-        daily_behavior  -> one row per employee per simulated day
-
-    Returned when enable_contagion=True:
-        graph_snapshots -> one per snapshot_interval days
-        exit_cascades   -> one per exit event with cascade analysis
+    staff_master    -> one row per employee (including replacement hires)
+    daily_emotions  -> one row per employee per simulated day
+    daily_behavior  -> one row per employee per simulated day
+    graph_snapshots -> one per snapshot_interval days (contagion only)
+    exit_cascades   -> one per exit event with cascade analysis (contagion only)
 
 DETERMINISM: All output is fully deterministic given the same inputs.
 """
@@ -90,10 +77,7 @@ def _compute_rolling_averages(
     history: Deque[Dict[str, Any]],
     window: int = 30,
 ) -> Dict[str, float]:
-    """
-    Compute rolling averages from emotion history.
-    Identical to staff_simulation_runner._compute_rolling_averages.
-    """
+    """Compute rolling averages from emotion history."""
     if not history:
         return {
             "mood": 3.0,
@@ -118,6 +102,30 @@ def _compute_rolling_averages(
     }
 
 
+def _create_staff_state(
+    staff_id: str,
+    staff_index: int,
+    start_persona: str,
+    hire_day: int,
+) -> Dict[str, Any]:
+    """Create initial mutable state for a staff member."""
+    return {
+        "staff_id": staff_id,
+        "staff_index": staff_index,
+        "start_persona": start_persona,
+        "current_persona": start_persona,
+        "hire_day": hire_day,
+        "tenure_days": 0,
+        "previous_emotions": None,
+        "emotion_history": collections.deque(maxlen=30),
+        "exited": False,
+        "exit_day": None,
+        "exit_reason": None,
+        "final_persona": start_persona,
+        "en_place_active_on_exit": None,
+    }
+
+
 def simulate_restaurant(
     restaurant_id: int,
     number_of_staff: int,
@@ -128,6 +136,7 @@ def simulate_restaurant(
     enable_contagion: bool = False,
     graph_snapshot_interval: int = 7,
     en_place_config: Optional[Dict[str, Any]] = None,
+    enable_replacement_hiring: bool = True,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Simulate an entire restaurant's staffing history.
@@ -137,7 +146,7 @@ def simulate_restaurant(
     restaurant_id : int
         Unique identifier for the restaurant.
     number_of_staff : int
-        Number of synthetic employees to generate.
+        Target headcount. With replacement hiring, maintained throughout sim.
     simulation_days : int
         Length of the simulation in days.
     persona_weights : Dict[str, float]
@@ -145,20 +154,19 @@ def simulate_restaurant(
     restaurant_profile : Dict[str, Any]
         Restaurant configuration affecting behavior patterns.
     enable_contagion : bool
-        When True, activates social graph modules: mood contagion,
-        pairwise events, graph centrality, exit shock propagation.
-        When False, produces output identical to v1 (no cross-staff effects).
+        When True, activates social graph modules.
     graph_snapshot_interval : int
         Days between graph snapshots (only used when enable_contagion=True).
     en_place_config : dict or None
-        Output from en_place_effect.get_en_place_config(). When provided,
-        applies with/without En Place modifiers to exit probability and
-        emotional baselines. When None, no EP effect (backward compatible).
+        Output from en_place_effect.get_en_place_config(). When None, no EP effect.
+    enable_replacement_hiring : bool
+        When True (default), exited staff are replaced next day to maintain
+        target headcount. When False, headcount declines as staff exit.
 
     Returns
     -------
     dict with keys:
-        "staff_master"     -> list[dict], one row per employee
+        "staff_master"     -> list[dict], one row per employee (incl replacements)
         "daily_emotions"   -> list[dict], one row per employee per day
         "daily_behavior"   -> list[dict], one row per employee per day
         "graph_snapshots"  -> list[dict], periodic graph state (contagion only)
@@ -178,8 +186,7 @@ def simulate_restaurant(
         _get_daily_effect = get_daily_effect
 
     # ------------------------------------------------------------------
-    # Lazy imports for contagion modules (avoid import errors when
-    # these modules aren't available, e.g. in v1-only environments)
+    # Lazy imports for contagion modules
     # ------------------------------------------------------------------
     graph = None
     mood_buffer = None
@@ -199,11 +206,11 @@ def simulate_restaurant(
         mood_buffer = {}
 
     # ------------------------------------------------------------------
-    # Initialize all staff
+    # Initialize all staff (day-0 cohort)
     # ------------------------------------------------------------------
-    # Per-staff mutable state, keyed by staff_id
     staff_state: Dict[str, Dict[str, Any]] = {}
     active_staff_ids: List[str] = []
+    next_staff_index: int = number_of_staff  # Counter for replacement hires
 
     for i in range(number_of_staff):
         staff_id = _deterministic_staff_id(restaurant_id, i)
@@ -213,20 +220,8 @@ def simulate_restaurant(
             staff_index=i,
         )
 
-        staff_state[staff_id] = {
-            "staff_id": staff_id,
-            "staff_index": i,
-            "start_persona": start_persona,
-            "current_persona": start_persona,
-            "tenure_days": 0,
-            "previous_emotions": None,
-            "emotion_history": collections.deque(maxlen=30),
-            "exited": False,
-            "exit_day": None,
-            "exit_reason": None,
-            "final_persona": start_persona,
-            "en_place_active_on_exit": None,  # Track EP state at time of exit
-        }
+        state = _create_staff_state(staff_id, i, start_persona, hire_day=0)
+        staff_state[staff_id] = state
         active_staff_ids.append(staff_id)
 
         if graph is not None:
@@ -235,7 +230,6 @@ def simulate_restaurant(
     # ------------------------------------------------------------------
     # Output accumulators
     # ------------------------------------------------------------------
-    staff_master: List[Dict[str, Any]] = []
     daily_emotions: List[Dict[str, Any]] = []
     daily_behavior: List[Dict[str, Any]] = []
     graph_snapshots: List[Dict[str, Any]] = []
@@ -246,7 +240,7 @@ def simulate_restaurant(
     # ------------------------------------------------------------------
     for day_index in range(simulation_days):
         if not active_staff_ids:
-            break  # Everyone has quit
+            break
 
         # ==============================================================
         # STEP 0: Compute En Place effect for today
@@ -281,7 +275,6 @@ def simulate_restaurant(
 
         # ==============================================================
         # STEP 2: Apply mood contagion (if enabled)
-        # Neighbors pull your mood toward theirs.
         # ==============================================================
         if enable_contagion and graph is not None:
             todays_emotions, mood_buffer = apply_mood_contagion(
@@ -294,7 +287,6 @@ def simulate_restaurant(
 
         # ==============================================================
         # STEP 3: Compute behaviors for all active staff
-        # Uses contagion-adjusted emotions (or raw if contagion disabled).
         # ==============================================================
         todays_behaviors: Dict[str, Dict[str, Any]] = {}
 
@@ -326,21 +318,15 @@ def simulate_restaurant(
 
         # ==============================================================
         # STEP 5: Persona evolution for all active staff
-        # Exit shock modifiers from previous exits are applied here.
-        # EN PLACE EFFECT: ep_exit_modifier is combined with contagion
-        # shock modifier. They stack multiplicatively.
         # ==============================================================
         todays_exits: List[Dict[str, Any]] = []
 
         for sid in active_staff_ids:
             state = staff_state[sid]
 
-            # Update emotion history and compute rolling averages
             state["emotion_history"].append(todays_emotions[sid].copy())
             rolling = _compute_rolling_averages(state["emotion_history"])
 
-            # Combine EP modifier with contagion shock modifier
-            # Both are multiplicative: EP effect × contagion effect
             contagion_modifier = shock_modifiers.get(sid, 1.0)
             combined_modifier = ep_exit_modifier * contagion_modifier
 
@@ -358,7 +344,6 @@ def simulate_restaurant(
             new_persona = evolution["new_persona"]
             reason = evolution["reason"]
 
-            # Record the daily output
             base = {
                 "staff_id": sid,
                 "restaurant_id": restaurant_id,
@@ -379,12 +364,11 @@ def simulate_restaurant(
                 **todays_behaviors[sid],
             })
 
-            # Apply persona change
             if evolution["changed"]:
                 state["current_persona"] = new_persona
                 if new_persona == "exit":
                     state["exited"] = True
-                    state["exit_day"] = day_index + 1  # human-readable
+                    state["exit_day"] = day_index + 1
                     state["exit_reason"] = reason
                     state["final_persona"] = "exit"
                     state["en_place_active_on_exit"] = ep_active_today
@@ -396,7 +380,6 @@ def simulate_restaurant(
             else:
                 state["final_persona"] = new_persona
 
-            # Update graph node state (if enabled)
             if graph is not None:
                 graph.update_node_state(
                     sid,
@@ -409,7 +392,6 @@ def simulate_restaurant(
                     rolling_respected_rate=rolling["respected_rate"],
                 )
 
-            # Prepare for next day
             state["previous_emotions"] = todays_emotion_results[sid]
             state["tenure_days"] += 1
 
@@ -422,7 +404,6 @@ def simulate_restaurant(
             for exit_info in todays_exits:
                 sid = exit_info["staff_id"]
 
-                # Run cascade simulation BEFORE removing from graph
                 cascade = graph.simulate_cascade(sid, iterations=100)
                 exit_cascades.append({
                     "staff_id": sid,
@@ -434,7 +415,6 @@ def simulate_restaurant(
                     "at_risk_staff": cascade["at_risk_staff"][:5],
                 })
 
-                # Generate exit shock for connected neighbors
                 shock = apply_exit_shock(
                     exited_staff_id=sid,
                     exit_reason=exit_info["exit_reason"],
@@ -442,10 +422,8 @@ def simulate_restaurant(
                 )
                 new_shocks.append(shock)
 
-                # Remove from graph
                 graph.remove_node(sid)
 
-            # Accumulate new shocks with any existing decayed shocks
             if new_shocks:
                 shock_modifiers = accumulate_shock_modifiers(
                     shock_modifiers, *new_shocks
@@ -456,6 +434,35 @@ def simulate_restaurant(
             sid for sid in active_staff_ids
             if not staff_state[sid]["exited"]
         ]
+
+        # ==============================================================
+        # STEP 6.5: Replacement hiring
+        # For each exit today, hire a replacement starting tomorrow.
+        # New hires get fresh personas and tenure=0.
+        # ==============================================================
+        if enable_replacement_hiring and todays_exits:
+            for exit_info in todays_exits:
+                new_index = next_staff_index
+                next_staff_index += 1
+
+                new_id = _deterministic_staff_id(restaurant_id, new_index)
+                new_persona = _choose_persona_deterministically(
+                    weights=persona_weights,
+                    restaurant_id=restaurant_id,
+                    staff_index=new_index,
+                )
+
+                new_state = _create_staff_state(
+                    staff_id=new_id,
+                    staff_index=new_index,
+                    start_persona=new_persona,
+                    hire_day=day_index + 1,
+                )
+                staff_state[new_id] = new_state
+                active_staff_ids.append(new_id)
+
+                if graph is not None:
+                    graph.add_node(new_id, new_persona)
 
         # ==============================================================
         # STEP 7: Decay shock modifiers for next day
@@ -477,18 +484,19 @@ def simulate_restaurant(
             graph_snapshots.append(snapshot)
 
     # ------------------------------------------------------------------
-    # Build staff master records
+    # Build staff master records for ALL staff (original + replacements)
     # ------------------------------------------------------------------
-    ep_adoption_day = en_place_config.get("adoption_day") if en_place_config else None
+    staff_master: List[Dict[str, Any]] = []
 
     for sid, state in staff_state.items():
-        total_days = state["tenure_days"]  # already incremented past last day
+        total_days = state["tenure_days"]
         staff_master.append({
             "staff_id": sid,
             "restaurant_id": restaurant_id,
             "start_persona": state["start_persona"],
             "final_persona": state["final_persona"],
             "total_days": total_days,
+            "hire_day": state["hire_day"],
             "exit_day": state["exit_day"],
             "en_place_active_on_exit": state.get("en_place_active_on_exit"),
         })

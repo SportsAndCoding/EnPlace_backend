@@ -1,28 +1,19 @@
 """
 run_synthetic_simulation.py
 
-Runs the full synthetic staffing simulation across 120 restaurants in 3 cohorts,
-producing 5 output tables: staff_master, daily_emotions, daily_behavior,
-graph_snapshots, and exit_cascades.
+Runs the full synthetic staffing simulation across 100 restaurants.
+Every restaurant runs 365 days with En Place activating at day 183
+(the 6-month mark). Replacement hiring maintains headcount.
 
-COHORTS:
-    Control (20 restaurants, IDs 301-320):
-        Never adopt En Place. Run with industry-baseline exit penalties.
-        These produce 75-80% average turnover with natural variance.
+OUTPUT: Two-column comparison per restaurant:
+  Pre-EP  (days 0-182):   annualized turnover WITHOUT En Place
+  Post-EP (days 183-365): annualized turnover WITH En Place
 
-    Adopters (80 restaurants, IDs 101-200):
-        Start without En Place, adopt on a staggered schedule (day 45-210).
-        Shows the turnover curve bending after adoption. This is the story.
-
-    Day-1 Network (20 restaurants, IDs 201-220):
-        On En Place from day 0. Full benefit. Best-case reference.
-        Target: 52-58% average turnover.
+Same restaurant, same environment, same manager. Only variable: En Place.
 
 OUTPUT MODES:
-    CSV:      Flat files for staff_master, daily_emotions, daily_behavior,
-              exit_cascades. Graph snapshots get JSONL (one JSON object per line)
-              because they contain nested visualization payloads.
-    SUPABASE: Direct batch insert into all synthetic_* tables.
+    CSV:      Flat files for all tables + restaurant_meta with per-period stats.
+    SUPABASE: Direct batch insert into synthetic_* tables.
 
 USAGE:
     python run_synthetic_simulation.py                  # CSV only
@@ -50,7 +41,14 @@ from modules.synthetic.en_place_effect import get_en_place_config
 # 1. CONFIGURATION
 # -------------------------------------------------------------
 
-# Restaurant type rotation for even distribution across cohorts
+ADOPTION_DAY = 183  # 6-month mark — EP activates here for all restaurants
+
+# Pre-EP period: day_index 0 to 182 → exit_day 1 to 183 (183 days)
+# Post-EP period: day_index 183 to 364 → exit_day 184 to 365 (182 days)
+PRE_EP_DAYS = 183
+POST_EP_DAYS = 182
+
+# Restaurant type rotation for even distribution
 _PROFILE_ROTATION = [
     "steakhouse", "sports_bar", "fast_casual", "neighborhood_bistro",
     "upscale_casual", "family_diner", "breakfast_cafe", "bar_and_grille",
@@ -83,76 +81,23 @@ def _deterministic_staff_count(restaurant_id: int, profile_key: str) -> int:
     return low + (seed % (high - low + 1))
 
 
-def _deterministic_adoption_day(restaurant_id: int) -> int:
-    """
-    Pick a deterministic adoption day for adopter restaurants.
-    Range: day 45 to day 210 (weeks 6-30).
-    Weighted toward earlier adoption (most join in first 4 months).
-    """
-    import hashlib
-    seed = int(hashlib.sha256(f"{restaurant_id}:adoption_day".encode()).hexdigest()[:8], 16)
-    normalized = (seed % 1000) / 1000.0
-    # Skew toward earlier: use square root to bias toward lower values
-    skewed = normalized ** 0.7  # mild early-bias
-    return int(45 + skewed * (210 - 45))
-
-
 def build_restaurant_configs() -> List[Dict[str, Any]]:
     """
     Build the full list of restaurant simulation configurations.
-
-    Returns list of dicts with:
-        restaurant_id, profile_key, num_staff, num_days, cohort, adoption_day
+    100 restaurants, all adopters with EP activating at ADOPTION_DAY.
+    ~8-9 of each restaurant type for balanced representation.
     """
     configs = []
 
-    # ------------------------------------------------------------------
-    # COHORT 1: Control Group (IDs 301-320) — Never adopt EP
-    # 20 restaurants, ~2 per type, evenly distributed
-    # ------------------------------------------------------------------
-    for i in range(20):
-        rid = 301 + i
-        profile_key = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
-        configs.append({
-            "restaurant_id": rid,
-            "profile_key": profile_key,
-            "num_staff": _deterministic_staff_count(rid, profile_key),
-            "num_days": 365,
-            "cohort": "control",
-            "adoption_day": 9999,  # Never adopts within simulation window
-        })
-
-    # ------------------------------------------------------------------
-    # COHORT 2: Adopters (IDs 101-180) — Staggered adoption
-    # 80 restaurants, various adoption days between day 45-210
-    # ------------------------------------------------------------------
-    for i in range(80):
+    for i in range(100):
         rid = 101 + i
         profile_key = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
-        adoption_day = _deterministic_adoption_day(rid)
         configs.append({
             "restaurant_id": rid,
             "profile_key": profile_key,
             "num_staff": _deterministic_staff_count(rid, profile_key),
             "num_days": 365,
-            "cohort": "adopter",
-            "adoption_day": adoption_day,
-        })
-
-    # ------------------------------------------------------------------
-    # COHORT 3: Day-1 Network (IDs 201-220) — EP from day 0
-    # 20 restaurants, ~2 per type
-    # ------------------------------------------------------------------
-    for i in range(20):
-        rid = 201 + i
-        profile_key = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
-        configs.append({
-            "restaurant_id": rid,
-            "profile_key": profile_key,
-            "num_staff": _deterministic_staff_count(rid, profile_key),
-            "num_days": 365,
-            "cohort": "day1",
-            "adoption_day": 0,
+            "adoption_day": ADOPTION_DAY,
         })
 
     return configs
@@ -176,12 +121,57 @@ DEFAULT_PERSONA_WEIGHTS = {
 }
 
 OUTPUT_DIR = "synthetic_output"
-GRAPH_SNAPSHOT_INTERVAL = 7   # days between graph snapshots
-SUPABASE_BATCH_SIZE = 500     # rows per insert call
+GRAPH_SNAPSHOT_INTERVAL = 7
+SUPABASE_BATCH_SIZE = 500
 
 
 # -------------------------------------------------------------
-# 2. CSV EXPORT HELPERS
+# 2. PERIOD TURNOVER CALCULATIONS
+# -------------------------------------------------------------
+
+def compute_period_turnover(
+    staff_master: List[Dict[str, Any]],
+    target_headcount: int,
+) -> Dict[str, Any]:
+    """
+    Compute annualized turnover for pre-EP and post-EP periods.
+
+    Pre-EP:  exits where exit_day <= ADOPTION_DAY (days 0-182)
+    Post-EP: exits where exit_day > ADOPTION_DAY (days 183-365)
+
+    Annualized = (exits / headcount) * (365 / period_days)
+
+    With replacement hiring, headcount stays at target_headcount.
+    """
+    pre_exits = 0
+    post_exits = 0
+
+    for staff in staff_master:
+        ed = staff.get("exit_day")
+        if ed is not None:
+            if ed <= ADOPTION_DAY:
+                pre_exits += 1
+            else:
+                post_exits += 1
+
+    pre_annualized = (pre_exits / target_headcount) * (365 / PRE_EP_DAYS) * 100
+    post_annualized = (post_exits / target_headcount) * (365 / POST_EP_DAYS) * 100
+
+    return {
+        "pre_ep_exits": pre_exits,
+        "post_ep_exits": post_exits,
+        "pre_ep_annualized_turnover": round(pre_annualized, 1),
+        "post_ep_annualized_turnover": round(post_annualized, 1),
+        "delta": round(pre_annualized - post_annualized, 1),
+        "pct_improvement": round(
+            ((pre_annualized - post_annualized) / pre_annualized * 100)
+            if pre_annualized > 0 else 0, 1
+        ),
+    }
+
+
+# -------------------------------------------------------------
+# 3. CSV EXPORT HELPERS
 # -------------------------------------------------------------
 
 def ensure_output_dir():
@@ -222,7 +212,7 @@ def write_jsonl(filename: str, rows: List[Dict[str, Any]]):
 
 
 # -------------------------------------------------------------
-# 3. SUPABASE UPLOAD HELPERS
+# 4. SUPABASE UPLOAD HELPERS
 # -------------------------------------------------------------
 
 def get_supabase():
@@ -246,7 +236,6 @@ def batch_insert(table_name: str, rows: List[Dict[str, Any]]):
             total += len(batch)
         except Exception as e:
             print(f"  [ERROR] Batch insert to {table_name} failed at row {i}: {e}")
-            # Continue with next batch instead of dying
             continue
 
     return total
@@ -256,11 +245,9 @@ def truncate_table(table_name: str):
     """Delete all rows from a synthetic table before re-populating."""
     sb = get_supabase()
     try:
-        # Supabase doesn't have TRUNCATE — use delete with always-true filter
         sb.table(table_name).delete().gte("id", 0).execute()
         print(f"  [TRUNCATE] {table_name}")
     except Exception as e:
-        # Fallback for UUID PKs
         try:
             sb.table(table_name).delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
             print(f"  [TRUNCATE] {table_name}")
@@ -269,17 +256,13 @@ def truncate_table(table_name: str):
 
 
 # -------------------------------------------------------------
-# 4. DATA FLATTENING
+# 5. DATA FLATTENING
 # -------------------------------------------------------------
 
 def flatten_graph_snapshots(
     snapshots: List[Dict[str, Any]],
     restaurant_id: int,
 ) -> List[Dict[str, Any]]:
-    """
-    Convert graph snapshot dicts from the simulation runner into
-    rows matching the synthetic_graph_snapshots table schema.
-    """
     rows = []
     for snap in snapshots:
         meta = snap.get("metadata", {})
@@ -300,10 +283,6 @@ def flatten_exit_cascades(
     cascades: List[Dict[str, Any]],
     restaurant_id: int,
 ) -> List[Dict[str, Any]]:
-    """
-    Convert exit cascade dicts from the simulation runner into
-    rows matching the synthetic_exit_cascades table schema.
-    """
     rows = []
     for cas in cascades:
         rows.append({
@@ -325,7 +304,7 @@ def flatten_exit_cascades(
 
 
 # -------------------------------------------------------------
-# 5. MAIN PIPELINE
+# 6. MAIN PIPELINE
 # -------------------------------------------------------------
 
 def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = False):
@@ -339,6 +318,7 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
             "daily_behavior.csv",
             "exit_cascades.csv",
             "graph_snapshots.jsonl",
+            "restaurant_meta.csv",
         ]:
             path = os.path.join(OUTPUT_DIR, filename)
             open(path, "w").close()
@@ -364,12 +344,13 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
     combined_exit_cascades = []
     combined_restaurant_meta = []
 
-    # Cohort-level tracking for summary
-    cohort_stats = {
-        "control": {"restaurants": 0, "staff": 0, "exits": 0},
-        "adopter": {"restaurants": 0, "staff": 0, "exits": 0},
-        "day1":    {"restaurants": 0, "staff": 0, "exits": 0},
-    }
+    # Aggregate tracking
+    agg_pre_exits = 0
+    agg_post_exits = 0
+    agg_headcount = 0
+
+    # Per-type tracking
+    type_stats: Dict[str, Dict[str, float]] = {}
 
     total_restaurants = len(RESTAURANTS_TO_SIMULATE)
     sim_start = time.time()
@@ -379,17 +360,15 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
         profile_key = config["profile_key"]
         num_staff = config["num_staff"]
         num_days = config["num_days"]
-        cohort = config["cohort"]
         adoption_day = config["adoption_day"]
 
         r_start = time.time()
         print(f"\n=== [{idx + 1}/{total_restaurants}] Restaurant {restaurant_id} "
-              f"({profile_key}, {num_staff} staff, {num_days} days, "
-              f"cohort={cohort}, adoption_day={adoption_day}) ===")
+              f"({profile_key}, {num_staff} staff, adoption day {adoption_day}) ===")
 
         profile = get_profile(profile_key)
 
-        # Generate En Place effect config for this restaurant
+        # Generate En Place effect config
         ep_config = get_en_place_config(
             restaurant_id=restaurant_id,
             profile_key=profile_key,
@@ -410,7 +389,11 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
             enable_contagion=True,
             graph_snapshot_interval=GRAPH_SNAPSHOT_INTERVAL,
             en_place_config=ep_config,
+            enable_replacement_hiring=True,
         )
+
+        # Compute per-period turnover
+        period_stats = compute_period_turnover(results["staff_master"], num_staff)
 
         # Core tables
         combined_staff_master.extend(results["staff_master"])
@@ -418,57 +401,62 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
         combined_daily_behavior.extend(results["daily_behavior"])
 
         # Graph tables
-        graph_snap_rows = flatten_graph_snapshots(
-            results["graph_snapshots"], restaurant_id
-        )
-        cascade_rows = flatten_exit_cascades(
-            results["exit_cascades"], restaurant_id
-        )
+        graph_snap_rows = flatten_graph_snapshots(results["graph_snapshots"], restaurant_id)
+        cascade_rows = flatten_exit_cascades(results["exit_cascades"], restaurant_id)
         combined_graph_snapshots.extend(graph_snap_rows)
         combined_exit_cascades.extend(cascade_rows)
 
         # Restaurant metadata
-        exits = sum(1 for s in results["staff_master"] if s["final_persona"] == "exit")
-        turnover_rate = (exits / num_staff * 100) if num_staff > 0 else 0
-
         restaurant_meta = {
             "restaurant_id": restaurant_id,
             "profile_key": profile_key,
             "num_staff": num_staff,
             "num_days": num_days,
-            "cohort": cohort,
-            "adoption_day": adoption_day if adoption_day < 9999 else None,
+            "adoption_day": adoption_day,
             "ep_effectiveness": ep_config["restaurant_effectiveness"],
             "industry_variance": ep_config["industry_variance"],
             "without_ep_exit_mod": ep_config["without_ep"]["exit_modifier"],
             "with_ep_exit_mod": ep_config["with_ep"]["exit_modifier"],
-            "total_exits": exits,
-            "turnover_rate": round(turnover_rate, 1),
+            "total_staff_records": len(results["staff_master"]),
+            "pre_ep_exits": period_stats["pre_ep_exits"],
+            "post_ep_exits": period_stats["post_ep_exits"],
+            "pre_ep_annualized_turnover": period_stats["pre_ep_annualized_turnover"],
+            "post_ep_annualized_turnover": period_stats["post_ep_annualized_turnover"],
+            "delta": period_stats["delta"],
+            "pct_improvement": period_stats["pct_improvement"],
         }
         combined_restaurant_meta.append(restaurant_meta)
 
-        # Cohort tracking
-        cohort_stats[cohort]["restaurants"] += 1
-        cohort_stats[cohort]["staff"] += num_staff
-        cohort_stats[cohort]["exits"] += exits
+        # Aggregate tracking
+        agg_pre_exits += period_stats["pre_ep_exits"]
+        agg_post_exits += period_stats["post_ep_exits"]
+        agg_headcount += num_staff
+
+        # Per-type tracking
+        if profile_key not in type_stats:
+            type_stats[profile_key] = {"headcount": 0, "pre_exits": 0, "post_exits": 0}
+        type_stats[profile_key]["headcount"] += num_staff
+        type_stats[profile_key]["pre_exits"] += period_stats["pre_ep_exits"]
+        type_stats[profile_key]["post_exits"] += period_stats["post_ep_exits"]
 
         r_elapsed = time.time() - r_start
-        print(f"  Done in {r_elapsed:.1f}s — {exits}/{num_staff} exits "
-              f"({turnover_rate:.1f}% turnover), "
-              f"{len(results['graph_snapshots'])} snapshots, "
-              f"{len(results['exit_cascades'])} cascades")
+        print(f"  Done in {r_elapsed:.1f}s — "
+              f"{len(results['staff_master'])} total staff records, "
+              f"{period_stats['pre_ep_exits']} pre-EP exits, "
+              f"{period_stats['post_ep_exits']} post-EP exits")
+        print(f"  Pre-EP:  {period_stats['pre_ep_annualized_turnover']:.1f}% annualized")
+        print(f"  Post-EP: {period_stats['post_ep_annualized_turnover']:.1f}% annualized")
+        print(f"  Delta:   -{period_stats['delta']:.1f} pts "
+              f"({period_stats['pct_improvement']:.1f}% improvement)")
 
-        # ---------------------------------------------------------
-        # Per-restaurant upload (reduces peak memory)
-        # ---------------------------------------------------------
+        # Per-restaurant upload
         if upload_supabase:
-            # Upload restaurant metadata
             sb_restaurant = {
                 "restaurant_id": restaurant_id,
                 "profile_key": profile_key,
                 "num_staff": num_staff,
                 "num_days": num_days,
-                "sma_score": None,  # Existing column, compute later
+                "sma_score": None,
             }
             batch_insert("synthetic_restaurants", [sb_restaurant])
 
@@ -505,59 +493,51 @@ def run_full_simulation(write_csv_flag: bool = True, upload_supabase: bool = Fal
     # SUMMARY
     # ---------------------------------------------------------
     total_elapsed = time.time() - sim_start
+
+    agg_pre_ann = (agg_pre_exits / agg_headcount) * (365 / PRE_EP_DAYS) * 100
+    agg_post_ann = (agg_post_exits / agg_headcount) * (365 / POST_EP_DAYS) * 100
+
     print(f"\n{'='*70}")
     print(f"ALL SIMULATIONS COMPLETE — {total_elapsed:.1f}s")
     print(f"{'='*70}")
     print(f"  Total restaurants:  {total_restaurants}")
-    print(f"  Staff master:       {len(combined_staff_master):,}")
+    print(f"  Staff records:      {len(combined_staff_master):,}")
     print(f"  Emotion rows:       {len(combined_daily_emotions):,}")
     print(f"  Behavior rows:      {len(combined_daily_behavior):,}")
     print(f"  Graph snapshots:    {len(combined_graph_snapshots):,}")
     print(f"  Exit cascades:      {len(combined_exit_cascades):,}")
 
     print(f"\n{'='*70}")
-    print(f"COHORT RESULTS")
+    print(f"AGGREGATE RESULTS (all {total_restaurants} restaurants)")
     print(f"{'='*70}")
-    for cohort_name, stats in cohort_stats.items():
-        if stats["staff"] > 0:
-            turnover = stats["exits"] / stats["staff"] * 100
-            print(f"  {cohort_name:>10}: {stats['restaurants']} restaurants, "
-                  f"{stats['staff']:,} staff, {stats['exits']:,} exits "
-                  f"({turnover:.1f}% turnover)")
+    print(f"  Total headcount:     {agg_headcount:,}")
+    print(f"  Pre-EP exits:        {agg_pre_exits:,}")
+    print(f"  Post-EP exits:       {agg_post_exits:,}")
+    print(f"  Pre-EP turnover:     {agg_pre_ann:.1f}% (annualized)")
+    print(f"  Post-EP turnover:    {agg_post_ann:.1f}% (annualized)")
+    print(f"  Delta:               -{agg_pre_ann - agg_post_ann:.1f} pts")
+    print(f"  Improvement:         {((agg_pre_ann - agg_post_ann) / agg_pre_ann * 100):.1f}%")
 
-    # Per-type breakdown
     print(f"\n{'='*70}")
-    print(f"TURNOVER BY TYPE AND COHORT")
+    print(f"TURNOVER BY RESTAURANT TYPE")
     print(f"{'='*70}")
-    type_cohort_stats: Dict[str, Dict[str, Dict[str, int]]] = {}
-    for meta in combined_restaurant_meta:
-        pkey = meta["profile_key"]
-        coh = meta["cohort"]
-        if pkey not in type_cohort_stats:
-            type_cohort_stats[pkey] = {}
-        if coh not in type_cohort_stats[pkey]:
-            type_cohort_stats[pkey][coh] = {"staff": 0, "exits": 0}
-        type_cohort_stats[pkey][coh]["staff"] += meta["num_staff"]
-        type_cohort_stats[pkey][coh]["exits"] += meta["total_exits"]
+    print(f"  {'Type':<22} {'Pre-EP':>10} {'Post-EP':>10} {'Delta':>10} {'Improv':>10}")
+    print(f"  {'-'*22} {'-'*10} {'-'*10} {'-'*10} {'-'*10}")
 
-    print(f"  {'Type':<22} {'Control':>10} {'Adopter':>10} {'Day-1':>10}")
-    print(f"  {'-'*22} {'-'*10} {'-'*10} {'-'*10}")
     for pkey in _PROFILE_ROTATION:
-        parts = []
-        for coh in ["control", "adopter", "day1"]:
-            data = type_cohort_stats.get(pkey, {}).get(coh, {"staff": 0, "exits": 0})
-            if data["staff"] > 0:
-                rate = data["exits"] / data["staff"] * 100
-                parts.append(f"{rate:>8.1f}%")
-            else:
-                parts.append(f"{'N/A':>9}")
-        print(f"  {pkey:<22} {parts[0]} {parts[1]} {parts[2]}")
+        data = type_stats.get(pkey)
+        if data and data["headcount"] > 0:
+            pre = (data["pre_exits"] / data["headcount"]) * (365 / PRE_EP_DAYS) * 100
+            post = (data["post_exits"] / data["headcount"]) * (365 / POST_EP_DAYS) * 100
+            delta = pre - post
+            improv = (delta / pre * 100) if pre > 0 else 0
+            print(f"  {pkey:<22} {pre:>8.1f}% {post:>8.1f}% {delta:>+8.1f} {improv:>8.1f}%")
 
     print()
 
 
 # -------------------------------------------------------------
-# 6. ENTRY POINT
+# 7. ENTRY POINT
 # -------------------------------------------------------------
 
 if __name__ == "__main__":
