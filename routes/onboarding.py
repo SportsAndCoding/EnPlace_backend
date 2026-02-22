@@ -9,6 +9,7 @@ from typing import Optional, List
 from datetime import date, datetime
 import secrets
 import string
+import bcrypt
 from services.auth_service import verify_jwt_token as get_current_user
 from database.supabase_client import get_supabase
 from services.team_import_service import extract_team_from_text
@@ -329,7 +330,8 @@ async def add_staff_bulk(
                     'staff_id': staff_id,
                     'restaurant_id': restaurant_id,
                     'full_name': full_name,
-                    'email': member.email,
+                    'email': member.email or f"{staff_id.lower()}@pending.enplace.app",
+                    'password_hash': bcrypt.hashpw('pending'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
                     'phone': member.phone,
                     'position': member.position,
                     'hourly_rate': member.hourly_rate,
