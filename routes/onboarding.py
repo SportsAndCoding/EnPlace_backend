@@ -270,17 +270,17 @@ async def add_staff_member(
         full_name = f"{data.first_name} {data.last_name}"
         
         staff_data = {
-            'staff_id': staff_id,
-            'restaurant_id': restaurant_id,
-            'full_name': full_name,
-            'email': data.email,
-            'phone': data.phone,
-            'position': data.position,
-            'hourly_rate': data.hourly_rate,
-            'portal_access': 'manager' if data.is_manager else 'staff',
-            'status': 'active',
-            'hire_date': date.today().isoformat()
-        }
+                    'staff_id': staff_id,
+                    'restaurant_id': restaurant_id,
+                    'full_name': full_name,
+                    'email': member.email,
+                    'phone': member.phone,
+                    'position': member.position,
+                    'hourly_rate': member.hourly_rate,
+                    'portal_access': 'manager' if member.is_manager else 'staff',
+                    'status': 'active',
+                    'hire_date': date.today().isoformat()
+                }
         
         result = supabase.table('staff') \
             .insert(staff_data) \

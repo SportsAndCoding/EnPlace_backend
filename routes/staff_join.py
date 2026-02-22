@@ -124,6 +124,51 @@ If no reasonable match exists, set match_found to false."""
 # ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════
 
+@router.get("/browse-roster")
+async def browse_roster(code: str):
+    """
+    Get unclaimed staff roster for manual selection fallback.
+    Returns privacy-safe format: first name + last initial.
+    Public endpoint - no auth required.
+    """
+    supabase = get_supabase()
+
+    code_result = supabase.table("restaurant_onboarding_status") \
+        .select("restaurant_id") \
+        .eq("join_code", code.upper()) \
+        .execute()
+
+    if not code_result.data:
+        return {"success": False, "error": "Invalid join code"}
+
+    restaurant_id = code_result.data[0]["restaurant_id"]
+
+    roster = supabase.table("staff") \
+        .select("staff_id, full_name, position") \
+        .eq("restaurant_id", restaurant_id) \
+        .is_("password_hash", "null") \
+        .eq("status", "active") \
+        .order("full_name") \
+        .execute()
+
+    formatted = []
+    for s in (roster.data or []):
+        parts = s["full_name"].split()
+        if len(parts) >= 2:
+            display_name = f"{parts[0]} {parts[-1][0]}."
+        else:
+            display_name = parts[0] if parts else "Unknown"
+
+        formatted.append({
+            "staff_id": s["staff_id"],
+            "display_name": display_name,
+            "full_name": s["full_name"],
+            "position": s["position"] or "Team Member"
+        })
+
+    return {"success": True, "roster": formatted}
+
+
 @router.get("/{code}", response_model=ValidateCodeResponse)
 async def validate_join_code(code: str):
     """
