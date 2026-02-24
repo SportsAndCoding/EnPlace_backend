@@ -16,6 +16,7 @@ import secrets
 from config.settings import ALLOWED_ORIGINS, SUPABASE_URL, SUPABASE_KEY, JWT_SECRET, JWT_ALGORITHM
 from routes import staff
 from services.auth_service import verify_jwt_token
+from services.twilio_service import send_sms
 from routes.staff import router as staff_router
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -373,7 +374,7 @@ async def forgot_password(request: ForgotPasswordRequest):
     """
     try:
         # Check if email exists
-        result = supabase.table('staff').select('staff_id, email, full_name').eq(
+        result = supabase.table('staff').select('staff_id, email, full_name, phone').eq(
             'email', request.email
         ).single().execute()
         
@@ -386,27 +387,41 @@ async def forgot_password(request: ForgotPasswordRequest):
         
         # Generate secure token
         reset_token = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(hours=1)  # Token valid for 1 hour
-        
+        expires_at = datetime.utcnow() + timedelta(hours=24)  # Token valid for 24 hours
+
         # Store token in database
         supabase.table('staff').update({
             'reset_token': reset_token,
             'reset_token_expires': expires_at.isoformat()
         }).eq('staff_id', result.data['staff_id']).execute()
-        
-        # Build reset URL (adjust domain for production)
+
+        # Build reset URL
         reset_url = f"https://app.en-place.ai/reset-password.html?token={reset_token}"
-        
-        # TODO: Send email with reset_url when SendGrid is configured
-        # For now, log it for development/testing
+
         logger.info(f"Password reset requested for {request.email}")
-        logger.info(f"Reset URL: {reset_url}")
-        
-        # In dev mode, include the link in response (REMOVE IN PRODUCTION)
+
+        # Send reset link via SMS if phone number exists
+        sms_sent = False
+        staff_phone = result.data.get('phone')
+        staff_name = result.data.get('full_name', '').split()[0] if result.data.get('full_name') else ''
+
+        if staff_phone:
+            sms_result = send_sms(
+                staff_phone,
+                f"Hi {staff_name}! Here's your En Place password reset link:\n\n{reset_url}\n\nThis link expires in 24 hours. After resetting, bookmark app.en-place.ai to log in."
+            )
+            sms_sent = sms_result.get("success", False)
+            if sms_sent:
+                logger.info(f"Password reset SMS sent to {staff_phone}")
+            else:
+                logger.warning(f"SMS failed for {request.email}: {sms_result.get('error')}")
+        else:
+            logger.warning(f"No phone number on file for {request.email} - cannot send SMS")
+
         return {
             "success": True,
-            "message": "If this email exists in our system, you will receive a password reset link.",
-            # DEV ONLY - Remove this line in production:
+            "message": "If this account exists, a password reset link has been sent via text message.",
+            "sms_sent": sms_sent,
             "_dev_reset_url": reset_url
         }
         
