@@ -59,6 +59,69 @@ class StaffJoinResponse(BaseModel):
     staff_id: Optional[str] = None
     token: Optional[str] = None
 
+class StaffInterestRequest(BaseModel):
+    """Soft wall capture - staff who want En Place at their restaurant"""
+    first_name: str
+    restaurant_name: str
+    gm_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    ref_source: Optional[str] = None  # "affiliate", "rep:brandon", etc.
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ADD THIS ENDPOINT (before the existing POST "" route)
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/interest")
+async def submit_staff_interest(data: StaffInterestRequest):
+    """
+    Capture interest from staff whose restaurant isn't on En Place yet.
+    Used by:
+      - Lane 2: Leave-behind cards / affiliate guerrilla sales
+      - Lane 3: Sales rep network referrals
+    Writes directly to sales_leads table.
+    Public endpoint - no auth required.
+    """
+    supabase = get_supabase()
+
+    # Build the lead source tag
+    if data.ref_source:
+        lead_source = f"staff_interest:{data.ref_source}"
+    else:
+        lead_source = "staff_interest:organic"
+
+    # Build notes with available context
+    notes_parts = []
+    if data.gm_name:
+        notes_parts.append(f"GM: {data.gm_name}")
+    notes_parts.append(f"Staff member {data.first_name} wants En Place at their restaurant")
+    if data.ref_source and data.ref_source not in ("affiliate", "organic"):
+        notes_parts.append(f"Referred via: {data.ref_source}")
+    notes = ". ".join(notes_parts)
+
+    try:
+        supabase.table("sales_leads").insert({
+            "restaurant_name": data.restaurant_name.strip(),
+            "contact_name": data.first_name.strip(),
+            "contact_email": data.contact_email.strip().lower() if data.contact_email else None,
+            "contact_phone": data.contact_phone.strip() if data.contact_phone else None,
+            "lead_source": lead_source,
+            "stage": "new",
+            "notes": notes
+        }).execute()
+
+        return {
+            "success": True,
+            "message": "Thanks! We'll reach out to your restaurant."
+        }
+
+    except Exception as e:
+        print(f"Staff interest capture error: {str(e)}")
+        return {
+            "success": False,
+            "error": "Something went wrong. Please try again."
+        }
 
 # ═══════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
