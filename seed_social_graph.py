@@ -313,10 +313,13 @@ def seed_edges():
         for st in secondary_types:
             type_weights[st] = round(random.uniform(0, weight * 0.15), 3)
 
+        # Enforce chk_edge_ordering: staff_id_a < staff_id_b alphabetically
+        id_a, id_b = (a, b) if a < b else (b, a)
+
         rows.append({
             "restaurant_id": RESTAURANT_ID,
-            "staff_id_a": a,
-            "staff_id_b": b,
+            "staff_id_a": id_a,
+            "staff_id_b": id_b,
             "weight": round(weight, 3),
             "edge_type_weights": type_weights,
             "last_interaction_date": (today - timedelta(days=random.randint(0, 5))).isoformat(),
