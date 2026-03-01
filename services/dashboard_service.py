@@ -1467,9 +1467,9 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
     if is_report_day and schedule_analysis and schedule_analysis.get("status") == "completed":
         analysis = schedule_analysis.get("analysis_result") or {}
         week_of = schedule_analysis.get("week_of", "")
-        stability_score = schedule_analysis.get("stability_score", 0)
-        issues_found = schedule_analysis.get("issues_found", 0)
-        critical_issues = schedule_analysis.get("critical_issues", 0)
+        stability_score = schedule_analysis.get("stability_score") or 0
+        issues_found = schedule_analysis.get("issues_found") or 0
+        critical_issues = schedule_analysis.get("critical_issues") or 0
         
         # Format week label
         if week_of:

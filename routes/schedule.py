@@ -366,10 +366,14 @@ async def process_schedule_background(
             except Exception as sms_err:
                 logger.error(f"Schedule published SMS failed: {sms_err}")
 
-        # ── Mark upload complete ─────────────────────────────────────────
-        final_status = "completed" if not is_historical else (
-            "needs_reconciliation" if unmapped else "completed"
-        )
+        # ── Set status for next pipeline stage ────────────────────────────
+        # Current uploads: 'pending' → nightly processor runs analyze_schedule()
+        #                   and writes stability_score, then marks 'completed'
+        # Historical uploads: 'needs_reconciliation' or 'completed' (no analysis)
+        if is_historical:
+            final_status = "needs_reconciliation" if unmapped else "completed"
+        else:
+            final_status = "pending"  # Nightly processor will analyze and complete
 
         supabase.table("schedule_uploads") \
             .update({
