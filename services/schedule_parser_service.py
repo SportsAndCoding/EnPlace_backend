@@ -51,6 +51,7 @@ CRITICAL RULES:
 4. Infer dates from context (day names + week_of date)
 5. Normalize times to 24-hour format (HH:MM)
 6. Recognize position abbreviations: Svr=Server, Bart=Bartender, Cook=Line Cook, Dish=Dishwasher, Host=Host, Expo=Expo, Prep=Prep Cook, Bus=Busser
+7. In the "unmapped" array, always use the EXACT name as it appears in the schedule. Never use placeholder names.
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {
@@ -64,7 +65,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
             "position": "Server"
         }
     ],
-    "unmapped": ["Unknown Person Name"],
+    "unmapped": ["Sarah Thompson"],
     "warnings": ["Any parsing issues or ambiguities"],
     "total_shifts": 42,
     "total_staff": 12
@@ -84,6 +85,7 @@ CRITICAL RULES:
 6. Recognize position abbreviations: Svr=Server, Bart=Bartender, Cook=Line Cook, Dish=Dishwasher, Host=Host, Expo=Expo, Prep=Prep Cook, Bus=Busser
 7. For names that do NOT match anyone on the staff list, DO NOT include them in "shifts". Put them ONLY in "unmapped" with the position you inferred from context and their individual shift details.
 8. The "shifts" array must ONLY contain entries with a valid staff_id from the staff list. Never use placeholder values like "UNMAPPED" as a staff_id.
+9. In the "unmapped" array, always use the EXACT name as it appears in the schedule. Never use placeholder names like "Unknown Person".
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {
@@ -99,7 +101,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
     ],
     "unmapped": [
         {
-            "name": "Unknown Person",
+            "name": "Sarah Thompson",
             "inferred_position": "Server",
             "shift_count": 3,
             "shifts": [
