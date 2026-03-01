@@ -76,7 +76,8 @@ CRITICAL RULES:
 4. Infer dates from context (day names + week_of date)
 5. Normalize times to 24-hour format (HH:MM)
 6. Recognize position abbreviations: Svr=Server, Bart=Bartender, Cook=Line Cook, Dish=Dishwasher, Host=Host, Expo=Expo, Prep=Prep Cook, Bus=Busser
-7. For names that do NOT match anyone on the staff list, include them in "unmapped" with the position you inferred from context
+7. For names that do NOT match anyone on the staff list, DO NOT include them in "shifts". Put them ONLY in "unmapped" with the position you inferred from context and their individual shift details.
+8. The "shifts" array must ONLY contain entries with a valid staff_id from the staff list. Never use placeholder values like "UNMAPPED" as a staff_id.
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {
