@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from typing import Optional, Dict, Any, List
 import pytz
 from database.supabase_client import get_supabase
+from services.team_composition_model import analyze_team_composition
 
 logger = logging.getLogger(__name__)
 
@@ -981,33 +982,50 @@ class StaffPortalService:
                 if primary in persona_counts:
                     persona_counts[primary] += 1
 
-            # Gap analysis (exclude flightRisk from "needs more" recommendations)
-            assessable = {k: v for k, v in persona_counts.items() if k != "flightRisk"}
-            overrepresented = max(assessable, key=assessable.get) if assessable else None
-            underrepresented = min(assessable, key=assessable.get) if assessable else None
+            # ── Research-backed composition analysis ──
+            # Get restaurant type for format-aware scoring
+            restaurant_type = "casual_dining"
+            try:
+                rest_result = self.supabase.table("restaurants") \
+                    .select("restaurant_type") \
+                    .eq("id", restaurant_id) \
+                    .limit(1) \
+                    .execute()
+                if rest_result.data and rest_result.data[0].get("restaurant_type"):
+                    restaurant_type = rest_result.data[0]["restaurant_type"]
+            except Exception:
+                pass  # Fall back to casual_dining
 
+            # Build position-persona map for position-level insights
+            position_persona_map = {}
+            for p in active_profiles:
+                s = staff_lookup.get(p["staff_id"], {})
+                pos = s.get("position", "Unknown")
+                persona = p.get("persona_primary", "")
+                if pos not in position_persona_map:
+                    position_persona_map[pos] = {"steadyOperator": 0, "quietContributor": 0, "socialNavigator": 0, "flightRisk": 0}
+                if persona in position_persona_map[pos]:
+                    position_persona_map[pos][persona] += 1
+
+            # Run composition model
+            composition = analyze_team_composition(
+                persona_counts=persona_counts,
+                total_assessed=completed,
+                restaurant_type=restaurant_type,
+                position_persona_map=position_persona_map,
+            )
+
+            # Build gap_analysis in the format the frontend expects
+            # (backward compatible — underrepresented, overrepresented, recommendation)
+            model_gap = composition.get("gap_analysis") or {}
             gap_analysis = None
-            if overrepresented and underrepresented and overrepresented != underrepresented:
-                persona_labels = {
-                    "steadyOperator": "Steady Operators",
-                    "quietContributor": "Quiet Contributors",
-                    "socialNavigator": "Social Navigators",
-                    "flightRisk": "Flight Risks"
-                }
-                recommendations = {
-                    "steadyOperator": "consistent, reliable workers who anchor your shifts",
-                    "quietContributor": "independent, heads-down workers who catch issues early",
-                    "socialNavigator": "team connectors who read the room and keep morale up"
-                }
+            if model_gap.get("recommendation"):
                 gap_analysis = {
-                    "underrepresented": underrepresented,
-                    "overrepresented": overrepresented,
-                    "recommendation": (
-                        f"Your team leans heavily toward {persona_labels[overrepresented]}. "
-                        f"You're light on {persona_labels[underrepresented]} — "
-                        f"{recommendations.get(underrepresented, 'diverse personality types')}. "
-                        f"Consider leaning toward this trait in upcoming hires."
-                    )
+                    "underrepresented": model_gap.get("underrepresented"),
+                    "overrepresented": model_gap.get("overrepresented"),
+                    "recommendation": model_gap["recommendation"],
+                    "hiring_action": model_gap.get("hiring_action"),
+                    "priority": model_gap.get("priority"),
                 }
 
             # Per-staff profile list for manager view
@@ -1026,6 +1044,7 @@ class StaffPortalService:
                 })
 
             return {
+                "success": True,
                 "team_fingerprint_avg": fingerprint_avg,
                 "persona_distribution": persona_counts,
                 "completion_rate": {
@@ -1034,6 +1053,14 @@ class StaffPortalService:
                     "percent": round((completed / total_active) * 100) if total_active > 0 else 0
                 },
                 "gap_analysis": gap_analysis,
+                "composition_analysis": {
+                    "format_profile": composition.get("format_profile"),
+                    "actual_ratios": composition.get("actual_ratios"),
+                    "deviations": composition.get("deviations"),
+                    "alerts": composition.get("alerts"),
+                    "position_insights": composition.get("position_insights"),
+                    "overall_health_score": composition.get("overall_health_score"),
+                },
                 "profiles": profile_list
             }
 
