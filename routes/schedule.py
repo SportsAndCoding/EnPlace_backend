@@ -283,12 +283,15 @@ async def process_schedule_background(
                         raw_name = entry.get("name", "Unknown")
                         inferred_position = entry.get("inferred_position")
                         shift_count = entry.get("shift_count", 0)
+                        unmapped_shifts = entry.get("shifts", [])
                     else:
                         # Fallback for simple string unmapped entries
                         raw_name = str(entry)
                         inferred_position = None
                         shift_count = 0
+                        unmapped_shifts = []
 
+                    # Save reconciliation record
                     supabase.table("schedule_import_unmatched").insert({
                         "restaurant_id": restaurant_id,
                         "upload_id": upload_id,
@@ -297,6 +300,41 @@ async def process_schedule_background(
                         "shift_count": shift_count,
                         "resolution": "pending"
                     }).execute()
+
+                    # Insert shifts with staff_id=null, tagged with raw_name
+                    # in the reason column so reassignment can target them precisely
+                    for u_shift in unmapped_shifts:
+                        try:
+                            u_date = u_shift.get("date")
+                            u_start = u_shift.get("start_time", "09:00")
+                            u_end = u_shift.get("end_time", "17:00")
+
+                            u_start_hour = int(u_start.split(":")[0])
+                            u_shift_type = "AM" if u_start_hour < 14 else "PM"
+
+                            u_shift_dt = datetime.strptime(u_date, "%Y-%m-%d")
+                            u_day_type = "weekend" if u_shift_dt.weekday() >= 5 else "weekday"
+
+                            supabase.table("sse_shifts").insert({
+                                "restaurant_id": restaurant_id,
+                                "staff_id": None,
+                                "shift_date": u_date,
+                                "scheduled_start": f"{u_date}T{u_start}:00Z",
+                                "scheduled_end": f"{u_date}T{u_end}:00Z",
+                                "shift_type": u_shift_type,
+                                "day_type": u_day_type,
+                                "position": inferred_position,
+                                "is_published": False,
+                                "status": "unmatched",
+                                "created_by": staff_id,
+                                "is_historical": True,
+                                "source_upload_id": upload_id,
+                                "reason": raw_name  # Tag for precise reassignment
+                            }).execute()
+                            shifts_saved += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to save unmapped shift for '{raw_name}': {e}")
+                            continue
 
                 except Exception as e:
                     logger.warning(f"Failed to save unmatched name '{entry}': {e}")
@@ -633,7 +671,7 @@ async def resolve_unmatched_name(
             latest_shift = supabase.table("sse_shifts") \
                 .select("shift_date") \
                 .eq("source_upload_id", upload_id) \
-                .eq("staff_id", None) \
+                .eq("reason", raw_name) \
                 .order("shift_date", desc=True) \
                 .limit(1) \
                 .execute()
@@ -742,59 +780,39 @@ def _reassign_unmatched_shifts(
     """
     Retroactively assign historical shifts to a newly resolved staff member.
     
-    The parser stored shifts for unmatched names with staff_id=null.
-    The raw_name was preserved in analysis_result on the upload.
-    We re-parse the original upload's analysis to find which shifts
-    belonged to this name, then update them.
-    
-    NOTE: Since sse_shifts doesn't store the original raw name,
-    we need to look at the upload's analysis_result to correlate.
-    For now, we use the historical parser's unmapped shift data
-    stored in schedule_import_unmatched context.
+    Unmatched shifts are stored with staff_id=null and reason=raw_name,
+    so we can precisely target only this person's shifts.
     """
     try:
-        # Get the upload's raw schedule to find shifts for this name
-        upload = supabase.table("schedule_uploads") \
-            .select("analysis_result") \
-            .eq("id", upload_id) \
-            .execute()
-
-        if not upload.data:
-            logger.warning(f"Could not find upload {upload_id} for shift reassignment")
-            return
-
-        # Find null-staff_id shifts from this upload and assign them
-        # Since multiple unmatched names might have null staff_ids,
-        # we rely on the analysis_result to identify the right shifts.
-        # For safety, we also update any shifts from this upload
-        # that are still unassigned.
-        
-        # The most reliable approach: count expected shifts for this name
-        # from the unmatched record, then assign that many null shifts
-        # from this upload. This isn't perfect if there are multiple
-        # unmatched names, but it's safe because each resolution call
-        # handles one name at a time.
-        
         null_shifts = supabase.table("sse_shifts") \
             .select("id") \
             .eq("source_upload_id", upload_id) \
+            .eq("reason", raw_name) \
             .is_("staff_id", "null") \
             .execute()
 
         if null_shifts.data:
             for shift in null_shifts.data:
                 supabase.table("sse_shifts") \
-                    .update({"staff_id": new_staff_id}) \
+                    .update({
+                        "staff_id": new_staff_id,
+                        "status": "assigned",
+                        "reason": None  # Clear the tag after resolution
+                    }) \
                     .eq("id", shift["id"]) \
                     .execute()
 
             logger.info(
-                f"Reassigned {len(null_shifts.data)} shifts to {new_staff_id} "
-                f"from upload {upload_id}"
+                f"Reassigned {len(null_shifts.data)} shifts for '{raw_name}' "
+                f"to {new_staff_id} from upload {upload_id}"
+            )
+        else:
+            logger.warning(
+                f"No null shifts found for '{raw_name}' in upload {upload_id}"
             )
 
     except Exception as e:
-        logger.error(f"Shift reassignment failed: {e}")
+        logger.error(f"Shift reassignment failed for '{raw_name}': {e}")
 
 
 @router.post("/finalize-historical/{upload_id}")
