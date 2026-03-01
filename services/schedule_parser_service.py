@@ -42,7 +42,10 @@ COST_PER_1K_OUTPUT_TOKENS = 0.0006
 PARSE_SYSTEM_PROMPT = """You are a restaurant schedule parser. Your job is to extract shift assignments from messy schedule data.
 
 CRITICAL RULES:
-1. Match employee names using fuzzy matching against the provided staff list
+1. Match employee names against the provided staff list. Only match when names are genuinely similar:
+   - MATCH: Typos (e.g., "Ashely" → "Ashley"), nicknames ("Mike" → "Michael"), abbreviations ("Rob" → "Robert"), minor misspellings
+   - DO NOT MATCH: Completely different names. "Priya Patel" does NOT match "Ashley Johnson". If the first AND last name are both different, it is NOT a match.
+   - When in doubt, put the name in "unmapped" rather than forcing a bad match
 2. Use staff_id from the list, NOT the name
 3. Parse ANY format: CSV, tabs, pipes, plain text, whatever
 4. Infer dates from context (day names + week_of date)
@@ -70,7 +73,10 @@ Respond with ONLY valid JSON (no markdown, no explanation):
 PARSE_HISTORICAL_SYSTEM_PROMPT = """You are a restaurant schedule parser. Your job is to extract shift assignments from HISTORICAL schedule data being imported into the system.
 
 CRITICAL RULES:
-1. Match employee names using fuzzy matching against the provided staff list (includes both active AND inactive employees)
+1. Match employee names against the provided staff list (includes both active AND inactive employees). Only match when names are genuinely similar:
+   - MATCH: Typos (e.g., "Ashely" → "Ashley"), nicknames ("Mike" → "Michael"), abbreviations ("Rob" → "Robert"), minor misspellings
+   - DO NOT MATCH: Completely different names. "Priya Patel" does NOT match "Ashley Johnson". If the first AND last name are both different, it is NOT a match.
+   - When in doubt, put the name in "unmapped" rather than forcing a bad match
 2. Use staff_id from the list, NOT the name
 3. Parse ANY format: CSV, tabs, pipes, plain text, whatever
 4. Infer dates from context (day names + week_of date)
