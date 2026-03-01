@@ -16,7 +16,7 @@ async def run_tests():
     # ── Test 1: Check if profile exists ──
     print("\n[TEST 1] Get personality profile for S001-001...")
     try:
-        profile = await service.get_personality_profile("S001-001")
+        profile = await service.get_personality_profile("STAFF001")
         if profile:
             print(f"  ✓ Profile EXISTS — persona: {profile.get('persona_primary')}, score: {profile.get('stability_score')}, source: {profile.get('source')}")
             print(f"  → Skipping Test 2 (profile already saved)")
@@ -33,7 +33,7 @@ async def run_tests():
         print("\n[TEST 2] Save personality profile for S001-001...")
         try:
             result = await service.save_personality_profile(
-                staff_id="S001-001",
+                staff_id="STAFF001",
                 restaurant_id=1,
                 scenario_rankings={
                     "break_room": "alex",

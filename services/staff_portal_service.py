@@ -943,7 +943,7 @@ class StaffPortalService:
             staff_result = self.supabase.table("staff") \
                 .select("staff_id, full_name, position") \
                 .eq("restaurant_id", restaurant_id) \
-                .eq("status", "active") \
+                .ilike("status", "active") \
                 .execute()
 
             active_staff = staff_result.data or []
