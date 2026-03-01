@@ -70,6 +70,8 @@ class SwapRequest(BaseModel):
     reason: Optional[str] = None
     target_staff_id: Optional[str] = None
 
+class PersonalitySubmission(BaseModel):
+    scenario_rankings: dict  # {"break_room":"alex","expo_backup":"jordan",...}
 
 # ═══════════════════════════════════════════════════════════════════
 # STAFF PROFILE
@@ -914,4 +916,183 @@ async def acknowledge_nudges_bulk(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to acknowledge nudges: {str(e)}"
+        )
+    
+@router.get("/me/personality")
+async def get_my_personality(current_user: dict = Depends(get_current_user)):
+    """Get current staff member's personality profile"""
+    service = StaffPortalService()
+
+    try:
+        profile = await service.get_personality_profile(current_user['staff_id'])
+        return {
+            "success": True,
+            "profile": profile  # None if not completed
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch personality profile: {str(e)}"
+        )
+
+
+@router.post("/me/personality")
+async def submit_my_personality(
+    submission: PersonalitySubmission,
+    current_user: dict = Depends(get_current_user)
+):
+    """Submit personality assessment (self-assessment by staff member)"""
+    service = StaffPortalService()
+
+    # Validate all 8 scenarios present
+    valid_scenarios = {
+        "break_room", "expo_backup", "schedule_surprise", "guest_complaint",
+        "coworker_tension", "new_hire_shadow", "bar_rush", "manager_feedback"
+    }
+    submitted = set(submission.scenario_rankings.keys())
+    missing = valid_scenarios - submitted
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Missing scenarios: {', '.join(sorted(missing))}"
+        )
+
+    # Validate character choices
+    valid_characters = {"alex", "jordan", "taylor"}
+    for scenario, choice in submission.scenario_rankings.items():
+        if choice.lower() not in valid_characters:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid character '{choice}' for scenario '{scenario}'"
+            )
+
+    try:
+        profile = await service.save_personality_profile(
+            staff_id=current_user['staff_id'],
+            restaurant_id=current_user['restaurant_id'],
+            scenario_rankings=submission.scenario_rankings,
+            source="self_assessment"
+        )
+        return {
+            "success": True,
+            "profile": profile,
+            "points_awarded": profile.get("points_awarded", 0),
+            "message": "Personality profile saved"
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save personality profile: {str(e)}"
+        )
+
+
+# --- Manager endpoints ---
+
+@router.get("/staff/{staff_id}/personality")
+async def get_staff_personality(
+    staff_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Manager views a staff member's personality profile (read-only)"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can view staff personality profiles"
+        )
+
+    service = StaffPortalService()
+
+    try:
+        profile = await service.get_personality_profile(staff_id)
+        return {
+            "success": True,
+            "profile": profile
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch personality profile: {str(e)}"
+        )
+
+
+@router.post("/staff/{staff_id}/personality")
+async def enter_staff_personality(
+    staff_id: str,
+    submission: PersonalitySubmission,
+    current_user: dict = Depends(get_current_user)
+):
+    """Manager enters paper questionnaire answers for a staff member"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can enter staff personality data"
+        )
+
+    service = StaffPortalService()
+
+    # Validate all 8 scenarios present
+    valid_scenarios = {
+        "break_room", "expo_backup", "schedule_surprise", "guest_complaint",
+        "coworker_tension", "new_hire_shadow", "bar_rush", "manager_feedback"
+    }
+    submitted = set(submission.scenario_rankings.keys())
+    missing = valid_scenarios - submitted
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Missing scenarios: {', '.join(sorted(missing))}"
+        )
+
+    try:
+        profile = await service.save_personality_profile(
+            staff_id=staff_id,
+            restaurant_id=current_user['restaurant_id'],
+            scenario_rankings=submission.scenario_rankings,
+            source="manager_entry"
+        )
+        return {
+            "success": True,
+            "profile": profile,
+            "message": "Personality profile entered for staff member"
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save personality profile: {str(e)}"
+        )
+
+
+@router.get("/team-composition")
+async def get_team_composition(current_user: dict = Depends(get_current_user)):
+    """Get aggregated team personality composition for the restaurant"""
+    if current_user['portal_access'] != 'manager':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers can view team composition"
+        )
+
+    service = StaffPortalService()
+
+    try:
+        composition = await service.get_team_composition(
+            restaurant_id=current_user['restaurant_id']
+        )
+        return {
+            "success": True,
+            **composition
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch team composition: {str(e)}"
         )

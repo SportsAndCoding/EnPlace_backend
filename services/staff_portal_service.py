@@ -823,3 +823,284 @@ class StaffPortalService:
         except Exception as e:
             logger.error(f"Cancel swap request error: {e}")
             raise e
+        
+    async def get_personality_profile(self, staff_id: str) -> Optional[Dict[str, Any]]:
+        """Get staff member's personality profile"""
+        try:
+            result = self.supabase.table("staff_personality_profiles") \
+                .select("*") \
+                .eq("staff_id", staff_id) \
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            return None
+
+        except Exception as e:
+            logger.error(f"Get personality profile error: {e}")
+            raise e
+
+    async def save_personality_profile(
+        self,
+        staff_id: str,
+        restaurant_id: int,
+        scenario_rankings: Dict[str, str],
+        source: str = "self_assessment"
+    ) -> Dict[str, Any]:
+        """
+        Compute and save personality profile from scenario rankings.
+        Awards 10 SP on first completion, 2 SP on retake (6-month cooldown).
+        """
+        from services.personality_scoring import compute_full_profile
+
+        try:
+            # Check if this is first completion or retake
+            existing = await self.get_personality_profile(staff_id)
+            is_first = existing is None
+
+            # Enforce 6-month cooldown on retakes
+            if existing and source == "self_assessment":
+                completed_at = existing.get("completed_at")
+                if completed_at:
+                    if isinstance(completed_at, str):
+                        last_completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+                    else:
+                        last_completed = completed_at
+
+                    from datetime import timedelta
+                    cooldown = timedelta(days=180)
+                    now = datetime.now(timezone.utc)
+                    if now - last_completed < cooldown:
+                        days_remaining = (cooldown - (now - last_completed)).days
+                        raise ValueError(f"Personality assessment can be retaken in {days_remaining} days")
+
+            # Compute full profile from scenario rankings
+            profile = compute_full_profile(scenario_rankings)
+
+            # Build upsert payload
+            points_to_award = 10 if is_first else 2
+            payload = {
+                "staff_id": staff_id,
+                "restaurant_id": restaurant_id,
+                "scenario_rankings": scenario_rankings,
+                "fingerprint": profile["fingerprint"],
+                "persona_primary": profile["persona_primary"],
+                "persona_scores": profile["persona_scores"],
+                "stability_score": profile["stability_score"],
+                "source": source,
+                "points_awarded": points_to_award,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+
+            result = self.supabase.table("staff_personality_profiles") \
+                .upsert(payload, on_conflict="staff_id") \
+                .execute()
+
+            if not result.data or len(result.data) == 0:
+                raise Exception("Upsert returned no data")
+
+            saved_profile = result.data[0]
+
+            # Award stability points (skip for stable_hire source — those are free)
+            if source != "stable_hire":
+                try:
+                    await self.award_points(
+                        staff_id=staff_id,
+                        restaurant_id=restaurant_id,
+                        points=points_to_award,
+                        transaction_type="personalityAssessment",
+                        description="Personality Assessment" if is_first else "Personality Assessment (retake)"
+                    )
+                    saved_profile["points_awarded"] = points_to_award
+                except Exception as sp_err:
+                    logger.warning(f"Failed to award personality SP: {sp_err}")
+                    saved_profile["points_awarded"] = 0
+
+            return saved_profile
+
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Save personality profile error: {e}")
+            raise e
+
+    async def get_team_composition(self, restaurant_id: int) -> Dict[str, Any]:
+        """
+        Aggregate personality profiles for all active staff at a restaurant.
+        Returns team fingerprint average, persona distribution, completion rate, gap analysis.
+        """
+        try:
+            # Get all personality profiles for this restaurant
+            profiles_result = self.supabase.table("staff_personality_profiles") \
+                .select("staff_id, fingerprint, persona_primary, persona_scores, stability_score, source, completed_at") \
+                .eq("restaurant_id", restaurant_id) \
+                .execute()
+
+            profiles = profiles_result.data or []
+
+            # Get total active staff count
+            staff_result = self.supabase.table("staff") \
+                .select("staff_id, full_name, position") \
+                .eq("restaurant_id", restaurant_id) \
+                .eq("status", "active") \
+                .execute()
+
+            active_staff = staff_result.data or []
+            total_active = len(active_staff)
+            staff_lookup = {s["staff_id"]: s for s in active_staff}
+
+            # Filter to only active staff profiles
+            active_profiles = [p for p in profiles if p["staff_id"] in staff_lookup]
+            completed = len(active_profiles)
+
+            # Empty state
+            if completed == 0:
+                return {
+                    "team_fingerprint_avg": None,
+                    "persona_distribution": {"steadyOperator": 0, "quietContributor": 0, "socialNavigator": 0, "flightRisk": 0},
+                    "completion_rate": {"completed": 0, "total_active": total_active, "percent": 0},
+                    "gap_analysis": None,
+                    "profiles": []
+                }
+
+            # Compute averaged fingerprint
+            dimensions = ["autonomy", "adaptability", "conflict_tolerance",
+                          "authority_response", "team_orientation", "feedback_reception"]
+
+            fingerprint_avg = {}
+            for dim in dimensions:
+                values = [p["fingerprint"][dim] for p in active_profiles
+                          if isinstance(p.get("fingerprint"), dict) and dim in p["fingerprint"]]
+                fingerprint_avg[dim] = round(sum(values) / len(values)) if values else 50
+
+            # Persona distribution counts
+            persona_counts = {"steadyOperator": 0, "quietContributor": 0, "socialNavigator": 0, "flightRisk": 0}
+            for p in active_profiles:
+                primary = p.get("persona_primary", "")
+                if primary in persona_counts:
+                    persona_counts[primary] += 1
+
+            # Gap analysis (exclude flightRisk from "needs more" recommendations)
+            assessable = {k: v for k, v in persona_counts.items() if k != "flightRisk"}
+            overrepresented = max(assessable, key=assessable.get) if assessable else None
+            underrepresented = min(assessable, key=assessable.get) if assessable else None
+
+            gap_analysis = None
+            if overrepresented and underrepresented and overrepresented != underrepresented:
+                persona_labels = {
+                    "steadyOperator": "Steady Operators",
+                    "quietContributor": "Quiet Contributors",
+                    "socialNavigator": "Social Navigators",
+                    "flightRisk": "Flight Risks"
+                }
+                recommendations = {
+                    "steadyOperator": "consistent, reliable workers who anchor your shifts",
+                    "quietContributor": "independent, heads-down workers who catch issues early",
+                    "socialNavigator": "team connectors who read the room and keep morale up"
+                }
+                gap_analysis = {
+                    "underrepresented": underrepresented,
+                    "overrepresented": overrepresented,
+                    "recommendation": (
+                        f"Your team leans heavily toward {persona_labels[overrepresented]}. "
+                        f"You're light on {persona_labels[underrepresented]} — "
+                        f"{recommendations.get(underrepresented, 'diverse personality types')}. "
+                        f"Consider leaning toward this trait in upcoming hires."
+                    )
+                }
+
+            # Per-staff profile list for manager view
+            profile_list = []
+            for p in active_profiles:
+                s = staff_lookup.get(p["staff_id"], {})
+                profile_list.append({
+                    "staff_id": p["staff_id"],
+                    "full_name": s.get("full_name", "Unknown"),
+                    "position": s.get("position", "Unknown"),
+                    "persona_primary": p.get("persona_primary"),
+                    "fingerprint": p.get("fingerprint"),
+                    "stability_score": p.get("stability_score"),
+                    "source": p.get("source"),
+                    "completed_at": p.get("completed_at")
+                })
+
+            return {
+                "team_fingerprint_avg": fingerprint_avg,
+                "persona_distribution": persona_counts,
+                "completion_rate": {
+                    "completed": completed,
+                    "total_active": total_active,
+                    "percent": round((completed / total_active) * 100) if total_active > 0 else 0
+                },
+                "gap_analysis": gap_analysis,
+                "profiles": profile_list
+            }
+
+        except Exception as e:
+            logger.error(f"Get team composition error: {e}")
+            raise e
+
+    async def migrate_candidate_personality(
+        self,
+        candidate_id: str,
+        staff_id: str,
+        restaurant_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        When a candidate is hired via Stable Hire, copy their personality data
+        to staff_personality_profiles with source='stable_hire'.
+        Called during the hire-to-staff conversion flow.
+        """
+        try:
+            candidate_result = self.supabase.table("hiring_candidates") \
+                .select("scenario_rankings, fingerprint, stability_score") \
+                .eq("id", candidate_id) \
+                .eq("restaurant_id", restaurant_id) \
+                .single() \
+                .execute()
+
+            if not candidate_result.data:
+                logger.warning(f"No candidate found for personality migration: {candidate_id}")
+                return None
+
+            candidate = candidate_result.data
+            rankings = candidate.get("scenario_rankings")
+            fingerprint = candidate.get("fingerprint")
+
+            if not rankings or not fingerprint:
+                logger.info(f"Candidate {candidate_id} has no personality data to migrate")
+                return None
+
+            # Compute persona scores from the existing fingerprint
+            from services.personality_scoring import compute_personas, get_primary_persona
+            persona_scores = compute_personas(fingerprint)
+            persona_primary = get_primary_persona(persona_scores)
+
+            payload = {
+                "staff_id": staff_id,
+                "restaurant_id": restaurant_id,
+                "scenario_rankings": rankings,
+                "fingerprint": fingerprint,
+                "persona_primary": persona_primary,
+                "persona_scores": persona_scores,
+                "stability_score": candidate.get("stability_score", 0),
+                "source": "stable_hire",
+                "points_awarded": 0,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+
+            result = self.supabase.table("staff_personality_profiles") \
+                .upsert(payload, on_conflict="staff_id") \
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                logger.info(f"Migrated personality: candidate {candidate_id} → staff {staff_id}")
+                return result.data[0]
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Migrate candidate personality error: {e}")
+            return None
