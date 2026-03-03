@@ -459,3 +459,54 @@ async def get_commission_summary(current_staff: dict = Depends(verify_admin)):
     except Exception as e:
         logger.error(f"Error fetching commission summary: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch summary")
+    
+# ─── ADD THIS ENDPOINT TO routes/admin.py ────────────────────────────────────
+# Place it alongside your other @router.get("/api/admin/...") endpoints
+# ═══════════════════════════════════════════════════════════════════════════════
+# SALES LEADS REPORT (accessible by founder_ceo + sales_director)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sales-leads-report")
+async def get_sales_leads_report(current_staff: dict = Depends(verify_jwt_token)):
+    """Sales leads with rep names resolved. Access: founder_ceo, sales_director"""
+    portal_access = current_staff.get("portal_access", "")
+    if portal_access not in ("founder_ceo", "sales_director"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        supabase = get_supabase()
+
+        leads_result = supabase.table("sales_leads") \
+            .select("*") \
+            .order("updated_at", desc=True) \
+            .execute()
+        leads = leads_result.data or []
+
+        if not leads:
+            return {"success": True, "leads": []}
+
+        # Batch fetch rep names — one query, no N+1
+        rep_ids = list(set(
+            lead["assigned_rep_id"]
+            for lead in leads
+            if lead.get("assigned_rep_id")
+        ))
+
+        rep_map = {}
+        if rep_ids:
+            reps_result = supabase.table("staff") \
+                .select("staff_id, full_name") \
+                .in_("staff_id", rep_ids) \
+                .execute()
+            rep_map = {r["staff_id"]: r["full_name"] for r in (reps_result.data or [])}
+
+        # Enrich leads with resolved rep name
+        for lead in leads:
+            rid = lead.get("assigned_rep_id")
+            lead["rep_name"] = rep_map.get(rid, rid or "Unassigned")
+
+        return {"success": True, "leads": leads}
+
+    except Exception as e:
+        logger.error(f"Sales leads report error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load sales leads")
