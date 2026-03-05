@@ -126,7 +126,7 @@ Example output:
   "suggested_stage": "demo_scheduled",
   "follow_up_draft": "Maria, great meeting you today! I'll send the calendar invite for Tuesday at 2pm. Looking forward to showing you how En Place can help with the turnover challenges you mentioned."
 }
-
+If the notes contain multiple entries, parse ONLY the most recent entry. Always return a single JSON object, never an array.
 Now parse these notes:
 """
 
@@ -187,6 +187,10 @@ class SalesService:
             content = content.strip()
             
             parsed = json.loads(content)
+            
+            # Defensive: GPT sometimes returns array for multi-entry notes
+            if isinstance(parsed, list):
+                parsed = parsed[-1]  # Take the most recent entry
             
             # Validate required fields
             missing = []

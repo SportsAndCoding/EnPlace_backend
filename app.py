@@ -117,11 +117,12 @@ def create_jwt_token(staff_data: Dict[str, Any]) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def get_portal_redirect_url(portal_access: str) -> str:
-    """Get redirect URL based on portal access level"""
     if portal_access == "manager":
         return "/manager-dashboard"
     elif portal_access == "staff":
         return "/staff-portal"
+    elif portal_access == "sales_director":
+        return "/admin/sales-leads.html"
     else:
         return "/error"
 
