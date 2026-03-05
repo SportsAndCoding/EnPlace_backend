@@ -207,8 +207,10 @@ from routes.sales_rep_registration import router as sales_rep_registration_route
 app.include_router(sales_rep_registration_router)
 from routes.admin import router as admin_router
 from routes.support import router as support_router
+from routes.executive import router as executive_router
 app.include_router(admin_router)
 app.include_router(support_router)
+app.include_router(executive_router)
 from routes.staff_join import router as staff_join_router
 app.include_router(staff_join_router)
 from routes.stripe_connect import router as stripe_connect_router
