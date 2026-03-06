@@ -188,6 +188,8 @@ async def update_my_photo(
 # ═══════════════════════════════════════════════════════════════════
 
 # SP earning rules (points per action)
+# Fallback defaults — used only if DB lookup fails or row missing
+# nudgeBoss is intentionally excluded from DB — not manager-configurable
 SP_RULES_DEFAULTS = {
     "journalSubmit":        {"points": 2,  "label": "Daily Check-In"},
     "emergencyShiftPickup": {"points": 5,  "label": "Emergency Coverage"},
