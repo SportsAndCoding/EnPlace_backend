@@ -125,6 +125,8 @@ def get_portal_redirect_url(portal_access: str) -> str:
         return "/admin/sales-leads.html"
     elif portal_access == "support_agent":
         return "/support-portal/"
+    elif portal_access == "restaurant_executive":
+        return "/executive-portal/"
     else:
         return "/error"
 
@@ -215,8 +217,8 @@ from routes.staff_join import router as staff_join_router
 app.include_router(staff_join_router)
 from routes.stripe_connect import router as stripe_connect_router
 app.include_router(stripe_connect_router)
-from routes.stripe_connect import router as stripe_connect_router
-app.include_router(stripe_connect_router)
+from routes.webinars import router as webinars_router
+app.include_router(webinars_router)
 from routes.social_graph import router as social_graph_router
 app.include_router(social_graph_router)
 
