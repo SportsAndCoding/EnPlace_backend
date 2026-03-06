@@ -188,17 +188,48 @@ async def update_my_photo(
 # ═══════════════════════════════════════════════════════════════════
 
 # SP earning rules (points per action)
-SP_RULES = {
-    "journalSubmit": {"points": 2, "label": "Daily Check-In"},
-    "emergencyShiftPickup": {"points": 5, "label": "Emergency Coverage"},
-    "openShiftAccept": {"points": 1, "label": "Open Shift Pickup"},
-    "nudgeBoss": {"points": 5, "label": "Feature Request"},
-    "preferencesComplete": {"points": 3, "label": "Profile Complete"},
-    "perfectWeek": {"points": 10, "label": "Perfect Week"},
-    "swapHelp": {"points": 2, "label": "Swap Assist"},
-    "onTimeStreak": {"points": 1, "label": "On-Time Bonus"}
+SP_RULES_DEFAULTS = {
+    "journalSubmit":        {"points": 2,  "label": "Daily Check-In"},
+    "emergencyShiftPickup": {"points": 5,  "label": "Emergency Coverage"},
+    "openShiftAccept":      {"points": 1,  "label": "Open Shift Pickup"},
+    "nudgeBoss":            {"points": 5,  "label": "Feature Request"},
+    "preferencesComplete":  {"points": 3,  "label": "Profile Complete"},
+    "perfectWeek":          {"points": 10, "label": "Perfect Week"},
+    "swapHelp":             {"points": 2,  "label": "Swap Assist"},
+    "onTimeStreak":         {"points": 1,  "label": "On-Time Bonus"},
+    "personalityAssessment":{"points": 10, "label": "Work Personality Profile"},
 }
 
+def get_sp_rule(rule_key: str, restaurant_id: str) -> dict:
+    """
+    Fetch earning rule from DB for this restaurant.
+    Falls back to SP_RULES_DEFAULTS if no DB row exists or rule is disabled.
+    nudgeBoss always uses the default — it is not manager-configurable.
+    """
+    if rule_key == "nudgeBoss":
+        return SP_RULES_DEFAULTS["nudgeBoss"]
+
+    try:
+        supabase = get_supabase()
+        result = supabase.table("reward_earning_rules") \
+            .select("points, is_enabled") \
+            .eq("restaurant_id", restaurant_id) \
+            .eq("rule_key", rule_key) \
+            .limit(1) \
+            .execute()
+
+        if result.data:
+            row = result.data[0]
+            if not row.get("is_enabled", True):
+                return None  # Rule disabled for this restaurant
+            return {
+                "points": row["points"],
+                "label": SP_RULES_DEFAULTS.get(rule_key, {}).get("label", rule_key)
+            }
+    except Exception as e:
+        logger.warning(f"SP rule DB lookup failed for {rule_key}, using default: {e}")
+
+    return SP_RULES_DEFAULTS.get(rule_key)
 
 @router.get("/stability-points")
 async def get_my_stability_points(
@@ -235,13 +266,18 @@ async def award_stability_points(
     service = StaffPortalService()
 
     # Validate transaction type
-    if request.transaction_type not in SP_RULES:
+    if request.transaction_type not in SP_RULES_DEFAULTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid transaction type. Must be one of: {list(SP_RULES.keys())}"
+            detail=f"Invalid transaction type. Must be one of: {list(SP_RULES_DEFAULTS.keys())}"
         )
 
-    rule = SP_RULES[request.transaction_type]
+    rule = get_sp_rule(request.transaction_type, current_user['restaurant_id'])
+    if rule is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This earning rule is not enabled for your restaurant."
+        )
     points = request.points or rule["points"]
     description = request.description or rule["label"]
 
@@ -776,10 +812,11 @@ async def create_nudge(
         
         try:
             service = StaffPortalService()
+            nudge_rule = get_sp_rule("nudgeBoss", current_user['restaurant_id'])
             await service.award_points(
                 staff_id=current_user['staff_id'],
                 restaurant_id=current_user['restaurant_id'],
-                points=5,
+                points=nudge_rule["points"],
                 transaction_type="nudgeBoss",
                 description=f"Requested {request.module_key} feature"
             )
