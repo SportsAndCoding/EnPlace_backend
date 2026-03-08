@@ -255,7 +255,7 @@ async def health_check():
 async def login(request: Request, login_data: LoginRequest):
     """Staff login endpoint"""
     try:
-        staff_data = await authenticate_staff_db(login_data.email)
+        staff_data = await authenticate_staff_db(login_data.email.lower())
         
         if not staff_data:
             return {
@@ -334,7 +334,7 @@ async def change_password(request: ChangePasswordRequest):
     try:
         # Get staff by email
         result = supabase.table('staff').select('staff_id, password_hash').eq(
-            'email', request.email
+            'email', request.email.lower()
         ).single().execute()
         
         if not result.data:
@@ -384,7 +384,7 @@ async def forgot_password(request: ForgotPasswordRequest):
     try:
         # Check if email exists
         result = supabase.table('staff').select('staff_id, email, full_name, phone').eq(
-            'email', request.email
+            'email', request.email.lower()
         ).single().execute()
         
         if not result.data:

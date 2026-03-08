@@ -165,19 +165,17 @@ async def create_invite(
     # Check if email already registered
     existing = supabase.table("staff") \
         .select("staff_id") \
-        .eq("email", request.email) \
+        .eq("email", request.email.lower()) \
         .execute()
-    
     if existing.data:
         raise HTTPException(
             status_code=400,
             detail="Email already registered"
         )
-    
     # Check for existing unused invite
     existing_invite = supabase.table("sales_rep_invites") \
         .select("id, invite_token") \
-        .eq("email", request.email) \
+        .eq("email", request.email.lower()) \
         .is_("used_at", "null") \
         .execute()
     
@@ -205,7 +203,7 @@ async def create_invite(
     try:
         supabase.table("sales_rep_invites").insert({
             "invite_token": token,
-            "email": request.email,
+            "email": request.email.lower(),
             "full_name": request.full_name,
             "role": request.role,
             "created_by": current_staff.get("staff_id"),
@@ -335,7 +333,7 @@ async def register_sales_rep(request: RegisterSalesRepRequest):
         staff_data = {
             "staff_id": staff_id,
             "restaurant_id": None,  # En Place staff, not restaurant staff
-            "email": request.email,
+            "email": request.email.lower(),
             "password_hash": password_hash,
             "full_name": request.full_name,
             "phone": request.phone,
@@ -380,7 +378,7 @@ async def register_sales_rep(request: RegisterSalesRepRequest):
     # Step 4: Generate JWT token
     token = create_jwt_token({
         "staff_id": staff_id,
-        "email": request.email,
+        "email": request.email.lower(),
         "full_name": request.full_name,
         "position": staff_data["position"],
         "portal_access": role,
