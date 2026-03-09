@@ -12,6 +12,7 @@ from supabase import create_client, Client
 import secrets
 
 
+
 # Import modular components
 from config.settings import ALLOWED_ORIGINS, SUPABASE_URL, SUPABASE_KEY, JWT_SECRET, JWT_ALGORITHM
 from routes import staff

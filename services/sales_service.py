@@ -750,7 +750,19 @@ Original Notes: {notes_text}"""
     # ═══════════════════════════════════════════════════════════════════════════
     # DEMO ACCESS
     # ═══════════════════════════════════════════════════════════════════════════
-    
+    async def reset_demo_checkins(self) -> Dict[str, Any]:
+        """Reset today's check-ins for Demo Bistro (restaurant_id=1) so reps can re-demo the journal."""
+        from datetime import date
+        today = date.today().isoformat()
+        result = get_supabase().table('checkins').delete().eq('restaurant_id', 1).eq('checkin_date', today).execute()
+        deleted_count = len(result.data) if result.data else 0
+        return {
+            'success': True,
+            'deleted_count': deleted_count,
+            'message': f'Cleared {deleted_count} demo check-in(s) for today'
+        }
+
+
     def get_demo_credentials(self) -> Dict[str, Any]:
         """Get demo portal credentials for sales reps"""
         return {

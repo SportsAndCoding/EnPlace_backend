@@ -1371,3 +1371,11 @@ async def get_my_schedule_view(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get schedule: {str(e)}"
         )
+@router.post("/reset-demo-checkins")
+async def reset_demo_checkins(
+    current_staff: dict = Depends(require_sales_access)
+):
+    """Reset today's Demo Bistro check-ins so reps can re-demo the daily journal."""
+    service = SalesService()
+    result = await service.reset_demo_checkins()
+    return result

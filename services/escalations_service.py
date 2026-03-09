@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from database.supabase_client import get_supabase
+from services.anonymity_guard import validate_escalation_role
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,16 @@ class EscalationsService:
     ) -> Dict[str, Any]:
         """Create a new escalation event"""
         try:
+            # ── Anonymity Guard: check if affected_role is safe to surface ──
+            raw_role = escalation_data.get("affected_role")
+            anonymity = {"anonymity_applied": False, "display_role": raw_role, "rollup_level": "position", "original_role": raw_role}
+            if raw_role and escalation_data.get("source_type", "mood") == "mood":
+                anonymity = validate_escalation_role(
+                    self.supabase,
+                    escalation_data["restaurant_id"],
+                    raw_role
+                )
+
             payload = {
                 "restaurant_id": escalation_data["restaurant_id"],
                 "event_type": escalation_data["event_type"],
@@ -25,13 +36,16 @@ class EscalationsService:
                 "status": "actionable",
                 "current_step": 1,
                 "primary_staff_id": escalation_data.get("primary_staff_id"),
-                "affected_role": escalation_data.get("affected_role"),
+                "affected_role": anonymity["display_role"],
                 "trigger_reason": escalation_data["trigger_reason"],
                 "source_type": escalation_data.get("source_type", "mood"),
                 "triggered_at": datetime.utcnow().isoformat(),
                 "next_action_deadline": escalation_data.get("next_action_deadline"),
                 "created_by": created_by,
-                "auto_created": auto_created
+                "auto_created": auto_created,
+                "anonymity_applied": anonymity["anonymity_applied"],
+                "original_affected_role": anonymity["original_role"] if anonymity["anonymity_applied"] else None,
+                "rollup_level": anonymity["rollup_level"],
             }
             
             result = self.supabase.table("sse_escalation_events").insert(payload).execute()

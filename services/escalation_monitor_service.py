@@ -2,6 +2,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 from database.supabase_client import get_supabase
+from services.anonymity_guard import (
+    check_anonymity,
+    get_position_counts,
+    get_positions_for_display_role,
+    ANONYMITY_THRESHOLD
+)
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +275,7 @@ class EscalationMonitorService:
         start_date,
         end_date
     ) -> float:
-        """Get average mood from check-ins"""
+        """Get average mood from check-ins, respecting anonymity thresholds."""
         try:
             # Build query
             query = self.supabase.table("sse_daily_checkins") \
@@ -277,18 +283,23 @@ class EscalationMonitorService:
                 .eq("restaurant_id", restaurant_id) \
                 .gte("checkin_date", start_date.isoformat()) \
                 .lte("checkin_date", end_date.isoformat())
-            
             result = query.execute()
             checkins = result.data or []
-            
             # Filter by role or specific staff
             if primary_staff_id:
-                # For specific staff, would need to filter by staff_id
-                # For now, filter by role
+                # Individual staff escalations use staff_id directly
                 pass
-            
             if affected_role:
-                checkins = [c for c in checkins if c.get("staff", {}).get("position") == affected_role]
+                # Anonymity guard: use the display_role from the escalation record
+                # which has already been through check_anonymity() at creation time.
+                # Resolve the role to a list of positions to include.
+                safe_positions = get_positions_for_display_role(affected_role)
+                if safe_positions:
+                    checkins = [
+                        c for c in checkins
+                        if c.get("staff", {}).get("position") in safe_positions
+                    ]
+                # else: empty list means "All Staff" — no filter needed
             
             if not checkins:
                 return 3.0  # Neutral if no data
@@ -327,7 +338,12 @@ class EscalationMonitorService:
             
             # Filter by role
             if affected_role:
-                checkins = [c for c in checkins if c.get("staff", {}).get("position") == affected_role]
+                safe_positions = get_positions_for_display_role(affected_role)
+                if safe_positions:
+                    checkins = [
+                        c for c in checkins
+                        if c.get("staff", {}).get("position") in safe_positions
+                    ]
             
             # Group by date
             by_date = {}
