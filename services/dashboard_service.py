@@ -16,6 +16,7 @@ from services.network_benchmark_service import (
 from datetime import datetime, timedelta, date
 from typing import Optional
 from database.supabase_client import supabase
+from services.anonymity_guard import ANONYMITY_THRESHOLD, get_role_category
 import pytz
 
 def get_today_for_restaurant(restaurant_id: int) -> date:
@@ -917,14 +918,21 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
             staff_count = len(set(c.get("staff_id") for c in checkins_7d 
                                   if next((s for s in staff_list if s.get("staff_id") == c.get("staff_id") 
                                           and s.get("position") == role), None)))
-            
+
+            # Anonymity guard: don't expose position-level mood for small teams
+            if staff_count < ANONYMITY_THRESHOLD:
+                display_role = get_role_category(role)
+            else:
+                display_role = role
+
             role_alerts.append({
-                "role": role,
-                "staff_count": staff_count,
+                "role": display_role,
+                "staff_count": staff_count if staff_count >= ANONYMITY_THRESHOLD else None,
                 "trend": "declining",
                 "vs_baseline": f"{int(pct_change)}%",
                 "current_avg": round(current_avg, 1),
-                "baseline_avg": round(baseline_avg, 1)
+                "baseline_avg": round(baseline_avg, 1),
+                "anonymity_applied": staff_count < ANONYMITY_THRESHOLD
             })
     
     # Sort by severity (biggest decline first)
@@ -1216,6 +1224,12 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                 desc = f"{staff_name} ({staff_position})" if staff_position else staff_name
             elif staff_name and source_type == "graph":
                 desc = f"Check in with {staff_name}" + (f" ({staff_position})" if staff_position else "")
+            elif esc.get("affected_role"):
+                role_label = esc.get("affected_role")
+                if esc.get("anonymity_applied"):
+                    desc = f"{role_label} team mood shift detected"
+                else:
+                    desc = f"{role_label} team affected"
             else:
                 desc = "Multiple staff affected"
 
@@ -1237,7 +1251,10 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                     "max_steps": 7,
                     "event_type": event_type,
                     "trigger_reason": trigger,
-                    "severity": esc.get("severity", "moderate")
+                    "severity": esc.get("severity", "moderate"),
+                    "affected_role": esc.get("affected_role"),
+                    "anonymity_applied": esc.get("anonymity_applied", False),
+                    "rollup_level": esc.get("rollup_level", "position")
                 }
             })
 
