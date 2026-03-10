@@ -183,6 +183,8 @@ from routes.notifications import router as notifications_router
 app.include_router(notifications_router)
 from routes.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
+from routes.adoption import router as adoption_router
+app.include_router(adoption_router)
 from routes.house_guardian import router as house_guardian_router
 app.include_router(house_guardian_router)
 from routes.shift_swaps import router as shift_swaps_router
