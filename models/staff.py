@@ -12,6 +12,7 @@ class StaffBase(BaseModel):
     notes: Optional[str] = None
     portal_access: str = "none"
     can_edit_staff: bool = False
+    strategic_alerts_only: Optional[bool] = None
 
 class StaffCreate(StaffBase):
     email: EmailStr

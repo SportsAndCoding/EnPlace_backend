@@ -26,7 +26,7 @@ def get_today_for_restaurant(restaurant_id: int) -> date:
     tz = pytz.timezone(tz_name)
     return datetime.now(tz).date()
 
-def get_dashboard_data(restaurant_id: int) -> dict:
+def get_dashboard_data(restaurant_id: int, staff_id: str = None) -> dict:
     """
     Aggregate all dashboard data for a restaurant.
     Returns everything manager-home.html needs in one response.
@@ -69,7 +69,14 @@ def get_dashboard_data(restaurant_id: int) -> dict:
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today, today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
-    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian, pending_nudges, today)
+    # Check if current user has strategic_alerts_only enabled (Owner/GM mode)
+    strategic_only = False
+    if staff_id:
+        current_staff = next((s for s in staff_list if s.get("staff_id") == staff_id), None)
+        if current_staff:
+            strategic_only = current_staff.get("strategic_alerts_only", False)
+
+    action_board = compute_action_board(notifications, shifts_week, escalations, house_guardian_alerts, pending_swaps, latest_schedule, house_guardian_report, has_house_guardian, pending_nudges, today, strategic_alerts_only=strategic_only)
     mood_heatmap = compute_mood_heatmap(checkins_7d)
     quick_stats = compute_quick_stats(shifts_today, shifts_week, staff_list)
 
@@ -1155,7 +1162,7 @@ def compute_house_guardian(smm: dict, fairness: dict, burnout: dict, stable_sche
     }
 
 
-def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False, nudges: list = None, today: date = None) -> dict:
+def compute_action_board(notifications: list, shifts_week: list = None, escalations: list = None, hg_alerts: list = None, swaps: list = None, schedule_analysis: dict = None, hg_weekly_report: dict = None, has_house_guardian: bool = False, nudges: list = None, today: date = None, strategic_alerts_only: bool = False) -> dict:
     """
     Transform notifications into action board items.
     Also injects critical coverage gaps from open shifts.
@@ -1688,6 +1695,11 @@ def compute_action_board(notifications: list, shifts_week: list = None, escalati
                     "nudge_ids": group["nudge_ids"]
                 }
             })
+
+    # Strategic alerts filter (Owner/GM mode)
+    if strategic_alerts_only:
+        strategic_types = {"escalation", "house_guardian", "house_guardian_report", "nudge_request"}
+        items = [item for item in items if item.get("type") in strategic_types]
 
     # Sort by priority (info always at bottom)
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
