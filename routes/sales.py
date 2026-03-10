@@ -1373,9 +1373,10 @@ async def get_my_schedule_view(
         )
 @router.post("/reset-demo-checkins")
 async def reset_demo_checkins(
-    current_staff: dict = Depends(require_sales_access)
+    current_staff: dict = Depends(verify_jwt_token)
 ):
     """Reset today's Demo Bistro check-ins so reps can re-demo the daily journal."""
+    require_sales_access(current_staff)
     service = SalesService()
     result = await service.reset_demo_checkins()
     return result
