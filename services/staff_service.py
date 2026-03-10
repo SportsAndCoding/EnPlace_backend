@@ -12,7 +12,7 @@ async def get_staff_list(restaurant_id: int) -> List[Dict[str, Any]]:
     supabase = get_supabase()  # Fresh client
     result = supabase.table('staff').select(
         'staff_id, email, full_name, position, hourly_rate, hire_date, status, '
-        'portal_access, can_edit_staff, skills, notes'
+        'portal_access, can_edit_staff, skills, notes, is_owner, strategic_alerts_only'
     ).eq('restaurant_id', restaurant_id).execute()
     return result.data
 
