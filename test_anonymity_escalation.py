@@ -1,8 +1,17 @@
 """Create a test escalation for Sous Chef at Demo Bistro. Run via: heroku run python test_anonymity_escalation.py --app enplace-api-v3"""
 import asyncio
 from services.escalations_service import EscalationsService
+from database.supabase_client import get_supabase
 
 async def test():
+    s = get_supabase()
+    staff = s.table("staff").select("staff_id").eq("restaurant_id", 1).eq("portal_access", "manager").limit(1).execute()
+    if not staff.data:
+        print("FAIL - No manager found at Demo Bistro")
+        return
+    manager_id = staff.data[0]["staff_id"]
+    print(f"Using manager staff_id: {manager_id}")
+
     svc = EscalationsService()
     result = await svc.create_escalation(
         escalation_data={
@@ -13,10 +22,10 @@ async def test():
             "trigger_reason": "ANONYMITY TEST - safe to delete",
             "source_type": "mood"
         },
-        created_by="system",
+        created_by=manager_id,
         auto_created=True
     )
-    print("=== Escalation Created ===")
+    print("\n=== Escalation Created ===")
     print(f"  id: {result['id']}")
     print(f"  affected_role: {result['affected_role']}")
     print(f"  anonymity_applied: {result['anonymity_applied']}")
@@ -28,7 +37,7 @@ async def test():
     else:
         print("FAIL - Sous Chef should have been rolled up")
     print()
-    print(f"Cleanup SQL:")
+    print("Cleanup SQL:")
     print(f"  DELETE FROM sse_escalation_history WHERE event_id = '{result['id']}';")
     print(f"  DELETE FROM sse_escalation_events WHERE id = '{result['id']}';")
 
