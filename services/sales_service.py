@@ -754,7 +754,7 @@ Original Notes: {notes_text}"""
         """Reset today's check-ins for Demo Bistro (restaurant_id=1) so reps can re-demo the journal."""
         from datetime import date
         today = date.today().isoformat()
-        result = get_supabase().table('checkins').delete().eq('restaurant_id', 1).eq('checkin_date', today).execute()
+        result = get_supabase().table('sse_daily_checkins').delete().eq('restaurant_id', 1).eq('checkin_date', today).execute()
         deleted_count = len(result.data) if result.data else 0
         return {
             'success': True,
