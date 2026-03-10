@@ -4,19 +4,31 @@ from services.dashboard_service import get_dashboard_data
 
 s = get_supabase()
 
-# Find an owner at a restaurant with data (Demo Bistro = restaurant 1)
-owner = s.table("staff").select("staff_id, full_name").eq("restaurant_id", 1).eq("is_owner", True).limit(1).execute()
-if not owner.data:
-    print("FAIL - No owner found at restaurant 1")
+# Find an owner at any restaurant that has staff data
+owners = s.table("staff").select("staff_id, full_name, restaurant_id").eq("is_owner", True).execute()
+# Pick one at a restaurant with actual staff (14, 15, or 16 have seeded data)
+owner = None
+for o in owners.data:
+    if o["restaurant_id"] in [14, 15, 16]:
+        owner = o
+        break
+
+if not owner:
+    # Fallback: use first owner found
+    owner = owners.data[0] if owners.data else None
+
+if not owner:
+    print("FAIL - No owners found at all")
     exit()
 
-staff_id = owner.data[0]["staff_id"]
-name = owner.data[0]["full_name"]
-print(f"Testing with owner: {name} ({staff_id})")
+staff_id = owner["staff_id"]
+restaurant_id = owner["restaurant_id"]
+name = owner["full_name"]
+print(f"Testing with owner: {name} ({staff_id}) at restaurant {restaurant_id}")
 
 print("\n=== Test A: Dashboard with strategic_alerts_only OFF ===")
 s.table("staff").update({"strategic_alerts_only": False}).eq("staff_id", staff_id).execute()
-data_off = get_dashboard_data(1, staff_id=staff_id)
+data_off = get_dashboard_data(restaurant_id, staff_id=staff_id)
 items_off = data_off["action_board"]["items"]
 types_off = [item["type"] for item in items_off]
 print(f"  Total items: {len(items_off)}")
@@ -24,7 +36,7 @@ print(f"  Types: {types_off}")
 
 print("\n=== Test B: Dashboard with strategic_alerts_only ON ===")
 s.table("staff").update({"strategic_alerts_only": True}).eq("staff_id", staff_id).execute()
-data_on = get_dashboard_data(1, staff_id=staff_id)
+data_on = get_dashboard_data(restaurant_id, staff_id=staff_id)
 items_on = data_on["action_board"]["items"]
 types_on = [item["type"] for item in items_on]
 print(f"  Total items: {len(items_on)}")
@@ -37,6 +49,11 @@ if leaked:
     print(f"\n  FAIL - Operational types leaked through: {leaked}")
 else:
     print(f"\n  PASS - No operational types in strategic view")
+
+if len(items_on) <= len(items_off):
+    print(f"  PASS - Strategic view ({len(items_on)} items) <= full view ({len(items_off)} items)")
+else:
+    print(f"  FAIL - Strategic view has MORE items than full view")
 
 print("\n=== Cleanup: Reset flag ===")
 s.table("staff").update({"strategic_alerts_only": False}).eq("staff_id", staff_id).execute()
