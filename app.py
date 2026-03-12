@@ -89,6 +89,10 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
+class PlatformLoginRequest(BaseModel):
+    email: str
+    password: str
+
 
 # ===== UTILITY FUNCTIONS (MUST BE BEFORE ENDPOINTS) =====
 
@@ -162,6 +166,24 @@ async def update_last_login_db(staff_id: str) -> bool:
     except Exception as e:
         logger.error(f"Update last login error: {e}")
         return False
+
+async def authenticate_platform_user_db(email: str) -> Optional[Dict[str, Any]]:
+    """Authenticate platform restaurant user via RPC"""
+    try:
+        result = supabase.rpc('authenticate_platform_user', {'p_email': email}).execute()
+        if result.data and len(result.data) > 0:
+            row = result.data[0]
+            if row.get('success') is True:
+                user_obj = row.get('platform_user')
+                if isinstance(user_obj, str):
+                    import json
+                    return json.loads(user_obj)
+                else:
+                    return user_obj
+        return None
+    except Exception as e:
+        logger.error(f"Platform authentication error: {e}")
+        return None
 
 # ===== ROUTES =====
 app.include_router(staff.router, prefix="/api/staff", tags=["staff"])
@@ -330,6 +352,58 @@ async def logout():
         "success": True,
         "message": "Logged out successfully"
     }
+
+# ===== PLATFORM AUTH (Restaurant Website Admin) =====
+
+@app.post("/platform/auth/login")
+@limiter.limit(LIMITS["auth"])
+async def platform_login(request: Request, login_data: PlatformLoginRequest):
+    """Platform restaurant user login — separate from En Place staff auth"""
+    try:
+        user_data = await authenticate_platform_user_db(login_data.email.lower())
+        if not user_data:
+            return {
+                "success": False,
+                "error": "Invalid email or password"
+            }
+        if not verify_password(login_data.password, user_data['password_hash']):
+            return {
+                "success": False,
+                "error": "Invalid email or password"
+            }
+
+        # Update last login
+        try:
+            supabase.rpc('update_platform_user_last_login', {'p_user_id': user_data['id']}).execute()
+        except Exception as e:
+            logger.warning(f"Failed to update platform last login: {e}")
+
+        # JWT with platform-specific claims
+        payload = {
+            "user_id": user_data["id"],
+            "email": user_data["email"],
+            "full_name": user_data["full_name"],
+            "role": user_data["role"],
+            "restaurant_id": user_data["restaurant_id"],
+            "token_type": "platform",
+            "exp": datetime.utcnow() + timedelta(hours=24),
+            "iat": datetime.utcnow()
+        }
+        token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+        safe_user_data = {k: v for k, v in user_data.items() if k != 'password_hash'}
+        return {
+            "success": True,
+            "token": token,
+            "user": safe_user_data,
+            "redirect_url": "/admin/dashboard"
+        }
+    except Exception as e:
+        logger.error(f"Platform login error: {e}")
+        return {
+            "success": False,
+            "error": "An error occurred during login"
+        }
 
 @app.post("/auth/change-password")
 async def change_password(request: ChangePasswordRequest):
