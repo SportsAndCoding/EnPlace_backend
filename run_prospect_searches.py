@@ -10,7 +10,8 @@ import os
 import json
 import logging
 import sys
-from datetime import datetime
+import time
+import datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY]):
-    logger.error("Missing env vars: SUPABASE_URL, SUPABASE_KEY, or ANTHROPIC_API_KEY")
+    logger.error("Missing env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, or ANTHROPIC_API_KEY")
     sys.exit(1)
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -88,14 +89,26 @@ estimated_employees: rough guess based on restaurant size, type, and review volu
 Return ONLY valid JSON. No markdown, no backticks, no explanation."""
 
     try:
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4000,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            messages=[{"role": "user", "content": prompt}]
-        )
+        # Retry up to 3 times with increasing delays for rate limits
+        message = None
+        for attempt in range(3):
+            try:
+                message = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=4000,
+                    tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                break
+            except anthropic.RateLimitError:
+                wait = 30 * (attempt + 1)
+                logger.info(f"Rate limited, waiting {wait}s before retry {attempt + 2}/3")
+                time.sleep(wait)
 
-        # Log all content block types for debugging
+        if not message:
+            raise Exception("Rate limited after 3 attempts. Will retry next scheduler run.")
+
+        # Log response info
         logger.info(f"Response blocks: {[(b.type, len(b.text) if hasattr(b, 'text') else 'n/a') for b in message.content]}")
         logger.info(f"Stop reason: {message.stop_reason}")
 
@@ -106,13 +119,10 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
                 response_text += block.text
 
         logger.info(f"Extracted text length: {len(response_text)}")
-        if len(response_text) < 50:
-            logger.info(f"Full extracted text: {response_text}")
 
-        # If no text found, Claude may need a continuation
+        # If no JSON found, send follow-up
         if not response_text.strip() or "[" not in response_text:
-            # Send a follow-up asking for just the JSON
-            logger.info("No JSON in response, sending follow-up message")
+            logger.info("No JSON in initial response, sending follow-up")
             followup = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=3000,
@@ -126,7 +136,6 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
             for block in followup.content:
                 if block.type == "text":
                     response_text += block.text
-            logger.info(f"Follow-up text length: {len(response_text)}")
 
         response_text = response_text.strip()
 
@@ -154,7 +163,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
         supabase.table("prospect_searches").update({
             "status": "completed",
             "results": prospects,
-            "completed_at": datetime.utcnow().isoformat()
+            "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }).eq("id", search_id).execute()
 
         logger.info(f"Search {search_id} completed: {len(prospects)} prospects found")
@@ -164,7 +173,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
         supabase.table("prospect_searches").update({
             "status": "failed",
             "error_message": str(e)[:500],
-            "completed_at": datetime.utcnow().isoformat()
+            "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }).eq("id", search_id).execute()
 
 
