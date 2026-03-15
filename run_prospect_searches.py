@@ -95,11 +95,38 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
             messages=[{"role": "user", "content": prompt}]
         )
 
+        # Log all content block types for debugging
+        logger.info(f"Response blocks: {[(b.type, len(b.text) if hasattr(b, 'text') else 'n/a') for b in message.content]}")
+        logger.info(f"Stop reason: {message.stop_reason}")
+
         # Extract text from response
         response_text = ""
         for block in message.content:
             if block.type == "text":
                 response_text += block.text
+
+        logger.info(f"Extracted text length: {len(response_text)}")
+        if len(response_text) < 50:
+            logger.info(f"Full extracted text: {response_text}")
+
+        # If no text found, Claude may need a continuation
+        if not response_text.strip() or "[" not in response_text:
+            # Send a follow-up asking for just the JSON
+            logger.info("No JSON in response, sending follow-up message")
+            followup = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=3000,
+                messages=[
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": [b for b in message.content]},
+                    {"role": "user", "content": "Now return ONLY the JSON array of restaurants you found. No explanation, just the JSON."}
+                ]
+            )
+            response_text = ""
+            for block in followup.content:
+                if block.type == "text":
+                    response_text += block.text
+            logger.info(f"Follow-up text length: {len(response_text)}")
 
         response_text = response_text.strip()
 
