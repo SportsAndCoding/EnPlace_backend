@@ -246,6 +246,8 @@ from routes.webinars import router as webinars_router
 app.include_router(webinars_router)
 from routes.social_graph import router as social_graph_router
 app.include_router(social_graph_router)
+from routes.prospecting import router as prospecting_router
+app.include_router(prospecting_router)
 
 
 @app.get("/")
