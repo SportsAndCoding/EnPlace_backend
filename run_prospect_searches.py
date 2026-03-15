@@ -1,6 +1,6 @@
 """
 PROSPECT SEARCH WORKER
-Run by Heroku Scheduler every 30 minutes.
+Run by Heroku Scheduler every 10 minutes.
 Picks up pending prospect searches, runs Claude with web search, saves results.
 
 Usage: heroku run python run_prospect_searches.py --app enplace-api-v3
@@ -16,7 +16,6 @@ import datetime
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 
-# Supabase
 from supabase import create_client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -32,6 +31,21 @@ import anthropic
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
+def extract_search_results(message):
+    """Extract readable text from web search result blocks."""
+    texts = []
+    for block in message.content:
+        if block.type == "text" and block.text.strip():
+            texts.append(block.text)
+        elif block.type == "web_search_tool_result":
+            for item in getattr(block, 'content', []):
+                if hasattr(item, 'text') and item.text:
+                    texts.append(item.text[:500])
+                elif hasattr(item, 'title') and hasattr(item, 'url'):
+                    texts.append(f"{item.title}: {item.url}")
+    return "\n\n".join(texts)
+
+
 def process_search(search):
     """Process a single prospect search using Claude with web search."""
     search_id = search["id"]
@@ -42,54 +56,20 @@ def process_search(search):
 
     logger.info(f"Processing search {search_id}: zip={zip_code}, radius={radius}mi, cuisine={cuisine}")
 
-    # Mark as processing
     supabase.table("prospect_searches").update({
         "status": "processing"
     }).eq("id", search_id).execute()
 
     cuisine_note = f"Focus on {cuisine} restaurants." if cuisine else "All cuisine types."
 
-    prompt = f"""You are a restaurant industry sales researcher. Find {max_results} independently-owned restaurants near zip code {zip_code} (within ~{radius} miles) that have BAD websites, NO website, or are using only a Facebook page as their web presence.
+    search_prompt = f"""Search for independently-owned restaurants near zip code {zip_code} (within ~{radius} miles). {cuisine_note}
 
-{cuisine_note}
+Find restaurants that have BAD websites, NO website, or only use Facebook as their web presence. NO chains or franchises.
 
-IMPORTANT RULES:
-- Only independently owned restaurants. NO chains, NO franchises.
-- Search for restaurants in this area, then check their actual websites.
-- A "bad website" means: outdated design, not mobile-friendly, broken links, uses a free site builder (Wix free tier, GoDaddy basic), no online menu, or just a Facebook page.
-- A restaurant with NO website at all is the best prospect.
-- Skip restaurants that already have professional, modern websites.
-
-For each restaurant found, return this EXACT JSON structure. Return ONLY the JSON array, no other text:
-
-[
-  {{
-    "restaurant_name": "Name of restaurant",
-    "address": "Full street address",
-    "city": "City",
-    "state": "State abbreviation",
-    "zip": "ZIP code",
-    "phone": "Phone number or empty string",
-    "cuisine_type": "Italian, Mexican, BBQ, etc.",
-    "current_website": "URL or 'None' or 'Facebook only'",
-    "website_score": 2,
-    "google_rating": 4.2,
-    "review_count": 156,
-    "estimated_employees": 15,
-    "owner_name": "Name if findable, otherwise empty string",
-    "facebook_url": "URL or empty string",
-    "instagram_url": "URL or empty string",
-    "notes": "Brief explanation of why they are a good prospect"
-  }}
-]
-
-website_score: 1 = no website at all, 2 = Facebook only, 3 = terrible/broken site, 4 = outdated but functional. Only return restaurants scoring 1-4.
-estimated_employees: rough guess based on restaurant size, type, and review volume.
-
-Return ONLY valid JSON. No markdown, no backticks, no explanation."""
+For each restaurant, search for their website and check if it exists and what quality it is. Find up to {max_results} restaurants."""
 
     try:
-        # Retry up to 3 times with increasing delays for rate limits
+        # STEP 1: Let Claude do web searches
         message = None
         for attempt in range(3):
             try:
@@ -97,7 +77,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
                     model="claude-sonnet-4-20250514",
                     max_tokens=4000,
                     tools=[{"type": "web_search_20250305", "name": "web_search"}],
-                    messages=[{"role": "user", "content": prompt}]
+                    messages=[{"role": "user", "content": search_prompt}]
                 )
                 break
             except anthropic.RateLimitError:
@@ -106,38 +86,77 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
                 time.sleep(wait)
 
         if not message:
-            raise Exception("Rate limited after 3 attempts. Will retry next scheduler run.")
+            raise Exception("Rate limited after 3 attempts")
 
-        # Log response info
-        logger.info(f"Response blocks: {[(b.type, len(b.text) if hasattr(b, 'text') else 'n/a') for b in message.content]}")
-        logger.info(f"Stop reason: {message.stop_reason}")
+        logger.info(f"Step 1 done. Stop reason: {message.stop_reason}, blocks: {len(message.content)}")
 
-        # Extract text from response
+        # Extract whatever text and search results we got
+        raw_findings = extract_search_results(message)
+
+        # Check if Claude already gave us JSON
+        if "[" in raw_findings and "]" in raw_findings:
+            start = raw_findings.find("[")
+            end = raw_findings.rfind("]") + 1
+            try:
+                prospects = json.loads(raw_findings[start:end])
+                logger.info(f"Got JSON directly from step 1: {len(prospects)} prospects")
+                supabase.table("prospect_searches").update({
+                    "status": "completed",
+                    "results": prospects,
+                    "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                }).eq("id", search_id).execute()
+                return
+            except json.JSONDecodeError:
+                pass
+
+        logger.info(f"Extracted {len(raw_findings)} chars of search findings. Sending to step 2.")
+
+        # STEP 2: Format the findings as JSON (no web search, fast)
+        format_prompt = f"""Based on the following research about restaurants near zip code {zip_code}, create a JSON array of prospects.
+
+RESEARCH FINDINGS:
+{raw_findings[:6000]}
+
+Return ONLY a valid JSON array with this structure for each restaurant found:
+[
+  {{
+    "restaurant_name": "Name",
+    "address": "Street address",
+    "city": "City",
+    "state": "ST",
+    "zip": "{zip_code}",
+    "phone": "Phone or empty string",
+    "cuisine_type": "Type",
+    "current_website": "URL or None or Facebook only",
+    "website_score": 2,
+    "google_rating": 4.2,
+    "review_count": 150,
+    "estimated_employees": 12,
+    "owner_name": "Name if found, else empty string",
+    "facebook_url": "URL or empty string",
+    "instagram_url": "URL or empty string",
+    "notes": "Why they need a website (1 sentence)"
+  }}
+]
+
+website_score: 1=no website, 2=Facebook only, 3=terrible site, 4=outdated. Only 1-4.
+Return ONLY the JSON array. No markdown, no backticks, no explanation."""
+
+        time.sleep(2)  # Brief pause to avoid rate limit
+
+        format_message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=3000,
+            messages=[{"role": "user", "content": format_prompt}]
+        )
+
         response_text = ""
-        for block in message.content:
+        for block in format_message.content:
             if block.type == "text":
                 response_text += block.text
 
-        logger.info(f"Extracted text length: {len(response_text)}")
-
-        # If no JSON found, send follow-up
-        if not response_text.strip() or "[" not in response_text:
-            logger.info("No JSON in initial response, sending follow-up")
-            followup = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=3000,
-                messages=[
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": [b for b in message.content]},
-                    {"role": "user", "content": "Now return ONLY the JSON array of restaurants you found. No explanation, just the JSON."}
-                ]
-            )
-            response_text = ""
-            for block in followup.content:
-                if block.type == "text":
-                    response_text += block.text
-
         response_text = response_text.strip()
+        logger.info(f"Step 2 response length: {len(response_text)}")
 
         # Strip markdown fences
         if response_text.startswith("```"):
@@ -157,7 +176,7 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
             if start >= 0 and end > start:
                 prospects = json.loads(response_text[start:end])
             else:
-                raise ValueError(f"Could not parse JSON from response: {response_text[:300]}")
+                raise ValueError(f"Could not parse JSON: {response_text[:300]}")
 
         # Save results
         supabase.table("prospect_searches").update({
@@ -178,7 +197,6 @@ Return ONLY valid JSON. No markdown, no backticks, no explanation."""
 
 
 def main():
-    # Find all pending searches
     result = supabase.table("prospect_searches") \
         .select("*") \
         .eq("status", "pending") \
