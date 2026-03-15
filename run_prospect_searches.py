@@ -142,10 +142,10 @@ Return ONLY a valid JSON array with this structure for each restaurant found:
 website_score: 1=no website, 2=Facebook only, 3=terrible site, 4=outdated. Only 1-4.
 Return ONLY the JSON array. No markdown, no backticks, no explanation."""
 
-        time.sleep(65)  # Wait for token bucket to refill before step 2
+        time.sleep(5)  # Brief pause between steps
 
         format_message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-haiku-4-5-20251001",
             max_tokens=3000,
             messages=[{"role": "user", "content": format_prompt}]
         )
