@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Supabase
 from supabase import create_client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY]):
