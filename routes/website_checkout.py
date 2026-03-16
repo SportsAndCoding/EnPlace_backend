@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/website-checkout", tags=["website-checkout"])
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBSITE_WEBHOOK_SECRET")
 
 PRICE_SETUP = os.environ.get("STRIPE_PRICE_WEBSITE_SETUP", "price_1TBgEL3LJ5OuNoyoKD4dEO7b")
 PRICE_MONTHLY = os.environ.get("STRIPE_PRICE_WEBSITE_HOSTING", "price_1TBgEz3LJ5OuNoyorC5MzQno")
