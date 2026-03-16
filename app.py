@@ -248,6 +248,8 @@ from routes.social_graph import router as social_graph_router
 app.include_router(social_graph_router)
 from routes.prospecting import router as prospecting_router
 app.include_router(prospecting_router)
+from routes.website_checkout import router as website_checkout_router
+app.include_router(website_checkout_router)
 
 
 @app.get("/")
