@@ -56,7 +56,7 @@ async def parse_menu(req: MenuParseRequest, user=Depends(verify_jwt_token)):
                 text = re.sub(r'\s+', ' ', text).strip()
 
                 # Limit to ~8000 chars to keep token count reasonable
-                menu_text = text[:8000]
+                menu_text = text[:12000]
 
         except Exception as e:
             logger.error(f"Failed to fetch menu URL: {e}")
@@ -103,7 +103,7 @@ RULES:
 
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=4000,
+            max_tokens=8000,
             messages=[{"role": "user", "content": prompt}]
         )
 
