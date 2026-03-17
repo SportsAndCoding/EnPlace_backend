@@ -250,6 +250,8 @@ from routes.prospecting import router as prospecting_router
 app.include_router(prospecting_router)
 from routes.website_checkout import router as website_checkout_router
 app.include_router(website_checkout_router)
+from routes.menu_parser import router as menu_parser_router
+app.include_router(menu_parser_router)
 
 
 @app.get("/")
