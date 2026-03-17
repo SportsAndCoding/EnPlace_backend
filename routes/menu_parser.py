@@ -1,16 +1,20 @@
 """
 MENU PARSER ROUTES
-AI-powered menu extraction. Takes a restaurant menu URL or raw text,
-returns structured JSON matching site-builder's menu_highlights format.
+AI-powered menu extraction. Async: submit returns immediately,
+background task processes, frontend polls for result.
 """
 import os
+import re
 import json
 import logging
+import threading
 import httpx
+from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from services.auth_service import verify_jwt_token
+from database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -24,48 +28,107 @@ class MenuParseRequest(BaseModel):
     raw_text: Optional[str] = None
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUBMIT (returns immediately)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 @router.post("/parse")
 async def parse_menu(req: MenuParseRequest, user=Depends(verify_jwt_token)):
-    """
-    Parse a restaurant menu from URL or raw text.
-    Returns structured JSON matching site-builder menu_highlights format.
-    """
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="Anthropic API key not configured")
-
     if not req.url and not req.raw_text:
         raise HTTPException(status_code=400, detail="Provide a menu URL or raw text")
 
-    menu_text = req.raw_text or ""
+    task_id = str(uuid4())
 
-    # If URL provided, fetch the page and extract text
-    if req.url and not menu_text:
-        try:
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                resp = await client.get(req.url, headers={
+    # Create the job record
+    supabase = get_supabase()
+    supabase.table("menu_parse_jobs").insert({
+        "id": task_id,
+        "status": "processing",
+        "input_url": req.url,
+        "input_text": (req.raw_text or "")[:500],  # Store just a preview
+    }).execute()
+
+    # Run the actual parsing in a background thread
+    thread = threading.Thread(
+        target=run_menu_parse,
+        args=(task_id, req.url, req.raw_text),
+        daemon=True
+    )
+    thread.start()
+
+    return {"success": True, "task_id": task_id, "status": "processing"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# POLL FOR RESULT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/result/{task_id}")
+async def get_parse_result(task_id: str, user=Depends(verify_jwt_token)):
+    supabase = get_supabase()
+    result = supabase.table("menu_parse_jobs") \
+        .select("status, result, error_message") \
+        .eq("id", task_id) \
+        .single() \
+        .execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    job = result.data
+    if job["status"] == "processing":
+        return {"status": "processing"}
+    elif job["status"] == "completed":
+        return {
+            "status": "completed",
+            "success": True,
+            "menu_highlights": job["result"]["menu_highlights"],
+            "categories": job["result"]["categories"],
+            "total_items": job["result"]["total_items"]
+        }
+    else:
+        return {"status": "failed", "error": job.get("error_message", "Unknown error")}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKGROUND WORKER (runs in thread, no timeout)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def run_menu_parse(task_id, url, raw_text):
+    """Runs in a background thread. Fetches menu, calls Claude, saves result."""
+    from supabase import create_client
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+    sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    try:
+        menu_text = raw_text or ""
+
+        # Fetch URL if provided
+        if url and not menu_text:
+            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+                resp = client.get(url, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 })
                 resp.raise_for_status()
                 html = resp.text
 
-                # Strip HTML tags to get raw text
-                import re
+                # Strip non-content HTML
                 text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
                 text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+                text = re.sub(r'<nav[^>]*>.*?</nav>', '', text, flags=re.DOTALL)
+                text = re.sub(r'<footer[^>]*>.*?</footer>', '', text, flags=re.DOTALL)
+                text = re.sub(r'<header[^>]*>.*?</header>', '', text, flags=re.DOTALL)
                 text = re.sub(r'<[^>]+>', ' ', text)
                 text = re.sub(r'\s+', ' ', text).strip()
-
-                # Limit to ~8000 chars to keep token count reasonable
                 menu_text = text[:12000]
 
-        except Exception as e:
-            logger.error(f"Failed to fetch menu URL: {e}")
-            raise HTTPException(status_code=400, detail=f"Could not fetch URL: {str(e)}")
+        if not menu_text.strip():
+            raise ValueError("No menu content found at that URL")
 
-    if not menu_text.strip():
-        raise HTTPException(status_code=400, detail="No menu content found at that URL")
-
-    try:
+        # Call Claude
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -97,7 +160,7 @@ RULES:
 - Use the restaurant's own category names when they exist in the text.
 - If an item has a description, put it in "note". Keep it under 60 characters.
 - If an item has multiple sizes/prices, use the most common price or the dinner price.
-- Use appropriate emoji for each category (🥢 sushi, 🔥 hibachi, 🥗 salads, 🍶 drinks, etc.)
+- Use appropriate emoji for each category.
 - Prices should include the $ sign.
 - Return ONLY the JSON array."""
 
@@ -113,8 +176,6 @@ RULES:
                 response_text += block.text
 
         response_text = response_text.strip()
-
-        # Strip markdown fences
         if response_text.startswith("```"):
             lines = response_text.split("\n")
             response_text = "\n".join(lines[1:])
@@ -131,21 +192,25 @@ RULES:
             if start >= 0 and end > start:
                 menu = json.loads(response_text[start:end])
             else:
-                raise ValueError("Could not parse menu JSON")
+                raise ValueError("Could not parse menu JSON from AI response")
 
-        # Count total items
         total_items = sum(len(cat.get("items", [])) for cat in menu)
 
-        return {
-            "success": True,
-            "categories": len(menu),
-            "total_items": total_items,
-            "menu_highlights": menu
-        }
+        # Save result
+        sb.table("menu_parse_jobs").update({
+            "status": "completed",
+            "result": {
+                "menu_highlights": menu,
+                "categories": len(menu),
+                "total_items": total_items
+            }
+        }).eq("id", task_id).execute()
 
-    except anthropic.APIError as e:
-        logger.error(f"Anthropic error parsing menu: {e}")
-        raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
+        logger.info(f"Menu parse {task_id} completed: {total_items} items in {len(menu)} categories")
+
     except Exception as e:
-        logger.error(f"Menu parse error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Menu parse {task_id} failed: {e}")
+        sb.table("menu_parse_jobs").update({
+            "status": "failed",
+            "error_message": str(e)[:500]
+        }).eq("id", task_id).execute()
