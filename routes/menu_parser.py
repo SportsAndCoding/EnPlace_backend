@@ -27,6 +27,54 @@ class MenuParseRequest(BaseModel):
     url: Optional[str] = None
     raw_text: Optional[str] = None
 
+from fastapi import File, UploadFile
+
+
+@router.post("/parse-pdf")
+async def parse_menu_pdf(file: UploadFile = File(...), user=Depends(verify_jwt_token)):
+    """Parse a menu from an uploaded PDF file."""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="Anthropic API key not configured")
+
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    try:
+        import pdfplumber
+        import io
+
+        content = await file.read()
+        pdf = pdfplumber.open(io.BytesIO(content))
+        text = ""
+        for page in pdf.pages:
+            text += (page.extract_text() or "") + "\n"
+        pdf.close()
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+
+        # Reuse the async flow
+        task_id = str(uuid4())
+        supabase = get_supabase()
+        supabase.table("menu_parse_jobs").insert({
+            "id": task_id,
+            "status": "processing",
+            "input_url": file.filename,
+            "input_text": text[:500],
+        }).execute()
+
+        thread = threading.Thread(
+            target=run_menu_parse,
+            args=(task_id, None, text[:12000]),
+            daemon=True
+        )
+        thread.start()
+
+        return {"success": True, "task_id": task_id, "status": "processing"}
+
+    except Exception as e:
+        logger.error(f"PDF parse error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUBMIT (returns immediately)
