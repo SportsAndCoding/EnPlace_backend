@@ -93,7 +93,7 @@ For each restaurant found, include: name, address, city, state, zip, phone, cuis
         for attempt in range(3):
             try:
                 message = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-haiku-4-5-20251001",
                     max_tokens=4000,
                     tools=[{"type": "web_search_20250305", "name": "web_search"}],
                     messages=[{"role": "user", "content": search_prompt}]
