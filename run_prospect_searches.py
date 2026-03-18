@@ -62,11 +62,30 @@ def process_search(search):
 
     cuisine_note = f"Focus on {cuisine} restaurants." if cuisine else "All cuisine types."
 
-    search_prompt = f"""Search for independently-owned restaurants near zip code {zip_code} (within ~{radius} miles). {cuisine_note}
+    search_prompt = f"""You are a restaurant industry sales researcher finding prospects near zip code {zip_code} (within ~{radius} miles). {cuisine_note}
 
-Find restaurants that have BAD websites, NO website, or only use Facebook as their web presence. NO chains or franchises.
+Your goal: find {max_results} independently-owned restaurants that need a better website.
 
-For each restaurant, search for their website and check if it exists and what quality it is. Find up to {max_results} restaurants."""
+SEARCH STRATEGY (do ALL of these):
+1. Search "restaurants near {zip_code}" and check the top results
+2. Search "best independent restaurants {zip_code}"
+3. Search "locally owned restaurants near {zip_code}"
+4. Search Yelp for restaurants in this zip code
+5. Search Google Maps for restaurants in this area
+6. Try different cuisine searches: "Mexican restaurant {zip_code}", "Italian restaurant {zip_code}", "BBQ restaurant {zip_code}", "pizza {zip_code}", "diner {zip_code}"
+
+For EACH restaurant you find:
+- Search for their website directly (e.g. "Restaurant Name website")
+- Check if the website exists, is modern, or is terrible
+- A restaurant with NO website, only a Facebook page, or a clearly outdated/broken site is a GOOD prospect
+
+IMPORTANT RULES:
+- Only independently owned. NO chains, NO franchises (no Applebees, Chilis, McDonalds, Olive Garden, etc.)
+- Get a DIVERSE mix of cuisine types. Do NOT return all the same cuisine.
+- Prioritize restaurants with high Google/Yelp ratings but bad web presence (these are the best prospects - great food, bad marketing)
+- Find at LEAST {max_results} restaurants. Search more if needed.
+
+For each restaurant found, include: name, address, city, state, zip, phone, cuisine type, current website URL (or "None" or "Facebook only"), website quality score 1-4, Google rating, review count, estimated employees, owner name if findable, Facebook URL, Instagram URL, and a note about why they need a website."""
 
     try:
         # STEP 1: Let Claude do web searches
