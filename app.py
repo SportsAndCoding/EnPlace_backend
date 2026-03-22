@@ -252,6 +252,8 @@ from routes.website_checkout import router as website_checkout_router
 app.include_router(website_checkout_router)
 from routes.menu_parser import router as menu_parser_router
 app.include_router(menu_parser_router)
+from routes.proof import router as proof_router
+app.include_router(proof_router)
 
 
 @app.get("/")
