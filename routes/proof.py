@@ -303,7 +303,8 @@ async def proof_search(
             "premise_zip, premise_county, license_issue_date, license_expiry_date, "
             "first_seen_at, is_current, latitude, longitude"
         ) \
-        .eq("is_current", True)
+        .eq("is_current", True) \
+        .not_.in_("license_status", ["CANCELED / DEACTIVATED", "EXPIRED", "CANCELLED", "REVOKED", "INACTIVE"])
 
     # Filters
     if data.states:
