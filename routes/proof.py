@@ -322,9 +322,6 @@ async def proof_search(
     if data.categories:
         query = query.in_("business_category", data.categories)
 
-    if data.license_status:
-        query = query.not_.in_("license_status", ["CANCELED / DEACTIVATED", "EXPIRED", "CANCELLED", "REVOKED", "INACTIVE", "DENIED"])
-
     # Premium time-based filters
     if is_paid and data.new_since_days:
         cutoff = (datetime.utcnow() - timedelta(days=data.new_since_days)).date().isoformat()
@@ -461,7 +458,7 @@ async def proof_enrich(
                     "https://maps.googleapis.com/maps/api/place/details/json",
                     params={
                         "place_id": place_id,
-                        "fields": "name,formatted_phone_number,website,rating,user_ratings_total,opening_hours",
+                        "fields": "name,formatted_phone_number,website,rating,user_ratings_total,opening_hours,price_level,business_status",
                         "key": GOOGLE_PLACES_API_KEY
                     },
                     timeout=10.0
@@ -469,11 +466,15 @@ async def proof_enrich(
                 detail_data = detail_resp.json()
                 place = detail_data.get("result", {})
 
+                hours = place.get("opening_hours", {}).get("weekday_text", [])
                 enrichment.update({
                     "phone": place.get("formatted_phone_number"),
                     "website": place.get("website"),
                     "google_rating": place.get("rating"),
                     "google_review_count": place.get("user_ratings_total"),
+                    "price_level": place.get("price_level"),
+                    "business_status": place.get("business_status"),
+                    "opening_hours": hours if hours else None,
                     "confidence_score": 0.85
                 })
 
