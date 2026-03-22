@@ -323,7 +323,7 @@ async def proof_search(
         query = query.in_("business_category", data.categories)
 
     if data.license_status:
-        query = query.eq("license_status", data.license_status)
+        query = query.not_.in_("license_status", ["CANCELED / DEACTIVATED", "EXPIRED", "CANCELLED", "REVOKED", "INACTIVE", "DENIED"])
 
     # Premium time-based filters
     if is_paid and data.new_since_days:
