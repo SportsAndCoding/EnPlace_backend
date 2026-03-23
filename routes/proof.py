@@ -1130,6 +1130,103 @@ async def proof_outreach(
         logger.error(f"Outreach error: {e}")
         raise HTTPException(status_code=500, detail="Outreach generation failed")
 
+class ProofSaveContactRequest(BaseModel):
+    prospect_id: Optional[str] = None
+    business_name: str
+    legal_name: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    county: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    category: Optional[str] = None
+    notes: Optional[str] = None
+    source: Optional[str] = "search"
+
+
+@router.post("/contacts/save")
+async def proof_save_contact(
+    data: ProofSaveContactRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Save a prospect to the user's contacts."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    # Check if already saved
+    if data.prospect_id:
+        existing = supabase.table("proof_contacts") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .eq("prospect_id", data.prospect_id) \
+            .execute()
+        if existing.data:
+            return {"success": True, "message": "Already in your contacts", "contact_id": existing.data[0]["id"], "already_saved": True}
+
+    # Check for enrichment data to carry over
+    enrichment_data = None
+    if data.prospect_id:
+        enrich = supabase.table("prospect_enrichments") \
+            .select("*") \
+            .eq("prospect_id", data.prospect_id) \
+            .execute()
+        if enrich.data:
+            enrichment_data = enrich.data[0]
+
+    # Check for dossier
+    has_dossier = False
+    if data.prospect_id:
+        dossier = supabase.table("proof_dossier_cache") \
+            .select("id") \
+            .eq("prospect_id", data.prospect_id) \
+            .execute()
+        has_dossier = bool(dossier.data)
+
+    contact = supabase.table("proof_contacts").insert({
+        "user_id": user_id,
+        "prospect_id": data.prospect_id,
+        "business_name": data.business_name,
+        "legal_name": data.legal_name,
+        "address": data.address,
+        "city": data.city,
+        "state": data.state,
+        "zip": data.zip,
+        "county": data.county,
+        "phone": data.phone or (enrichment_data.get("phone") if enrichment_data else None),
+        "email": data.email,
+        "website": data.website or (enrichment_data.get("website") if enrichment_data else None),
+        "category": data.category,
+        "notes": data.notes,
+        "source": data.source or "search",
+        "status": "lead",
+        "enrichment_data": enrichment_data,
+        "has_dossier": has_dossier,
+    }).execute()
+
+    return {
+        "success": True,
+        "message": "Saved to contacts",
+        "contact_id": contact.data[0]["id"],
+        "already_saved": False
+    }
+
+
+@router.get("/contacts")
+async def proof_get_contacts(
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get all contacts for the current user."""
+    supabase = get_supabase()
+    result = supabase.table("proof_contacts") \
+        .select("*") \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .order("created_at", desc=True) \
+        .execute()
+    return {"success": True, "contacts": result.data}
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CREDITS & CHECKOUT
