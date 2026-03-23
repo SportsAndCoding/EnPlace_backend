@@ -2,16 +2,29 @@
 """
 Proof Intelligence API
 ======================
-Restaurant data platform with freemium access to liquor license records,
-Google Places enrichment, and AI-powered dossiers.
+National liquor license database with enrichment, dossiers, and sales intelligence.
+
+Session refinements applied:
+- Conditional pricing: free vs paid tier rates
+- No-charge enrichment when Google returns no useful data
+- Yelp Fusion parallel enrichment
+- Expanded Google Places fields
+- Deterministic search sort
+- Removed duplicate license_status filter
+- Leadership Signal (GM vacancy) in dossier prompt
+- Outreach drafting endpoint
+- $10 credit pack for free tier users
 """
 
 import os
 import jwt
 import stripe
 import httpx
+import asyncio
 import logging
 import bcrypt
+import secrets
+import json
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request, Header, Depends
@@ -27,13 +40,15 @@ security = HTTPBearer()
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET_PROOF = os.environ.get("STRIPE_WEBHOOK_SECRET_PROOF")
-GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+GOOGLE_PLACES_API_KEY       = os.environ.get("GOOGLE_PLACES_API_KEY")
+YELP_API_KEY                = os.environ.get("YELP_API_KEY")
+ANTHROPIC_API_KEY           = os.environ.get("ANTHROPIC_API_KEY")
 
 PROOF_PRICE_IDS = {
-    "individual": os.environ.get("STRIPE_PRICE_PROOF_INDIVIDUAL"),
-    "team":       os.environ.get("STRIPE_PRICE_PROOF_TEAM"),
-    "company":    os.environ.get("STRIPE_PRICE_PROOF_COMPANY"),
+    "individual":  os.environ.get("STRIPE_PRICE_PROOF_INDIVIDUAL"),
+    "team":        os.environ.get("STRIPE_PRICE_PROOF_TEAM"),
+    "company":     os.environ.get("STRIPE_PRICE_PROOF_COMPANY"),
+    "credits_10":  os.environ.get("STRIPE_PRICE_PROOF_CREDITS_10"),   # free tier entry
     "credits_25":  os.environ.get("STRIPE_PRICE_PROOF_CREDITS_25"),
     "credits_50":  os.environ.get("STRIPE_PRICE_PROOF_CREDITS_50"),
     "credits_100": os.environ.get("STRIPE_PRICE_PROOF_CREDITS_100"),
@@ -41,22 +56,33 @@ PROOF_PRICE_IDS = {
 
 PLAN_SEAT_LIMITS = {
     "individual": 1,
-    "team": 10,
-    "company": 25,
+    "team":       10,
+    "company":    25,
     "enterprise": None,
 }
 
 CREDIT_PACK_AMOUNTS = {
+    "credits_10":  10.00,
     "credits_25":  25.00,
     "credits_50":  50.00,
     "credits_100": 100.00,
 }
 
-ENRICHMENT_COST  = 0.01   # Google Places
-DOSSIER_COST     = 1.00   # Claude AI
+# ── Pricing by plan ──
+# Free tier pays premium rates. Paid tier pays standard rates.
+ENRICHMENT_COST_PAID = 0.01
+ENRICHMENT_COST_FREE = 0.25
+DOSSIER_COST_PAID    = 1.00
+DOSSIER_COST_FREE    = 10.00
 
-PROOF_SUCCESS_URL = "https://proof.en-place.ai/register?session_id={CHECKOUT_SESSION_ID}"
-PROOF_CANCEL_URL  = "https://proof.en-place.ai/pricing"
+# Dead license statuses — excluded from all search results
+DEAD_STATUSES = [
+    "CANCELED / DEACTIVATED", "EXPIRED", "CANCELLED",
+    "REVOKED", "INACTIVE", "DENIED", "VOID"
+]
+
+PROOF_SUCCESS_URL = "https://proof.en-place.ai/credits?session_id={CHECKOUT_SESSION_ID}"
+PROOF_CANCEL_URL  = "https://proof.en-place.ai/credits"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -79,18 +105,18 @@ class ProofSearchRequest(BaseModel):
     city: Optional[str] = None
     zip_code: Optional[str] = None
     county: Optional[str] = None
+    address: Optional[str] = None
     categories: Optional[List[str]] = None
-    license_status: Optional[str] = "active"
-    new_since_days: Optional[int] = None      # premium: new issuances
-    expiring_within_days: Optional[int] = None # premium: expiring soon
+    new_since_days: Optional[int] = None
+    expiring_within_days: Optional[int] = None
     page: int = 1
     page_size: int = 25
 
 class ProofSubscriptionRequest(BaseModel):
-    plan: str  # individual, team, company
+    plan: str
 
 class ProofCreditsRequest(BaseModel):
-    pack: str  # credits_25, credits_50, credits_100
+    pack: str
 
 class ProofDigestRequest(BaseModel):
     states: List[str]
@@ -100,6 +126,11 @@ class ProofDigestRequest(BaseModel):
 class OrgInviteRequest(BaseModel):
     email: EmailStr
     full_name: str
+
+class ProofOutreachRequest(BaseModel):
+    prospect_id: str
+    dossier_text: str
+    outreach_type: Optional[str] = "email"  # email, call_script, both
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -139,18 +170,22 @@ def verify_proof_token(
 
 
 def require_paid(current_user: dict = Depends(verify_proof_token)) -> dict:
-    """Gate endpoints to paid plans only."""
-    if current_user.get("plan", "free") == "free":
-        raise HTTPException(
-            status_code=403,
-            detail="This feature requires a paid plan. Upgrade at proof.en-place.ai/pricing"
-        )
-    if current_user.get("plan_status") not in ("active", "trialing"):
+    """Require any active plan (free users can still use paid endpoints at premium rates)."""
+    if current_user.get("plan_status") not in ("active", "trialing", None):
         raise HTTPException(
             status_code=403,
             detail="Your subscription is inactive. Please update your billing."
         )
     return current_user
+
+
+def get_costs(current_user: dict) -> tuple:
+    """Return (enrichment_cost, dossier_cost) based on user plan."""
+    is_paid = current_user.get("plan", "free") != "free"
+    return (
+        ENRICHMENT_COST_PAID if is_paid else ENRICHMENT_COST_FREE,
+        DOSSIER_COST_PAID    if is_paid else DOSSIER_COST_FREE
+    )
 
 
 def hash_password(password: str) -> str:
@@ -170,7 +205,6 @@ async def proof_register(data: ProofRegisterRequest):
     """Create a free Proof Intelligence account."""
     supabase = get_supabase()
 
-    # Check duplicate email
     existing = supabase.table("proof_users") \
         .select("id") \
         .eq("email", data.email.lower()) \
@@ -230,7 +264,6 @@ async def proof_login(data: ProofLoginRequest):
     if user.get("plan_status") == "cancelled":
         raise HTTPException(status_code=403, detail="Your account has been cancelled")
 
-    # Update last login
     supabase.table("proof_users").update({
         "last_login": datetime.utcnow().isoformat()
     }).eq("id", user["id"]).execute()
@@ -281,8 +314,9 @@ async def proof_search(
 ):
     """
     Search prospect_master records.
-    Free tier: basic fields only, no export, no time-based filters.
-    Paid tier: full fields, time-based filters, export.
+    Free: browse only, no time-based filters.
+    Paid: full filters, export enabled.
+    Results are deterministically sorted by city + DBA name.
     """
     supabase = get_supabase()
     plan = current_user.get("plan", "free")
@@ -295,7 +329,7 @@ async def proof_search(
             detail="New issuance and expiry filters require a paid plan"
         )
 
-    # Build base query
+    # Base query — exclude dead licenses, sort deterministically
     query = supabase.table("prospect_master") \
         .select(
             "id, legal_name, dba_name, business_category, raw_license_type, "
@@ -304,7 +338,9 @@ async def proof_search(
             "first_seen_at, is_current, latitude, longitude"
         ) \
         .eq("is_current", True) \
-        .not_.in_("license_status", ["CANCELED / DEACTIVATED", "EXPIRED", "CANCELLED", "REVOKED", "INACTIVE"])
+        .not_.in_("license_status", DEAD_STATUSES) \
+        .order("premise_city") \
+        .order("dba_name")
 
     # Filters
     if data.states:
@@ -319,35 +355,43 @@ async def proof_search(
     if data.county:
         query = query.ilike("premise_county", f"%{data.county}%")
 
+    if data.address:
+        query = query.ilike("premise_address1", f"%{data.address}%")
+
     if data.categories:
         query = query.in_("business_category", data.categories)
 
-    # Premium time-based filters
+    # Premium: new issuances (via license_issue_date where available)
     if is_paid and data.new_since_days:
         cutoff = (datetime.utcnow() - timedelta(days=data.new_since_days)).date().isoformat()
-        query = query.gte("license_issue_date", cutoff) \
-                     .lte("license_issue_date", datetime.utcnow().date().isoformat())
+        query = query \
+            .gte("license_issue_date", cutoff) \
+            .lte("license_issue_date", datetime.utcnow().date().isoformat()) \
+            .gt("license_issue_date", "2000-01-01")
 
+    # Premium: expiring soon
     if is_paid and data.expiring_within_days:
-        today = datetime.utcnow().date().isoformat()
+        today  = datetime.utcnow().date().isoformat()
         future = (datetime.utcnow() + timedelta(days=data.expiring_within_days)).date().isoformat()
-        query = query.gte("license_expiry_date", today) \
-                     .lte("license_expiry_date", future)
+        query  = query \
+            .gte("license_expiry_date", today) \
+            .lte("license_expiry_date", future)
 
     # Pagination
     offset = (data.page - 1) * data.page_size
-    query = query.range(offset, offset + data.page_size - 1)
+    query  = query.range(offset, offset + data.page_size - 1)
 
     result = query.execute()
 
-    # Log search for analytics
+    # Log search (non-blocking)
     try:
         supabase.table("prospect_searches").insert({
-            "user_id": current_user["proof_user_id"],
+            "proof_user_id": current_user["proof_user_id"],
             "filters": {
                 "states": data.states,
                 "city": data.city,
                 "zip": data.zip_code,
+                "address": data.address,
                 "categories": data.categories,
                 "new_since_days": data.new_since_days,
                 "expiring_within_days": data.expiring_within_days
@@ -356,7 +400,7 @@ async def proof_search(
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception:
-        pass  # Don't fail search if logging fails
+        pass
 
     return {
         "success": True,
@@ -368,22 +412,103 @@ async def proof_search(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ENRICHMENT (Google Places)
+# ENRICHMENT — Google Places + Yelp Fusion (parallel)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+async def _fetch_google_places(client: httpx.AsyncClient, query: str) -> dict:
+    """Fetch Google Places data for a business."""
+    try:
+        find_resp = await client.get(
+            "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
+            params={
+                "input": query,
+                "inputtype": "textquery",
+                "fields": "place_id,name,formatted_address",
+                "key": GOOGLE_PLACES_API_KEY
+            },
+            timeout=10.0
+        )
+        find_data = find_resp.json()
+
+        if not find_data.get("candidates"):
+            return {}
+
+        place_id = find_data["candidates"][0]["place_id"]
+
+        detail_resp = await client.get(
+            "https://maps.googleapis.com/maps/api/place/details/json",
+            params={
+                "place_id": place_id,
+                "fields": "name,formatted_phone_number,website,rating,user_ratings_total,opening_hours,price_level,business_status",
+                "key": GOOGLE_PLACES_API_KEY
+            },
+            timeout=10.0
+        )
+        detail_data = detail_resp.json()
+        place = detail_data.get("result", {})
+
+        return {
+            "phone": place.get("formatted_phone_number"),
+            "website": place.get("website"),
+            "google_rating": place.get("rating"),
+            "google_review_count": place.get("user_ratings_total"),
+            "price_level": place.get("price_level"),
+            "business_status": place.get("business_status"),
+            "opening_hours": place.get("opening_hours", {}).get("weekday_text") or None,
+        }
+    except Exception as e:
+        logger.warning(f"Google Places error: {e}")
+        return {}
+
+
+async def _fetch_yelp(client: httpx.AsyncClient, business_name: str, city: str, state: str, address: str) -> dict:
+    """Fetch Yelp Fusion data for a business."""
+    if not YELP_API_KEY:
+        return {}
+    try:
+        resp = await client.get(
+            "https://api.yelp.com/v3/businesses/search",
+            headers={"Authorization": f"Bearer {YELP_API_KEY}"},
+            params={
+                "term": business_name,
+                "location": f"{address} {city} {state}",
+                "limit": 1
+            },
+            timeout=10.0
+        )
+        data = resp.json()
+        businesses = data.get("businesses", [])
+        if not businesses:
+            return {}
+
+        biz = businesses[0]
+        return {
+            "yelp_rating": biz.get("rating"),
+            "yelp_review_count": biz.get("review_count"),
+        }
+    except Exception as e:
+        logger.warning(f"Yelp API error: {e}")
+        return {}
+
 
 @router.post("/enrich/{prospect_id}")
 async def proof_enrich(
     prospect_id: str,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
     """
-    Enrich a prospect record with Google Places data.
-    Costs $0.01 per record. Cached permanently after first lookup.
+    Enrich a prospect with Google Places + Yelp data in parallel.
+
+    Pricing:
+      - Pro plan: $0.01 — only charged if useful data is returned
+      - Free tier: $0.25 — only charged if useful data is returned
+      - Cached results: always free
     """
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
+    enrichment_cost, _ = get_costs(current_user)
 
-    # Check credit balance
+    # Check balance
     user = supabase.table("proof_users") \
         .select("credit_balance") \
         .eq("id", user_id) \
@@ -391,30 +516,30 @@ async def proof_enrich(
         .execute()
 
     balance = float(user.data.get("credit_balance", 0))
-    if balance < ENRICHMENT_COST:
+    if balance < enrichment_cost:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient credits. You have ${balance:.2f}, enrichment costs ${ENRICHMENT_COST:.2f}"
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, cost: ${enrichment_cost:.2f}"
         )
 
-    # Check enrichment cache first
+    # Check cache — cached results are always free
     cached = supabase.table("prospect_enrichments") \
         .select("*") \
         .eq("prospect_id", prospect_id) \
         .execute()
 
     if cached.data:
-        # Return cached — no charge
         return {
             "success": True,
             "enrichment": cached.data[0],
             "cached": True,
-            "charged": 0
+            "charged": 0,
+            "balance_remaining": balance
         }
 
-    # Get prospect record
+    # Fetch prospect
     prospect = supabase.table("prospect_master") \
-        .select("dba_name, legal_name, premise_address1, premise_city, premise_state") \
+        .select("dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip") \
         .eq("id", prospect_id) \
         .single() \
         .execute()
@@ -424,74 +549,55 @@ async def proof_enrich(
 
     p = prospect.data
     business_name = p.get("dba_name") or p.get("legal_name", "")
-    location = f"{p.get('premise_city', '')}, {p.get('premise_state', '')}"
-    query = f"{business_name} {p.get('premise_address1', '')} {location}"
+    city     = p.get("premise_city", "")
+    state    = p.get("premise_state", "")
+    address  = p.get("premise_address1", "")
+    gp_query = f"{business_name} {address} {city} {state}"
 
-    # Call Google Places API
     try:
         async with httpx.AsyncClient() as client:
-            # Find Place
-            find_resp = await client.get(
-                "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
-                params={
-                    "input": query,
-                    "inputtype": "textquery",
-                    "fields": "place_id,name,formatted_address",
-                    "key": GOOGLE_PLACES_API_KEY
-                },
-                timeout=10.0
+            # Run Google Places and Yelp in parallel
+            google_data, yelp_data = await asyncio.gather(
+                _fetch_google_places(client, gp_query),
+                _fetch_yelp(client, business_name, city, state, address),
+                return_exceptions=True
             )
-            find_data = find_resp.json()
 
-            enrichment = {
-                "prospect_id": prospect_id,
-                "enrichment_source": "google_places",
-                "enriched_at": datetime.utcnow().isoformat(),
-                "confidence_score": 0
-            }
+        # Handle exceptions from gather
+        if isinstance(google_data, Exception):
+            logger.warning(f"Google Places failed: {google_data}")
+            google_data = {}
+        if isinstance(yelp_data, Exception):
+            logger.warning(f"Yelp failed: {yelp_data}")
+            yelp_data = {}
 
-            if find_data.get("candidates"):
-                place_id = find_data["candidates"][0]["place_id"]
+        # Merge results
+        enrichment = {
+            "prospect_id": prospect_id,
+            "enrichment_source": "google_places+yelp",
+            "enriched_at": datetime.utcnow().isoformat(),
+            "confidence_score": 0.85 if google_data.get("phone") or google_data.get("website") else 0.3,
+            **google_data,
+            **yelp_data,
+        }
 
-                # Get Place Details
-                detail_resp = await client.get(
-                    "https://maps.googleapis.com/maps/api/place/details/json",
-                    params={
-                        "place_id": place_id,
-                        "fields": "name,formatted_phone_number,website,rating,user_ratings_total,opening_hours,price_level,business_status",
-                        "key": GOOGLE_PLACES_API_KEY
-                    },
-                    timeout=10.0
-                )
-                detail_data = detail_resp.json()
-                place = detail_data.get("result", {})
+        # Only charge if we got useful data
+        useful_fields = ["phone", "website", "google_rating", "yelp_rating"]
+        has_useful_data = any(enrichment.get(f) for f in useful_fields)
 
-                hours = place.get("opening_hours", {}).get("weekday_text", [])
-                enrichment.update({
-                    "phone": place.get("formatted_phone_number"),
-                    "website": place.get("website"),
-                    "google_rating": place.get("rating"),
-                    "google_review_count": place.get("user_ratings_total"),
-                    "price_level": place.get("price_level"),
-                    "business_status": place.get("business_status"),
-                    "opening_hours": hours if hours else None,
-                    "confidence_score": 0.85
-                })
+        # Save to cache regardless (prevents repeat API calls on empty results)
+        supabase.table("prospect_enrichments").insert(enrichment).execute()
 
-            # Save to cache
-            supabase.table("prospect_enrichments").insert(enrichment).execute()
-
-            # Deduct credit
-            new_balance = balance - ENRICHMENT_COST
+        if has_useful_data:
+            new_balance = balance - enrichment_cost
             supabase.table("proof_users").update({
                 "credit_balance": new_balance
             }).eq("id", user_id).execute()
 
-            # Log transaction
             supabase.table("proof_credit_transactions").insert({
                 "user_id": user_id,
                 "transaction_type": "enrichment",
-                "amount": -ENRICHMENT_COST,
+                "amount": -enrichment_cost,
                 "balance_after": new_balance,
                 "description": f"Enrichment: {business_name}",
                 "prospect_id": prospect_id,
@@ -502,71 +608,116 @@ async def proof_enrich(
                 "success": True,
                 "enrichment": enrichment,
                 "cached": False,
-                "charged": ENRICHMENT_COST,
+                "charged": enrichment_cost,
                 "balance_remaining": new_balance
+            }
+        else:
+            # No useful data found — no charge
+            return {
+                "success": True,
+                "enrichment": enrichment,
+                "cached": False,
+                "charged": 0,
+                "balance_remaining": balance,
+                "message": "No public data found for this location — no charge applied"
             }
 
     except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Google Places API timed out")
+        raise HTTPException(status_code=504, detail="Enrichment API timed out")
     except Exception as e:
         logger.error(f"Enrichment error for {prospect_id}: {e}")
         raise HTTPException(status_code=500, detail="Enrichment failed")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DOSSIER (Claude AI)
+# DOSSIER — Claude AI with Leadership Signal
 # ═══════════════════════════════════════════════════════════════════════════════
 
-DOSSIER_SYSTEM_PROMPT = """You are a restaurant industry intelligence researcher. When given a restaurant name and location, conduct exhaustive research and return a complete dossier that a sales rep or vendor can use to personalize their outreach and understand the account before walking in the door.
+DOSSIER_SYSTEM_PROMPT = """You are a restaurant industry intelligence researcher. When given a restaurant name and location, conduct exhaustive research and return a complete dossier that a sales rep, vendor, or recruiter can use to understand the account before walking in the door.
 
-Use web search aggressively. Check Google, Yelp, Facebook, Instagram, TripAdvisor, LinkedIn, state business registrations, local news, and any other available public sources.
+Use web search aggressively. Check Google, Yelp, Facebook, Instagram, TripAdvisor, LinkedIn, state business registrations, Indeed, Google Jobs, and local news.
 
 Return the report using these exact section headers. Plain text, no markdown tables. Direct and factual. No filler. If a section has nothing useful, write "Not found" and move on.
 
 ### 1. Basic Information
-Full legal business name, DBA, all addresses, phone, website URL (note quality: professional, outdated, broken, none, Facebook-only), hours, cuisine type, price range, estimated seating, year established, alcohol license type.
+Full legal business name, DBA, all addresses, phone, website URL (note quality: professional, outdated, broken, none, Facebook-only), hours, cuisine type, price range ($-$$$$), estimated seating capacity, year established, alcohol license type.
 
 ### 2. Ownership & Management
-Owner name(s), background, management structure, other businesses owned, LLC/entity name from state registry, multi-unit group check.
+Owner name(s), background (immigrant family, hospitality veteran, investor group, etc.), management structure (owner-operated, absentee, management company), other businesses owned by same entity, LLC/entity name from state registry, multi-unit group check.
 
 ### 3. LinkedIn Intelligence
-Search owner name + restaurant + LinkedIn. Profile URL, title, experience, hospitality background, tenure, other ventures, associations.
+Search owner name + restaurant name + LinkedIn. Profile URL if found, current title, previous experience, hospitality background, tenure at this restaurant, other business ventures, industry associations or groups.
 
 ### 4. Online Presence Audit
-Website platform and quality, Google Business Profile (claimed, rating, review count, response rate), Yelp (rating, count, claimed), Facebook (followers, posting frequency), Instagram (handle, followers, quality), TripAdvisor, third-party ordering platforms, reservation systems.
+Website platform and quality score (1-5: 1=none, 2=Facebook only, 3=poor, 4=outdated, 5=solid), Google Business Profile (claimed yes/no, rating, review count, response rate to reviews), Yelp (rating, count, claimed), Facebook (followers, posting frequency, last post date), Instagram (handle, followers, content quality), TripAdvisor ranking, third-party ordering platforms, reservation systems.
 
 ### 5. Reputation & Reviews
-Overall sentiment, praise themes, complaint themes, notable media coverage, health inspection issues, awards.
+Overall sentiment (positive/mixed/negative), common praise themes, common complaint themes, notable food blogger or media coverage, any health inspection issues or public complaints, awards or recognition.
 
 ### 6. Menu & Operations
-Menu highlights, format, average check, service types, special services, POS system if identifiable, active job postings.
+Menu highlights and signature dishes, menu format (printed only/PDF/interactive online), estimated average check per person, dine-in/takeout/delivery/catering availability, special services (private dining, events, happy hour), POS system if identifiable.
 
-### 7. Competitive Landscape
-Direct competitors within 5 miles, differentiation, competitor digital presence comparison.
+### 7. Hiring Activity
+Search Indeed, LinkedIn, and Google Jobs for active job postings at this establishment. Report:
+- Total number of open positions
+- Departments hiring (FOH, BOH, management)
+- Specific roles listed
+- How long postings have been active
+- Whether volume suggests growth or turnover problems
+If no postings found, note that explicitly.
 
-### 8. Account Intelligence
-Estimated annual revenue range, estimated employee count, identifiable pain points, website quality score (1-5), best contact method, owner email if public, best time to reach, hiring activity signal.
+### 8. Competitive Landscape
+Direct competitors within 5 miles in the same cuisine category. How does this establishment differentiate? Competitor website quality comparison.
 
-### 9. Multi-Unit Intelligence
-All locations under same ownership, business registrations check. Note: one location often opens door to all.
+### 9. Account Intelligence
+Estimated annual revenue range (based on seating, price point, location), estimated employee count, identifiable pain points based on reviews and online presence, best contact method (phone/email/walk-in/social), owner email if publicly available, best time to reach (avoid lunch and dinner rush), website quality score (1-5).
 
-### 10. Recommended Approach
-3-4 sentences: strongest hook, recommended first contact method, landmines to avoid, high/medium/low opportunity rating."""
+### 10. Multi-Unit Intelligence
+If the owner has multiple restaurants, list ALL of them with addresses. Check business registrations under same owner name and LLC. Note: landing one location in a group often opens the door to all locations.
+
+### 11. Leadership Signal
+Search Indeed, LinkedIn, Google Jobs, and general web search for evidence of GM or management changes at this location.
+
+Investigate:
+- Is there an active General Manager or AGM job posting?
+- Are there recent LinkedIn profiles listing this restaurant as current employer in a GM role?
+- Do recent Google or Yelp reviews mention "new management", "new owner", or "under new ownership"?
+- Any local news about leadership change?
+
+Return exactly one of these three verdicts on its own line:
+LEADERSHIP: GM STABLE
+LEADERSHIP: GM VACANCY
+LEADERSHIP: GM TRANSITION
+
+Then in one sentence explain what you found. If GM VACANCY or GM TRANSITION, this is high-priority intelligence.
+
+### 12. Recommended Approach
+Write 3-4 sentences covering: the single strongest hook for outreach, the recommended first contact method, any landmines to avoid (bad reviews they're sensitive about, competitor they hate), and assign one of these opportunity ratings:
+
+OPPORTUNITY: HIGH
+OPPORTUNITY: HIGH - MULTI-UNIT
+OPPORTUNITY: MEDIUM
+OPPORTUNITY: LOW"""
 
 
 @router.post("/dossier/{prospect_id}")
 async def proof_dossier(
     prospect_id: str,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
     """
-    Generate a full AI dossier for a prospect.
-    Costs $1.00 per record. Cached permanently after first generation.
+    Generate a full AI dossier including Leadership Signal (GM vacancy detection).
+
+    Pricing:
+      - Pro plan: $1.00
+      - Free tier: $10.00
+      - Cached: always free
     """
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
+    _, dossier_cost = get_costs(current_user)
 
-    # Check credit balance
+    # Check balance
     user = supabase.table("proof_users") \
         .select("credit_balance") \
         .eq("id", user_id) \
@@ -574,13 +725,13 @@ async def proof_dossier(
         .execute()
 
     balance = float(user.data.get("credit_balance", 0))
-    if balance < DOSSIER_COST:
+    if balance < dossier_cost:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient credits. You have ${balance:.2f}, dossier costs ${DOSSIER_COST:.2f}"
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${dossier_cost:.2f}"
         )
 
-    # Check dossier cache
+    # Check cache
     cached = supabase.table("proof_dossier_cache") \
         .select("*") \
         .eq("prospect_id", prospect_id) \
@@ -591,10 +742,11 @@ async def proof_dossier(
             "success": True,
             "dossier": cached.data[0]["dossier_text"],
             "cached": True,
-            "charged": 0
+            "charged": 0,
+            "balance_remaining": balance
         }
 
-    # Get prospect
+    # Fetch prospect
     prospect = supabase.table("prospect_master") \
         .select("dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip, business_category, raw_license_type") \
         .eq("id", prospect_id) \
@@ -606,12 +758,16 @@ async def proof_dossier(
 
     p = prospect.data
     business_name = p.get("dba_name") or p.get("legal_name", "Unknown")
-    city = p.get("premise_city", "")
+    city  = p.get("premise_city", "")
     state = p.get("premise_state", "")
 
-    user_prompt = f"Generate a complete dossier for: {business_name}, located at {p.get('premise_address1', '')}, {city}, {state} {p.get('premise_zip', '')}. License type: {p.get('raw_license_type', '')}."
+    user_prompt = (
+        f"Generate a complete dossier for: {business_name}, "
+        f"located at {p.get('premise_address1', '')}, {city}, {state} {p.get('premise_zip', '')}. "
+        f"Category: {p.get('business_category', '')}. "
+        f"License type: {p.get('raw_license_type', '')}."
+    )
 
-    # Call Anthropic API
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -625,7 +781,8 @@ async def proof_dossier(
                     "model": "claude-sonnet-4-20250514",
                     "max_tokens": 4000,
                     "system": DOSSIER_SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": user_prompt}]
+                    "messages": [{"role": "user", "content": user_prompt}],
+                    "tools": [{"type": "web_search_20250305", "name": "web_search"}]
                 },
                 timeout=120.0
             )
@@ -635,7 +792,14 @@ async def proof_dossier(
             logger.error(f"Anthropic API error: {resp_data}")
             raise HTTPException(status_code=500, detail="Dossier generation failed")
 
-        dossier_text = resp_data["content"][0]["text"]
+        # Extract text from response (may contain tool_use blocks)
+        dossier_text = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                dossier_text += block.get("text", "")
+
+        if not dossier_text:
+            raise HTTPException(status_code=500, detail="Dossier generation returned empty response")
 
         # Cache dossier
         supabase.table("proof_dossier_cache").insert({
@@ -646,16 +810,15 @@ async def proof_dossier(
         }).execute()
 
         # Deduct credit
-        new_balance = balance - DOSSIER_COST
+        new_balance = balance - dossier_cost
         supabase.table("proof_users").update({
             "credit_balance": new_balance
         }).eq("id", user_id).execute()
 
-        # Log transaction
         supabase.table("proof_credit_transactions").insert({
             "user_id": user_id,
             "transaction_type": "dossier",
-            "amount": -DOSSIER_COST,
+            "amount": -dossier_cost,
             "balance_after": new_balance,
             "description": f"Dossier: {business_name}",
             "prospect_id": prospect_id,
@@ -666,7 +829,7 @@ async def proof_dossier(
             "success": True,
             "dossier": dossier_text,
             "cached": False,
-            "charged": DOSSIER_COST,
+            "charged": dossier_cost,
             "balance_remaining": new_balance
         }
 
@@ -678,21 +841,138 @@ async def proof_dossier(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CREDITS
+# OUTREACH DRAFTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+OUTREACH_SYSTEM_PROMPT = """You are an expert B2B sales copywriter specializing in food and beverage industry outreach. 
+Given a restaurant intelligence dossier, write personalized outreach that a sales rep can send or use as a call script.
+
+The outreach should:
+- Open with something specific from the dossier — not generic
+- Reference a real signal (new license, GM vacancy, pain point, multi-unit opportunity)
+- Be concise — emails under 150 words, call scripts under 90 seconds
+- Sound human, not AI-generated
+- Never mention that you used a database or AI tool
+- End with a single clear call to action
+
+Return in this exact format with no preamble:
+
+SUBJECT: [email subject line]
+
+EMAIL:
+[email body — under 150 words]
+
+CALL SCRIPT:
+[what to say on the phone — under 90 seconds when read aloud, conversational tone]"""
+
+
+@router.post("/outreach")
+async def proof_outreach(
+    data: ProofOutreachRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """
+    Generate personalized outreach from a dossier.
+    Free with any dossier — no additional credit charge.
+    """
+    if not data.dossier_text or len(data.dossier_text) < 100:
+        raise HTTPException(status_code=400, detail="Dossier text too short to generate outreach")
+
+    # Get prospect name for context
+    supabase = get_supabase()
+    prospect = supabase.table("prospect_master") \
+        .select("dba_name, legal_name, premise_city, premise_state") \
+        .eq("id", data.prospect_id) \
+        .single() \
+        .execute()
+
+    business_name = "this restaurant"
+    if prospect.data:
+        business_name = prospect.data.get("dba_name") or prospect.data.get("legal_name", "this restaurant")
+
+    user_prompt = (
+        f"Write outreach for a sales rep approaching {business_name}. "
+        f"Use this intelligence dossier to personalize:\n\n{data.dossier_text[:3000]}"
+    )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1000,
+                    "system": OUTREACH_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": user_prompt}]
+                },
+                timeout=30.0
+            )
+            resp_data = resp.json()
+
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500, detail="Outreach generation failed")
+
+        outreach_text = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                outreach_text += block.get("text", "")
+
+        # Parse into structured response
+        subject, email_body, call_script = "", "", ""
+        if "SUBJECT:" in outreach_text:
+            lines = outreach_text.split("\n")
+            section = None
+            for line in lines:
+                if line.startswith("SUBJECT:"):
+                    subject = line.replace("SUBJECT:", "").strip()
+                elif line.strip() == "EMAIL:":
+                    section = "email"
+                elif line.strip() == "CALL SCRIPT:":
+                    section = "call"
+                elif section == "email":
+                    email_body += line + "\n"
+                elif section == "call":
+                    call_script += line + "\n"
+
+        return {
+            "success": True,
+            "subject": subject.strip(),
+            "email": email_body.strip(),
+            "call_script": call_script.strip(),
+            "raw": outreach_text
+        }
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Outreach generation timed out")
+    except Exception as e:
+        logger.error(f"Outreach error: {e}")
+        raise HTTPException(status_code=500, detail="Outreach generation failed")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CREDITS & CHECKOUT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/checkout/credits")
 async def proof_buy_credits(
     data: ProofCreditsRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
-    """Create a Stripe checkout session for credit top-up."""
-    if data.pack not in PROOF_PRICE_IDS:
+    """Create a Stripe checkout session for credit top-up. Available to all plans."""
+    if data.pack not in CREDIT_PACK_AMOUNTS:
         raise HTTPException(status_code=400, detail="Invalid credit pack")
 
     price_id = PROOF_PRICE_IDS.get(data.pack)
     if not price_id:
-        raise HTTPException(status_code=500, detail="Credit pack price not configured")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Credit pack '{data.pack}' price not configured. Contact support."
+        )
 
     try:
         session = stripe.checkout.Session.create(
@@ -763,7 +1043,7 @@ async def proof_credit_history(
         .select("*") \
         .eq("user_id", current_user["proof_user_id"]) \
         .order("created_at", desc=True) \
-        .limit(50) \
+        .limit(100) \
         .execute()
 
     return {"success": True, "transactions": result.data}
@@ -775,7 +1055,7 @@ async def proof_credit_history(
 
 @router.get("/org/members")
 async def proof_org_members(
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
     """Get all members of the current user's organization. Admin only."""
     if not current_user.get("is_org_admin"):
@@ -788,7 +1068,7 @@ async def proof_org_members(
     supabase = get_supabase()
 
     members = supabase.table("proof_users") \
-        .select("id, email, full_name, plan, plan_status, credit_balance, last_login, created_at") \
+        .select("id, email, full_name, plan, plan_status, credit_balance, last_login, created_at, is_org_admin") \
         .eq("organization_id", org_id) \
         .execute()
 
@@ -810,7 +1090,7 @@ async def proof_org_members(
 @router.post("/org/invite")
 async def proof_org_invite(
     data: OrgInviteRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
     """Invite a user to the organization. Admin only."""
     if not current_user.get("is_org_admin"):
@@ -822,7 +1102,6 @@ async def proof_org_invite(
 
     supabase = get_supabase()
 
-    # Check seat limit
     org = supabase.table("proof_organizations") \
         .select("seat_limit, plan") \
         .eq("id", org_id) \
@@ -843,7 +1122,6 @@ async def proof_org_invite(
                 detail=f"Seat limit reached ({seat_limit} seats). Upgrade your plan to add more members."
             )
 
-    # Check if user already exists
     existing = supabase.table("proof_users") \
         .select("id, organization_id") \
         .eq("email", data.email.lower()) \
@@ -854,7 +1132,6 @@ async def proof_org_invite(
         if user.get("organization_id"):
             raise HTTPException(status_code=409, detail="This user is already part of an organization")
 
-        # Add existing user to org
         supabase.table("proof_users").update({
             "organization_id": org_id,
             "plan": org.data["plan"],
@@ -863,11 +1140,9 @@ async def proof_org_invite(
 
         return {"success": True, "message": f"{data.email} added to your organization", "new_user": False}
 
-    # Create new user with temp password — they'll reset on first login
-    import secrets
     temp_password = secrets.token_urlsafe(16)
 
-    new_user = supabase.table("proof_users").insert({
+    supabase.table("proof_users").insert({
         "email": data.email.lower(),
         "password_hash": hash_password(temp_password),
         "full_name": data.full_name,
@@ -879,13 +1154,13 @@ async def proof_org_invite(
         "created_at": datetime.utcnow().isoformat()
     }).execute()
 
-    # TODO: Send welcome email with temp password via SendGrid
+    # TODO: Send welcome email via SendGrid
 
     return {
         "success": True,
-        "message": f"Account created for {data.email}. They will receive a welcome email.",
+        "message": f"Account created for {data.email}.",
         "new_user": True,
-        "temp_password": temp_password  # Remove once SendGrid email is wired up
+        "temp_password": temp_password
     }
 
 
@@ -896,13 +1171,15 @@ async def proof_org_invite(
 @router.post("/digest/subscribe")
 async def proof_digest_subscribe(
     data: ProofDigestRequest,
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
-    """Subscribe to weekly new license digest."""
+    """Subscribe to weekly new license digest. Paid plans only."""
+    if current_user.get("plan", "free") == "free":
+        raise HTTPException(status_code=403, detail="Weekly digest requires a paid plan")
+
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
 
-    # Upsert digest subscription
     existing = supabase.table("proof_digest_subscriptions") \
         .select("id") \
         .eq("user_id", user_id) \
@@ -927,13 +1204,13 @@ async def proof_digest_subscribe(
 
     return {
         "success": True,
-        "message": f"You'll receive weekly new license alerts for: {', '.join(data.states)}"
+        "message": f"Weekly alerts activated for: {', '.join(data.states)}"
     }
 
 
 @router.get("/digest/subscription")
 async def proof_digest_get(
-    current_user: dict = Depends(require_paid)
+    current_user: dict = Depends(verify_proof_token)
 ):
     """Get current digest subscription settings."""
     supabase = get_supabase()
@@ -950,7 +1227,7 @@ async def proof_digest_get(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# STRIPE WEBHOOK (Proof-specific)
+# STRIPE WEBHOOK
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/stripe/webhook")
@@ -971,19 +1248,16 @@ async def proof_stripe_webhook(
         except stripe.error.SignatureVerificationError:
             raise HTTPException(status_code=400, detail="Invalid signature")
     else:
-        import json
         event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
 
     event_type = event.type
-    data = event.data.object
+    data       = event.data.object
     logger.info(f"Proof Stripe webhook: {event_type}")
 
     if event_type == "checkout.session.completed":
         await handle_proof_checkout(data)
-
     elif event_type == "customer.subscription.deleted":
         await handle_proof_subscription_cancelled(data)
-
     elif event_type == "invoice.payment_failed":
         await handle_proof_payment_failed(data)
 
@@ -991,17 +1265,15 @@ async def proof_stripe_webhook(
 
 
 async def handle_proof_checkout(session):
-    """Handle completed checkout — activate subscription or add credits."""
     supabase = get_supabase()
     meta = session.metadata or {}
     user_id = meta.get("proof_user_id")
 
     if not user_id:
-        logger.error("Proof checkout completed with no proof_user_id in metadata")
+        logger.error("Proof checkout with no proof_user_id in metadata")
         return
 
     try:
-        # Credit purchase
         if meta.get("credit_pack"):
             credit_amount = float(meta.get("credit_amount", 0))
             if credit_amount > 0:
@@ -1030,12 +1302,10 @@ async def handle_proof_checkout(session):
 
                 logger.info(f"Added ${credit_amount} credits to user {user_id}")
 
-        # Subscription purchase
         elif meta.get("proof_plan"):
             plan = meta["proof_plan"]
             seat_limit = PLAN_SEAT_LIMITS.get(plan)
 
-            # Check if user is creating an org (team/company plans)
             if plan in ("team", "company"):
                 user = supabase.table("proof_users") \
                     .select("full_name, company, organization_id") \
@@ -1044,7 +1314,6 @@ async def handle_proof_checkout(session):
                     .execute()
 
                 if not user.data.get("organization_id"):
-                    # Create org
                     org = supabase.table("proof_organizations").insert({
                         "name": user.data.get("company") or f"{user.data.get('full_name')}'s Team",
                         "plan": plan,
@@ -1057,7 +1326,6 @@ async def handle_proof_checkout(session):
                     }).execute()
 
                     org_id = org.data[0]["id"]
-
                     supabase.table("proof_users").update({
                         "plan": plan,
                         "plan_status": "active",
@@ -1073,9 +1341,7 @@ async def handle_proof_checkout(session):
                         "stripe_customer_id": session.customer,
                         "stripe_subscription_id": session.subscription,
                     }).eq("id", user_id).execute()
-
             else:
-                # Individual plan
                 supabase.table("proof_users").update({
                     "plan": plan,
                     "plan_status": "active",
@@ -1090,27 +1356,23 @@ async def handle_proof_checkout(session):
 
 
 async def handle_proof_subscription_cancelled(subscription):
-    """Mark user as cancelled when subscription ends."""
     supabase = get_supabase()
     try:
         supabase.table("proof_users").update({
             "plan": "free",
             "plan_status": "cancelled"
         }).eq("stripe_subscription_id", subscription.id).execute()
-
         logger.info(f"Proof subscription cancelled: {subscription.id}")
     except Exception as e:
         logger.error(f"Error handling proof cancellation: {e}")
 
 
 async def handle_proof_payment_failed(invoice):
-    """Mark user as past_due on payment failure."""
     supabase = get_supabase()
     try:
         supabase.table("proof_users").update({
             "plan_status": "past_due"
         }).eq("stripe_subscription_id", invoice.subscription).execute()
-
-        logger.warning(f"Proof payment failed for subscription: {invoice.subscription}")
+        logger.warning(f"Proof payment failed: {invoice.subscription}")
     except Exception as e:
         logger.error(f"Error handling proof payment failure: {e}")
