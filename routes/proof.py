@@ -132,6 +132,10 @@ class ProofOutreachRequest(BaseModel):
     dossier_text: str
     outreach_type: Optional[str] = "email"  # email, call_script, both
 
+class ProofSaveSearchRequest(BaseModel):
+    name: str
+    filters: dict
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
@@ -369,6 +373,60 @@ async def proof_search(
         "page_size": data.page_size,
         "plan": plan
     }
+
+@router.post("/searches/save")
+async def proof_save_search(
+    data: ProofSaveSearchRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Save a search configuration."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    count = supabase.table("proof_saved_searches") \
+        .select("id") \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if len(count.data) >= 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 saved searches. Delete one to save a new one.")
+
+    result = supabase.table("proof_saved_searches").insert({
+        "user_id": user_id,
+        "name": data.name[:60],
+        "filters": data.filters,
+    }).execute()
+
+    return {"success": True, "search": result.data[0]}
+
+
+@router.get("/searches/saved")
+async def proof_get_saved_searches(
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get all saved searches for the current user."""
+    supabase = get_supabase()
+    result = supabase.table("proof_saved_searches") \
+        .select("*") \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .order("created_at", desc=True) \
+        .execute()
+    return {"success": True, "searches": result.data}
+
+
+@router.delete("/searches/{search_id}")
+async def proof_delete_saved_search(
+    search_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Delete a saved search."""
+    supabase = get_supabase()
+    supabase.table("proof_saved_searches") \
+        .delete() \
+        .eq("id", search_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .execute()
+    return {"success": True}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
