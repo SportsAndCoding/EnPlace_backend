@@ -136,6 +136,14 @@ class ProofSaveSearchRequest(BaseModel):
     name: str
     filters: dict
 
+class ProofMapHeadersRequest(BaseModel):
+    headers: List[str]
+
+
+class ProofImportRecordsRequest(BaseModel):
+    mapping: dict
+    records: List[dict]
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
@@ -427,6 +435,28 @@ async def proof_delete_saved_search(
         .eq("user_id", current_user["proof_user_id"]) \
         .execute()
     return {"success": True}
+
+@router.get("/prospect/{prospect_id}")
+async def proof_get_prospect(
+    prospect_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get a single prospect record."""
+    supabase = get_supabase()
+    result = supabase.table("prospect_master") \
+        .select(
+            "id, legal_name, dba_name, business_category, raw_license_type, "
+            "license_status, premise_address1, premise_city, premise_state, "
+            "premise_zip, premise_county, license_issue_date, license_expiry_date, "
+            "first_seen_at, latitude, longitude"
+        ) \
+        .eq("id", prospect_id) \
+        .execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Prospect not found")
+
+    return {"success": True, "prospect": result.data[0]}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1791,3 +1821,99 @@ async def handle_proof_payment_failed(invoice):
         logger.warning(f"Proof payment failed: {invoice.subscription}")
     except Exception as e:
         logger.error(f"Error handling proof payment failure: {e}")
+
+@router.post("/import/map-headers")
+async def proof_map_headers(
+    data: ProofMapHeadersRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Use AI to map CSV headers to proof_contacts schema."""
+    if not data.headers or len(data.headers) > 50:
+        raise HTTPException(status_code=400, detail="Invalid headers")
+
+    target_fields = "business_name, legal_name, address, city, state, zip, county, phone, email, website, category"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 500,
+                    "messages": [{"role": "user", "content": f"Map these CSV headers to these database fields. Return ONLY a JSON object where keys are the CSV headers and values are the matching database field name or null if no match.\n\nCSV headers: {json.dumps(data.headers)}\n\nDatabase fields: {target_fields}\n\nJSON only, no explanation:"}]
+                },
+                timeout=15.0
+            )
+            resp_data = resp.json()
+
+        text = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                text += block.get("text", "")
+
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[cleaned.index("\n") + 1:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+
+        mapping = json.loads(cleaned)
+        return {"success": True, "mapping": mapping}
+
+    except Exception as e:
+        logger.error(f"Header mapping error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to map headers")
+
+
+@router.post("/import/records")
+async def proof_import_records(
+    data: ProofImportRecordsRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Import mapped CSV records into proof_contacts."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if not data.records:
+        raise HTTPException(status_code=400, detail="No records to import")
+    if len(data.records) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 records per import")
+
+    allowed_fields = {"business_name", "legal_name", "address", "city", "state", "zip", "county", "phone", "email", "website", "category"}
+    imported = 0
+    skipped = 0
+
+    for row in data.records:
+        mapped = {}
+        for csv_header, db_field in data.mapping.items():
+            if db_field and db_field in allowed_fields and csv_header in row:
+                val = row[csv_header]
+                if val and str(val).strip():
+                    mapped[db_field] = str(val).strip()
+
+        if not mapped.get("business_name"):
+            skipped += 1
+            continue
+
+        mapped["user_id"] = user_id
+        mapped["source"] = "import"
+        mapped["status"] = "lead"
+
+        try:
+            supabase.table("proof_contacts").insert(mapped).execute()
+            imported += 1
+        except Exception as e:
+            logger.warning(f"Import row error: {e}")
+            skipped += 1
+
+    return {
+        "success": True,
+        "imported": imported,
+        "skipped": skipped,
+        "message": f"Imported {imported} contacts. {skipped} skipped."
+    }
