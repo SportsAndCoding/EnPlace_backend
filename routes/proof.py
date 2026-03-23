@@ -633,71 +633,91 @@ async def proof_enrich(
 # DOSSIER — Claude AI with Leadership Signal
 # ═══════════════════════════════════════════════════════════════════════════════
 
-DOSSIER_SYSTEM_PROMPT = """You are a restaurant industry intelligence researcher. When given a restaurant name and location, conduct exhaustive research and return a complete dossier that a sales rep, vendor, or recruiter can use to understand the account before walking in the door.
-
-Use web search aggressively. Check Google, Yelp, Facebook, Instagram, TripAdvisor, LinkedIn, state business registrations, Indeed, Google Jobs, and local news.
-
-Return the report using these exact section headers. Plain text, no markdown tables. Direct and factual. No filler. If a section has nothing useful, write "Not found" and move on.
-
-### 1. Basic Information
-Full legal business name, DBA, all addresses, phone, website URL (note quality: professional, outdated, broken, none, Facebook-only), hours, cuisine type, price range ($-$$$$), estimated seating capacity, year established, alcohol license type.
-
-### 2. Ownership & Management
-Owner name(s), background (immigrant family, hospitality veteran, investor group, etc.), management structure (owner-operated, absentee, management company), other businesses owned by same entity, LLC/entity name from state registry, multi-unit group check.
-
-### 3. LinkedIn Intelligence
-Search owner name + restaurant name + LinkedIn. Profile URL if found, current title, previous experience, hospitality background, tenure at this restaurant, other business ventures, industry associations or groups.
-
-### 4. Online Presence Audit
-Website platform and quality score (1-5: 1=none, 2=Facebook only, 3=poor, 4=outdated, 5=solid), Google Business Profile (claimed yes/no, rating, review count, response rate to reviews), Yelp (rating, count, claimed), Facebook (followers, posting frequency, last post date), Instagram (handle, followers, content quality), TripAdvisor ranking, third-party ordering platforms, reservation systems.
-
-### 5. Reputation & Reviews
-Overall sentiment (positive/mixed/negative), common praise themes, common complaint themes, notable food blogger or media coverage, any health inspection issues or public complaints, awards or recognition.
-
-### 6. Menu & Operations
-Menu highlights and signature dishes, menu format (printed only/PDF/interactive online), estimated average check per person, dine-in/takeout/delivery/catering availability, special services (private dining, events, happy hour), POS system if identifiable.
-
-### 7. Hiring Activity
-Search Indeed, LinkedIn, and Google Jobs for active job postings at this establishment. Report:
-- Total number of open positions
-- Departments hiring (FOH, BOH, management)
-- Specific roles listed
-- How long postings have been active
-- Whether volume suggests growth or turnover problems
-If no postings found, note that explicitly.
-
-### 8. Competitive Landscape
-Direct competitors within 5 miles in the same cuisine category. How does this establishment differentiate? Competitor website quality comparison.
-
-### 9. Account Intelligence
-Estimated annual revenue range (based on seating, price point, location), estimated employee count, identifiable pain points based on reviews and online presence, best contact method (phone/email/walk-in/social), owner email if publicly available, best time to reach (avoid lunch and dinner rush), website quality score (1-5).
-
-### 10. Multi-Unit Intelligence
-If the owner has multiple restaurants, list ALL of them with addresses. Check business registrations under same owner name and LLC. Note: landing one location in a group often opens the door to all locations.
-
-### 11. Leadership Signal
-Search Indeed, LinkedIn, Google Jobs, and general web search for evidence of GM or management changes at this location.
-
-Investigate:
-- Is there an active General Manager or AGM job posting?
-- Are there recent LinkedIn profiles listing this restaurant as current employer in a GM role?
-- Do recent Google or Yelp reviews mention "new management", "new owner", or "under new ownership"?
-- Any local news about leadership change?
-
-Return exactly one of these three verdicts on its own line:
-LEADERSHIP: GM STABLE
-LEADERSHIP: GM VACANCY
-LEADERSHIP: GM TRANSITION
-
-Then in one sentence explain what you found. If GM VACANCY or GM TRANSITION, this is high-priority intelligence.
-
-### 12. Recommended Approach
-Write 3-4 sentences covering: the single strongest hook for outreach, the recommended first contact method, any landmines to avoid (bad reviews they're sensitive about, competitor they hate), and assign one of these opportunity ratings:
-
-OPPORTUNITY: HIGH
-OPPORTUNITY: HIGH - MULTI-UNIT
-OPPORTUNITY: MEDIUM
-OPPORTUNITY: LOW"""
+DOSSIER_SYSTEM_PROMPT = """You are a restaurant industry intelligence researcher. When given a restaurant name and location, conduct exhaustive research using web search. Check Google, Yelp, Facebook, Instagram, TripAdvisor, LinkedIn, state business registrations, Indeed, Google Jobs, and local news.
+ 
+Return ONLY a valid JSON object. No markdown, no code fences, no preamble. Just the raw JSON.
+ 
+Reputation scores are your best estimates on a 1-10 scale synthesized from review data, sentiment analysis, and complaint frequency. Be honest. A 4.2 wait time score for a place with "long wait" complaints is correct. Do not inflate.
+ 
+Use this exact schema. Every top-level key is required. Use null for unknown values, empty arrays for no items.
+ 
+{
+  "basic_info": {
+    "legal_name": "string — full legal business name from state registry",
+    "dba": "string — DBA / trade name",
+    "cuisine": "string — e.g. American Steakhouse, Mexican, Italian",
+    "price_point": "string — $, $$, $$$, or $$$$",
+    "rating": "number or null — Google rating",
+    "review_count": "number or null — Google review count",
+    "avg_check": "string — e.g. $85 to 110/pp",
+    "year_established": "number or null",
+    "phone": "string or null",
+    "website": "string or null — full URL",
+    "website_quality": "number 1-5 — 1=none, 2=Facebook only, 3=poor/broken, 4=outdated, 5=solid",
+    "hours": "string or null — condensed format",
+    "seating_capacity": "number or null — estimate",
+    "alcohol_license": "string or null"
+  },
+  "ownership": {
+    "name": "string or null — primary owner/operator name",
+    "title": "string or null — e.g. Managing partner, Owner, CEO",
+    "background": "string or null — 1-2 sentences: career background, entity info",
+    "linkedin_url": "string or null — direct profile URL if found",
+    "entity_name": "string or null — LLC/corp name from state registry",
+    "structure": "string — owner-operated, absentee, management-company, investor-group",
+    "other_locations": [
+      {"name": "string", "location": "string — city, state"}
+    ]
+  },
+  "reputation_scores": {
+    "food_quality": "number 1-10 — synthesized from review themes",
+    "service": "number 1-10",
+    "wait_times": "number 1-10 — higher = shorter waits (better)",
+    "consistency": "number 1-10"
+  },
+  "pain_points": [
+    "string — each a specific, actionable insight. 3-6 items."
+  ],
+  "recommended_approach": {
+    "narrative": "string — 3-4 sentences: strongest hook, recommended contact method, landmines to avoid",
+    "opportunity": "string — exactly one of: HIGH - MULTI-UNIT, HIGH, MEDIUM, LOW",
+    "best_contact": "string — phone, email, walk-in, or social",
+    "best_time": "string — e.g. Tuesday-Thursday, 2-4pm"
+  },
+  "leadership": {
+    "verdict": "string — exactly one of: GM STABLE, GM VACANCY, GM TRANSITION",
+    "detail": "string — one sentence explaining the evidence"
+  },
+  "hiring": {
+    "total_openings": "number — 0 if none found",
+    "departments": ["string — FOH, BOH, management"],
+    "roles": ["string — specific role titles"],
+    "assessment": "string — one sentence: growth, turnover, or no activity"
+  },
+  "online_presence": {
+    "website_url": "string or null",
+    "website_quality": "number 1-5",
+    "google_claimed": "boolean or null",
+    "google_rating": "number or null",
+    "google_reviews": "number or null",
+    "google_response_rate": "string or null — e.g. responds to 80% of reviews",
+    "yelp_rating": "number or null",
+    "yelp_reviews": "number or null",
+    "facebook_followers": "number or null",
+    "facebook_last_post": "string or null — date or relative",
+    "instagram_handle": "string or null",
+    "instagram_followers": "number or null",
+    "ordering_platforms": ["string — DoorDash, UberEats, ChowNow, etc."],
+    "reservation_system": "string or null — OpenTable, Resy, etc."
+  },
+  "competitive_landscape": "string — 2-3 sentences on direct competitors and differentiation",
+  "menu_highlights": "string — 2-3 sentences on signature items, menu format, special services",
+  "account_intel": {
+    "est_revenue": "string — e.g. $2-3M annually",
+    "est_employees": "number or null",
+    "owner_email": "string or null — only if publicly available"
+  }
+}"""
 
 
 @router.post("/dossier/{prospect_id}")
@@ -738,9 +758,14 @@ async def proof_dossier(
         .execute()
 
     if cached.data:
+        cached_text = cached.data[0]["dossier_text"]
+        try:
+            dossier_data = json.loads(cached_text)
+        except (json.JSONDecodeError, ValueError):
+            dossier_data = cached_text
         return {
             "success": True,
-            "dossier": cached.data[0]["dossier_text"],
+            "dossier": dossier_data,
             "cached": True,
             "charged": 0,
             "balance_remaining": balance
@@ -801,15 +826,28 @@ async def proof_dossier(
         if not dossier_text:
             raise HTTPException(status_code=500, detail="Dossier generation returned empty response")
 
-        # Cache dossier
+        cleaned_text = dossier_text.strip()
+        if cleaned_text.startswith("```"):
+            first_newline = cleaned_text.index("\n")
+            cleaned_text = cleaned_text[first_newline + 1:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3].strip()
+
+        dossier_data = cleaned_text
+        try:
+            dossier_data = json.loads(cleaned_text)
+            cache_text = cleaned_text
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"Dossier for {prospect_id} returned non-JSON, storing as text")
+            cache_text = dossier_text
+
         supabase.table("proof_dossier_cache").insert({
             "prospect_id": prospect_id,
-            "dossier_text": dossier_text,
+            "dossier_text": cache_text,
             "generated_by": user_id,
             "created_at": datetime.utcnow().isoformat()
         }).execute()
 
-        # Deduct credit
         new_balance = balance - dossier_cost
         supabase.table("proof_users").update({
             "credit_balance": new_balance
@@ -827,7 +865,7 @@ async def proof_dossier(
 
         return {
             "success": True,
-            "dossier": dossier_text,
+            "dossier": dossier_data,
             "cached": False,
             "charged": dossier_cost,
             "balance_remaining": new_balance
