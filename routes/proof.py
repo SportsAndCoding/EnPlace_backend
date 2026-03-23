@@ -27,7 +27,7 @@ import secrets
 import json
 from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Request, Header, Depends
+from fastapi import APIRouter, HTTPException, Request, Header, Depends, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from database.supabase_client import get_supabase
@@ -683,8 +683,165 @@ Use this exact schema. Every top-level key is required. Use null for unknown val
 @router.post("/dossier/{prospect_id}")
 async def proof_dossier(
     prospect_id: str,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(verify_proof_token)
 ):
+    """
+    Start dossier generation as a background task.
+    Returns immediately. Frontend polls GET /dossier/{id}/status.
+    """
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+    _, dossier_cost = get_costs(current_user)
+
+    # Check balance
+    user = supabase.table("proof_users") \
+        .select("credit_balance") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+
+    balance = float(user.data.get("credit_balance", 0))
+    if balance < dossier_cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${dossier_cost:.2f}"
+        )
+
+    # Check cache — return immediately if cached
+    cached = supabase.table("proof_dossier_cache") \
+        .select("*") \
+        .eq("prospect_id", prospect_id) \
+        .execute()
+
+    if cached.data:
+        cached_text = cached.data[0]["dossier_text"]
+        try:
+            dossier_data = json.loads(cached_text)
+        except (json.JSONDecodeError, ValueError):
+            dossier_data = cached_text
+        return {
+            "success": True,
+            "dossier": dossier_data,
+            "cached": True,
+            "charged": 0,
+            "balance_remaining": balance
+        }
+
+    # Fetch prospect info for the background task
+    prospect = supabase.table("prospect_master") \
+        .select("dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip, business_category, raw_license_type") \
+        .eq("id", prospect_id) \
+        .single() \
+        .execute()
+
+    if not prospect.data:
+        raise HTTPException(status_code=404, detail="Prospect not found")
+
+    # Deduct credit NOW (before background task) so user can't double-spend
+    new_balance = balance - dossier_cost
+    supabase.table("proof_users").update({
+        "credit_balance": new_balance
+    }).eq("id", user_id).execute()
+
+    supabase.table("proof_credit_transactions").insert({
+        "user_id": user_id,
+        "transaction_type": "dossier",
+        "amount": -dossier_cost,
+        "balance_after": new_balance,
+        "description": f"Dossier: {prospect.data.get('dba_name') or prospect.data.get('legal_name', 'Unknown')}",
+        "prospect_id": prospect_id,
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
+
+    # Fire background task and return immediately
+    background_tasks.add_task(
+        _generate_dossier_background,
+        prospect_id, user_id, prospect.data
+    )
+
+    return {
+        "success": True,
+        "status": "generating",
+        "cached": False,
+        "charged": dossier_cost,
+        "balance_remaining": new_balance
+    }
+
+
+async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_data: dict):
+    """Background task: call Anthropic, cache result."""
+    p = prospect_data
+    business_name = p.get("dba_name") or p.get("legal_name", "Unknown")
+    city = p.get("premise_city", "")
+    state = p.get("premise_state", "")
+
+    user_prompt = (
+        f"Generate a complete dossier for: {business_name}, "
+        f"located at {p.get('premise_address1', '')}, {city}, {state} {p.get('premise_zip', '')}. "
+        f"Category: {p.get('business_category', '')}. "
+        f"License type: {p.get('raw_license_type', '')}."
+    )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 4000,
+                    "system": DOSSIER_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": user_prompt}],
+                    "tools": [{"type": "web_search_20250305", "name": "web_search"}]
+                },
+                timeout=180.0
+            )
+            resp_data = resp.json()
+
+        if resp.status_code != 200:
+            logger.error(f"Anthropic API error for dossier {prospect_id}: {resp_data}")
+            return
+
+        dossier_text = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                dossier_text += block.get("text", "")
+
+        if not dossier_text:
+            logger.error(f"Empty dossier response for {prospect_id}")
+            return
+
+        cleaned_text = dossier_text.strip()
+        if cleaned_text.startswith("```"):
+            first_newline = cleaned_text.index("\n")
+            cleaned_text = cleaned_text[first_newline + 1:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3].strip()
+
+        try:
+            json.loads(cleaned_text)
+            cache_text = cleaned_text
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"Dossier for {prospect_id} returned non-JSON, storing as text")
+            cache_text = dossier_text
+
+        supabase = get_supabase()
+        supabase.table("proof_dossier_cache").insert({
+            "prospect_id": prospect_id,
+            "dossier_text": cache_text,
+            "generated_by": user_id,
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        logger.info(f"Dossier cached for {prospect_id}")
+
+    except Exception as e:
+        logger.error(f"Background dossier error for {prospect_id}: {e}")
     """
     Generate a full AI dossier including Leadership Signal (GM vacancy detection).
 
@@ -769,7 +926,7 @@ async def proof_dossier(
                     "messages": [{"role": "user", "content": user_prompt}],
                     "tools": [{"type": "web_search_20250305", "name": "web_search"}]
                 },
-                timeout=120.0
+                timeout=180.0
             )
             resp_data = resp.json()
 
@@ -836,6 +993,28 @@ async def proof_dossier(
     except Exception as e:
         logger.error(f"Dossier error for {prospect_id}: {e}")
         raise HTTPException(status_code=500, detail="Dossier generation failed")
+
+@router.get("/dossier/{prospect_id}/status")
+async def proof_dossier_status(
+    prospect_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Poll for dossier completion. Returns cached result if ready."""
+    supabase = get_supabase()
+    cached = supabase.table("proof_dossier_cache") \
+        .select("dossier_text") \
+        .eq("prospect_id", prospect_id) \
+        .execute()
+
+    if cached.data:
+        cached_text = cached.data[0]["dossier_text"]
+        try:
+            dossier_data = json.loads(cached_text)
+        except (json.JSONDecodeError, ValueError):
+            dossier_data = cached_text
+        return {"status": "complete", "dossier": dossier_data}
+
+    return {"status": "generating"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
