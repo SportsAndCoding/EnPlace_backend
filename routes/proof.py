@@ -313,75 +313,35 @@ async def proof_search(
     current_user: dict = Depends(verify_proof_token)
 ):
     """
-    Search prospect_master records.
-    Free: browse only, no time-based filters.
-    Paid: full filters, export enabled.
-    Results are deterministically sorted by city + DBA name.
+    Search prospect_master via grouped RPC.
+    Deduplicates by establishment (address + city + state).
+    Returns one row per establishment with license_count and license_types.
     """
     supabase = get_supabase()
     plan = current_user.get("plan", "free")
     is_paid = plan != "free"
 
-    # Block premium filters for free users
     if not is_paid and (data.new_since_days or data.expiring_within_days):
         raise HTTPException(
             status_code=403,
             detail="New issuance and expiry filters require a paid plan"
         )
 
-    # Base query — exclude dead licenses, sort deterministically
-    query = supabase.table("prospect_master") \
-        .select(
-            "id, legal_name, dba_name, business_category, raw_license_type, "
-            "license_status, premise_address1, premise_city, premise_state, "
-            "premise_zip, premise_county, license_issue_date, license_expiry_date, "
-            "first_seen_at, is_current, latitude, longitude"
-        ) \
-        .eq("is_current", True) \
-        .not_.in_("license_status", DEAD_STATUSES) \
-        .order("premise_city") \
-        .order("dba_name")
+    params = {
+        "p_states": data.states if data.states else None,
+        "p_city": data.city if data.city else None,
+        "p_zip": data.zip_code if data.zip_code else None,
+        "p_county": data.county if data.county else None,
+        "p_address": data.address if data.address else None,
+        "p_categories": data.categories if data.categories else None,
+        "p_new_since_days": data.new_since_days if is_paid else None,
+        "p_expiring_within_days": data.expiring_within_days if is_paid else None,
+        "p_page": data.page,
+        "p_page_size": data.page_size
+    }
 
-    # Filters
-    if data.states:
-        query = query.in_("premise_state", data.states)
-
-    if data.city:
-        query = query.ilike("premise_city", f"%{data.city}%")
-
-    if data.zip_code:
-        query = query.eq("premise_zip", data.zip_code)
-
-    if data.county:
-        query = query.ilike("premise_county", f"%{data.county}%")
-
-    if data.address:
-        query = query.ilike("premise_address1", f"%{data.address}%")
-
-    if data.categories:
-        query = query.in_("business_category", data.categories)
-
-    # Premium: new issuances (via license_issue_date where available)
-    if is_paid and data.new_since_days:
-        cutoff = (datetime.utcnow() - timedelta(days=data.new_since_days)).date().isoformat()
-        query = query \
-            .gte("license_issue_date", cutoff) \
-            .lte("license_issue_date", datetime.utcnow().date().isoformat()) \
-            .gt("license_issue_date", "2000-01-01")
-
-    # Premium: expiring soon
-    if is_paid and data.expiring_within_days:
-        today  = datetime.utcnow().date().isoformat()
-        future = (datetime.utcnow() + timedelta(days=data.expiring_within_days)).date().isoformat()
-        query  = query \
-            .gte("license_expiry_date", today) \
-            .lte("license_expiry_date", future)
-
-    # Pagination
-    offset = (data.page - 1) * data.page_size
-    query  = query.range(offset, offset + data.page_size - 1)
-
-    result = query.execute()
+    result = supabase.rpc("proof_search_grouped", params).execute()
+    results = result.data if isinstance(result.data, list) else (result.data or [])
 
     # Log search (non-blocking)
     try:
@@ -396,7 +356,7 @@ async def proof_search(
                 "new_since_days": data.new_since_days,
                 "expiring_within_days": data.expiring_within_days
             },
-            "result_count": len(result.data),
+            "result_count": len(results),
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception:
@@ -404,7 +364,7 @@ async def proof_search(
 
     return {
         "success": True,
-        "results": result.data,
+        "results": results,
         "page": data.page,
         "page_size": data.page_size,
         "plan": plan
