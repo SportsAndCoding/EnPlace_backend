@@ -911,11 +911,19 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
             if cleaned_text.endswith("```"):
                 cleaned_text = cleaned_text[:-3].strip()
 
-        try:
-            json.loads(cleaned_text)
-            cache_text = cleaned_text
-        except (json.JSONDecodeError, ValueError):
-            logger.warning(f"Dossier for {prospect_id} returned non-JSON, storing as text")
+        # Extract JSON even if Claude prefixed it with conversational text
+        first_brace = cleaned_text.find("{")
+        last_brace = cleaned_text.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            json_candidate = cleaned_text[first_brace:last_brace + 1]
+            try:
+                json.loads(json_candidate)
+                cache_text = json_candidate
+            except (json.JSONDecodeError, ValueError):
+                logger.warning(f"Dossier for {prospect_id} returned non-JSON, storing as text")
+                cache_text = dossier_text
+        else:
+            logger.warning(f"Dossier for {prospect_id} had no JSON braces, storing as text")
             cache_text = dossier_text
 
         supabase = get_supabase()
