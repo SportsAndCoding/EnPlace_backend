@@ -2689,6 +2689,32 @@ Return exactly {call_count} prioritized calls (or fewer if they don't have enoug
                         pass
 
         if docket_data:
+            # Override AI fields with real contact data — never trust LLM for structured fields
+            contact_lookup = {}
+            for c in contacts:
+                enrich = c.get("enrichment_data") or {}
+                contact_lookup[c["id"]] = {
+                    "phone": c.get("phone") or enrich.get("phone"),
+                    "has_enrichment": bool(enrich),
+                    "has_dossier": bool(c.get("has_dossier")),
+                    "prospect_id": c.get("prospect_id"),
+                    "status": c.get("status", "lead"),
+                }
+            for call in docket_data.get("calls", []):
+                cid = call.get("contact_id")
+                if cid and cid in contact_lookup:
+                    real = contact_lookup[cid]
+                    call["phone"] = real["phone"]
+                    call["has_enrichment"] = real["has_enrichment"]
+                    call["has_dossier"] = real["has_dossier"]
+                    call["prospect_id"] = real["prospect_id"]
+                    call["status"] = real["status"]
+                elif cid:
+                    call["phone"] = None
+                    call["has_enrichment"] = False
+                    call["has_dossier"] = False
+                    call["prospect_id"] = None
+
             supabase.table("proof_dockets").update({
                 "status": "complete",
                 "docket": docket_data,
