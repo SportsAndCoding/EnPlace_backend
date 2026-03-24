@@ -156,6 +156,8 @@ class ProofScanEstimateRequest(BaseModel):
     county: Optional[str] = None
     categories: Optional[List[str]] = None
 
+class ProofDocketRequest(BaseModel):
+    call_count: int = 10
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
@@ -2365,3 +2367,326 @@ async def _run_gm_scan_background(scan_id: str, user_id: str, filters: dict, tot
             "status": "failed",
             "completed_at": datetime.utcnow().isoformat()
         }).eq("id", scan_id).execute()
+
+@router.post("/docket/generate")
+async def proof_generate_docket(
+    data: ProofDocketRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Generate a prioritized daily call list."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if data.call_count < 1 or data.call_count > 50:
+        raise HTTPException(status_code=400, detail="Call count must be between 1 and 50")
+
+    # Check they have contacts
+    contacts = supabase.table("proof_contacts") \
+        .select("id", count="exact") \
+        .eq("user_id", user_id) \
+        .execute()
+    if not contacts.count or contacts.count == 0:
+        raise HTTPException(status_code=400, detail="No contacts in your pipeline. Save some from Search or Import first.")
+
+    # Create docket record
+    docket = supabase.table("proof_dockets").insert({
+        "user_id": user_id,
+        "call_count": data.call_count,
+        "status": "generating"
+    }).execute()
+
+    docket_id = docket.data[0]["id"]
+
+    background_tasks.add_task(
+        _run_docket_background,
+        docket_id, user_id, data.call_count
+    )
+
+    return {"success": True, "docket_id": docket_id}
+
+
+@router.get("/docket/{docket_id}/status")
+async def proof_docket_status(
+    docket_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    supabase = get_supabase()
+    result = supabase.table("proof_dockets") \
+        .select("*") \
+        .eq("id", docket_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .single() \
+        .execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Docket not found")
+
+    return {
+        "success": True,
+        "status": result.data["status"],
+        "docket": result.data.get("docket"),
+        "call_count": result.data["call_count"],
+        "created_at": result.data["created_at"],
+        "completed_at": result.data.get("completed_at")
+    }
+
+
+@router.get("/docket/latest")
+async def proof_docket_latest(
+    current_user: dict = Depends(verify_proof_token)
+):
+    supabase = get_supabase()
+    result = supabase.table("proof_dockets") \
+        .select("*") \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .eq("status", "complete") \
+        .order("created_at", desc=True) \
+        .limit(1) \
+        .execute()
+
+    if not result.data:
+        return {"success": True, "docket": None}
+
+    return {
+        "success": True,
+        "docket": result.data[0].get("docket"),
+        "docket_id": result.data[0]["id"],
+        "call_count": result.data[0]["call_count"],
+        "created_at": result.data[0]["created_at"]
+    }
+
+
+DOCKET_SYSTEM_PROMPT = """You are a sales intelligence analyst for the restaurant and hospitality industry. Your job is to analyze a sales rep's contact pipeline and prioritize their calls for maximum effectiveness today.
+
+You will receive a JSON array of contacts with their details, notes history, enrichment data, and dossier intel. Analyze everything and return a prioritized call list.
+
+PRIORITIZATION FACTORS (in rough order of weight):
+1. HOT SIGNALS: GM vacancy detected, recent hiring surge, ownership change — these are time-sensitive
+2. MOMENTUM: Recently contacted with positive notes, meeting set, proposal pending — don't let warm leads go cold
+3. RECENCY GAP: Contacted 2-4 weeks ago with no follow-up — danger zone of being forgotten
+4. NEVER CONTACTED: Leads saved but never called — especially if they have enrichment/dossier data ready
+5. PAIN POINTS: Dossier revealed specific pain points that align with the rep's pitch
+6. HIGH VALUE: Multi-unit operators, high revenue, high review counts
+7. RE-ENGAGE: Status is "lost" or "nurture" but notes suggest a timing issue, not a hard no
+
+For each prioritized contact, provide:
+- A specific reason why TODAY is the right day to call (not generic)
+- A suggested opening line tailored to what you know about them
+- The call type: "cold_intro", "follow_up", "close_attempt", "re_engage", or "check_in"
+
+Respond with ONLY valid JSON, no preamble:
+{
+  "calls": [
+    {
+      "rank": 1,
+      "contact_id": "uuid",
+      "business_name": "Name",
+      "why_today": "Specific reason this is priority today",
+      "opening_line": "Hey [name], I saw that...",
+      "call_type": "follow_up",
+      "phone": "555-1234 or null",
+      "city": "Cincinnati",
+      "state": "OH"
+    }
+  ],
+  "pipeline_summary": "Brief 2-sentence summary of the overall pipeline health"
+}"""
+
+
+async def _run_docket_background(docket_id: str, user_id: str, call_count: int):
+    """Background task: build the daily call docket."""
+    supabase = get_supabase()
+
+    try:
+        # Gather all contacts
+        contacts_result = supabase.table("proof_contacts") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        contacts = contacts_result.data or []
+
+        if not contacts:
+            supabase.table("proof_dockets").update({
+                "status": "failed",
+                "docket": {"error": "No contacts found"},
+                "completed_at": datetime.utcnow().isoformat()
+            }).eq("id", docket_id).execute()
+            return
+
+        # Gather notes for all contacts
+        contact_ids = [c["id"] for c in contacts]
+        notes_result = supabase.table("proof_contact_notes") \
+            .select("contact_id, content, created_at") \
+            .in_("contact_id", contact_ids) \
+            .order("created_at", desc=True) \
+            .execute()
+        notes_by_contact = {}
+        for n in (notes_result.data or []):
+            cid = n["contact_id"]
+            if cid not in notes_by_contact:
+                notes_by_contact[cid] = []
+            notes_by_contact[cid].append({
+                "date": n["created_at"][:10] if n.get("created_at") else None,
+                "content": n["content"][:200]  # Truncate long notes
+            })
+
+        # Gather dossier data for contacts with prospect_id
+        prospect_ids = [c["prospect_id"] for c in contacts if c.get("prospect_id")]
+        dossiers_by_prospect = {}
+        if prospect_ids:
+            for pid in prospect_ids[:50]:  # Cap at 50 to stay within context
+                try:
+                    dos_result = supabase.table("proof_dossier_cache") \
+                        .select("dossier, prospect_id") \
+                        .eq("prospect_id", pid) \
+                        .limit(1) \
+                        .execute()
+                    if dos_result.data:
+                        raw = dos_result.data[0].get("dossier")
+                        if isinstance(raw, str):
+                            try:
+                                f = raw.find("{")
+                                l = raw.rfind("}")
+                                if f != -1 and l > f:
+                                    raw = json.loads(raw[f:l+1])
+                            except:
+                                raw = None
+                        if isinstance(raw, dict):
+                            # Extract only key fields to save tokens
+                            dossiers_by_prospect[pid] = {
+                                "opportunity": (raw.get("recommended_approach") or {}).get("opportunity"),
+                                "pain_points": raw.get("pain_points", [])[:3],
+                                "gm_status": (raw.get("leadership") or {}).get("verdict"),
+                                "narrative": ((raw.get("recommended_approach") or {}).get("narrative") or "")[:150]
+                            }
+                except:
+                    pass
+
+        # Gather GM scan signals for these contacts
+        gm_signals = {}
+        if prospect_ids:
+            try:
+                sig_result = supabase.table("proof_gm_signals") \
+                    .select("prospect_id, vacancy_detected, confidence, signal_detail, job_title") \
+                    .in_("prospect_id", prospect_ids) \
+                    .eq("vacancy_detected", True) \
+                    .execute()
+                for s in (sig_result.data or []):
+                    gm_signals[s["prospect_id"]] = {
+                        "vacancy": True,
+                        "confidence": s.get("confidence"),
+                        "detail": (s.get("signal_detail") or "")[:100],
+                        "job_title": s.get("job_title")
+                    }
+            except:
+                pass
+
+        # Build the context payload for Sonnet
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        contact_summaries = []
+        for c in contacts:
+            pid = c.get("prospect_id")
+            enrich = c.get("enrichment_data") or {}
+            summary = {
+                "contact_id": c["id"],
+                "business_name": c.get("business_name", ""),
+                "city": c.get("city", ""),
+                "state": c.get("state", ""),
+                "phone": c.get("phone") or enrich.get("phone"),
+                "category": c.get("category", ""),
+                "status": c.get("status", "lead"),
+                "source": c.get("source", ""),
+                "last_contacted": c.get("last_contacted_at", "never"),
+                "saved_date": (c.get("created_at") or "")[:10],
+                "notes": notes_by_contact.get(c["id"], [])[:5],  # Last 5 notes
+                "google_rating": enrich.get("google_rating"),
+                "google_reviews": enrich.get("google_review_count"),
+            }
+            if pid and pid in dossiers_by_prospect:
+                summary["dossier"] = dossiers_by_prospect[pid]
+            if pid and pid in gm_signals:
+                summary["gm_vacancy"] = gm_signals[pid]
+            if c.get("notes"):
+                summary["initial_note"] = c["notes"][:150]
+
+            contact_summaries.append(summary)
+
+        user_prompt = f"""Today's date: {today}
+The rep wants {call_count} calls prioritized for today.
+They have {len(contacts)} total contacts in their pipeline.
+
+Here are all their contacts with available intelligence:
+
+{json.dumps(contact_summaries, default=str)}
+
+Return exactly {call_count} prioritized calls (or fewer if they don't have enough actionable contacts). Focus on contacts where action TODAY specifically matters."""
+
+        # Call Sonnet
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 4000,
+                    "system": DOCKET_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": user_prompt}]
+                },
+                timeout=90.0
+            )
+            resp_data = resp.json()
+
+        if resp.status_code != 200:
+            logger.error(f"Docket Sonnet call failed: {resp.status_code} {resp_data}")
+            supabase.table("proof_dockets").update({
+                "status": "failed",
+                "completed_at": datetime.utcnow().isoformat()
+            }).eq("id", docket_id).execute()
+            return
+
+        # Parse response
+        text = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                text += block.get("text", "")
+
+        docket_data = None
+        if text:
+            cleaned = text.strip()
+            first_brace = cleaned.find("{")
+            last_brace = cleaned.rfind("}")
+            if first_brace != -1 and last_brace > first_brace:
+                try:
+                    docket_data = json.loads(cleaned[first_brace:last_brace + 1])
+                except json.JSONDecodeError:
+                    try:
+                        import json_repair
+                        docket_data = json_repair.loads(cleaned[first_brace:last_brace + 1])
+                    except:
+                        pass
+
+        if docket_data:
+            supabase.table("proof_dockets").update({
+                "status": "complete",
+                "docket": docket_data,
+                "completed_at": datetime.utcnow().isoformat()
+            }).eq("id", docket_id).execute()
+            logger.info(f"Docket {docket_id} complete: {len(docket_data.get('calls', []))} calls")
+        else:
+            supabase.table("proof_dockets").update({
+                "status": "failed",
+                "docket": {"error": "Failed to parse AI response", "raw": text[:500]},
+                "completed_at": datetime.utcnow().isoformat()
+            }).eq("id", docket_id).execute()
+
+    except Exception as e:
+        logger.error(f"Docket {docket_id} failed: {e}")
+        supabase.table("proof_dockets").update({
+            "status": "failed",
+            "completed_at": datetime.utcnow().isoformat()
+        }).eq("id", docket_id).execute()
