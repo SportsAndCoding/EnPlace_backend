@@ -2691,6 +2691,8 @@ async def proof_enrich_contact(
                 update_fields["phone"] = enrichment["phone"]
             if enrichment.get("website") and not c.get("website"):
                 update_fields["website"] = enrichment["website"]
+            if google_data.get("formatted_address"):
+                update_fields["address"] = google_data["formatted_address"]
 
             supabase.table("proof_contacts").update(update_fields).eq("id", contact_id).execute()
 
