@@ -16,3 +16,4 @@ twilio>=8.0.0
 pytz
 anthropic
 pdfplumber
+json-repair

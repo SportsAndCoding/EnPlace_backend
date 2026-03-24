@@ -25,6 +25,7 @@ import logging
 import bcrypt
 import secrets
 import json
+from json_repair import repair_json
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request, Header, Depends, BackgroundTasks
@@ -920,8 +921,14 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
                 json.loads(json_candidate)
                 cache_text = json_candidate
             except (json.JSONDecodeError, ValueError):
-                logger.warning(f"Dossier for {prospect_id} returned non-JSON, storing as text")
-                cache_text = dossier_text
+                try:
+                    repaired = repair_json(json_candidate, return_objects=False)
+                    json.loads(repaired)
+                    cache_text = repaired
+                    logger.info(f"Dossier for {prospect_id} repaired from malformed JSON")
+                except Exception:
+                    logger.warning(f"Dossier for {prospect_id} could not be repaired, storing as text")
+                    cache_text = dossier_text
         else:
             logger.warning(f"Dossier for {prospect_id} had no JSON braces, storing as text")
             cache_text = dossier_text
@@ -975,7 +982,11 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
         try:
             dossier_data = json.loads(cached_text)
         except (json.JSONDecodeError, ValueError):
-            dossier_data = cached_text
+            try:
+                repaired = repair_json(cached_text, return_objects=False)
+                dossier_data = json.loads(repaired)
+            except Exception:
+                dossier_data = cached_text
         return {
             "success": True,
             "dossier": dossier_data,
