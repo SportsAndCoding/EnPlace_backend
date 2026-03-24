@@ -2734,3 +2734,243 @@ Return exactly {call_count} prioritized calls (or fewer if they don't have enoug
             "status": "failed",
             "completed_at": datetime.utcnow().isoformat()
         }).eq("id", docket_id).execute()
+
+@router.post("/contacts/{contact_id}/enrich")
+async def proof_enrich_contact(
+    contact_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Enrich a contact directly (no prospect_master needed)."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+    enrichment_cost, _ = get_costs(current_user)
+
+    # Get contact
+    contact = supabase.table("proof_contacts") \
+        .select("*") \
+        .eq("id", contact_id) \
+        .eq("user_id", user_id) \
+        .single() \
+        .execute()
+    if not contact.data:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    c = contact.data
+
+    # If already enriched, return cached
+    if c.get("enrichment_data") and c["enrichment_data"].get("phone"):
+        return {
+            "success": True,
+            "enrichment": c["enrichment_data"],
+            "cached": True,
+            "charged": 0
+        }
+
+    # If contact has a prospect_id, redirect to existing enrich
+    if c.get("prospect_id"):
+        # Use existing enrichment flow
+        return await proof_enrich(c["prospect_id"], current_user)
+
+    # Check balance
+    user = supabase.table("proof_users") \
+        .select("credit_balance") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+    balance = float(user.data.get("credit_balance", 0))
+    if balance < enrichment_cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, cost: ${enrichment_cost:.2f}"
+        )
+
+    business_name = c.get("business_name") or c.get("legal_name") or ""
+    city = c.get("city", "")
+    state = c.get("state", "")
+    address = c.get("address", "")
+
+    if not business_name:
+        raise HTTPException(status_code=400, detail="Contact has no business name")
+
+    gp_query = f"{business_name} {address} {city} {state}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            google_data, yelp_data = await asyncio.gather(
+                _fetch_google_places(client, gp_query),
+                _fetch_yelp(client, business_name, city, state, address),
+                return_exceptions=True
+            )
+
+        if isinstance(google_data, Exception):
+            logger.warning(f"Google Places failed for contact {contact_id}: {google_data}")
+            google_data = {}
+        if isinstance(yelp_data, Exception):
+            logger.warning(f"Yelp failed for contact {contact_id}: {yelp_data}")
+            yelp_data = {}
+
+        enrichment = {
+            "enrichment_source": "google_places+yelp",
+            "enriched_at": datetime.utcnow().isoformat(),
+            "phone": google_data.get("phone"),
+            "website": google_data.get("website"),
+            "google_rating": google_data.get("rating"),
+            "google_review_count": google_data.get("user_ratings_total"),
+            "google_place_id": google_data.get("place_id"),
+            "google_price_level": google_data.get("price_level"),
+            "google_types": google_data.get("types"),
+            "yelp_rating": yelp_data.get("rating"),
+            "yelp_review_count": yelp_data.get("review_count"),
+            "yelp_url": yelp_data.get("url"),
+            "yelp_price": yelp_data.get("price"),
+        }
+
+        has_data = enrichment.get("phone") or enrichment.get("website") or enrichment.get("google_rating")
+
+        if has_data:
+            # Charge credits
+            new_balance = round(balance - enrichment_cost, 2)
+            supabase.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
+            supabase.table("proof_credit_transactions").insert({
+                "user_id": user_id,
+                "transaction_type": "enrichment",
+                "amount": -enrichment_cost,
+                "balance_after": new_balance,
+                "description": f"Enrich contact: {business_name}",
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+
+            # Update contact's enrichment_data + phone/website if we found them
+            update_fields = {"enrichment_data": enrichment}
+            if enrichment.get("phone") and not c.get("phone"):
+                update_fields["phone"] = enrichment["phone"]
+            if enrichment.get("website") and not c.get("website"):
+                update_fields["website"] = enrichment["website"]
+
+            supabase.table("proof_contacts").update(update_fields).eq("id", contact_id).execute()
+
+            return {
+                "success": True,
+                "enrichment": enrichment,
+                "cached": False,
+                "charged": enrichment_cost,
+                "balance_remaining": new_balance
+            }
+        else:
+            return {
+                "success": True,
+                "enrichment": enrichment,
+                "cached": False,
+                "charged": 0,
+                "balance_remaining": balance,
+                "message": "No useful data found. No charge."
+            }
+
+    except Exception as e:
+        logger.error(f"Contact enrichment failed for {contact_id}: {e}")
+        raise HTTPException(status_code=500, detail="Enrichment failed")
+
+
+@router.post("/contacts/{contact_id}/dossier")
+async def proof_contact_dossier(
+    contact_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Generate a dossier for a contact (no prospect_master needed)."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+    _, dossier_cost = get_costs(current_user)
+
+    # Get contact
+    contact = supabase.table("proof_contacts") \
+        .select("*") \
+        .eq("id", contact_id) \
+        .eq("user_id", user_id) \
+        .single() \
+        .execute()
+    if not contact.data:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    c = contact.data
+
+    # If contact has a prospect_id, redirect to existing dossier flow
+    if c.get("prospect_id"):
+        return await proof_dossier(c["prospect_id"], background_tasks, current_user)
+
+    # Check for cached dossier by contact_id
+    cached = supabase.table("proof_dossier_cache") \
+        .select("*") \
+        .eq("prospect_id", contact_id) \
+        .execute()
+    if cached.data:
+        cached_text = cached.data[0].get("dossier_text") or cached.data[0].get("dossier")
+        try:
+            dossier_data = json.loads(cached_text) if isinstance(cached_text, str) else cached_text
+        except (json.JSONDecodeError, ValueError):
+            dossier_data = cached_text
+        return {
+            "success": True,
+            "cached": True,
+            "dossier": dossier_data,
+            "charged": 0
+        }
+
+    # Check balance
+    user = supabase.table("proof_users") \
+        .select("credit_balance") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+    balance = float(user.data.get("credit_balance", 0))
+    if balance < dossier_cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${dossier_cost:.2f}"
+        )
+
+    # Charge
+    new_balance = round(balance - dossier_cost, 2)
+    supabase.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
+    supabase.table("proof_credit_transactions").insert({
+        "user_id": user_id,
+        "transaction_type": "dossier",
+        "amount": -dossier_cost,
+        "balance_after": new_balance,
+        "description": f"Dossier: {c.get('business_name', 'Unknown')}",
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
+
+    business_name = c.get("business_name") or c.get("legal_name") or "Unknown"
+    city = c.get("city", "")
+    state = c.get("state", "")
+
+    # Build prospect-like dict for the existing background function
+    prospect_data = {
+        "dba_name": business_name,
+        "legal_name": c.get("legal_name"),
+        "premise_address1": c.get("address"),
+        "premise_city": city,
+        "premise_state": state,
+        "premise_zip": c.get("zip"),
+    }
+
+    # Use contact_id as the key in dossier cache
+    background_tasks.add_task(
+        _generate_dossier_background,
+        contact_id, user_id, prospect_data
+    )
+
+    # Mark contact as having a dossier (will be generated shortly)
+    supabase.table("proof_contacts") \
+        .update({"has_dossier": True}) \
+        .eq("id", contact_id) \
+        .execute()
+
+    return {
+        "success": True,
+        "cached": False,
+        "charged": dossier_cost,
+        "balance_remaining": new_balance,
+        "message": "Dossier generating in background"
+    }
