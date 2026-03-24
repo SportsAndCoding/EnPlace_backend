@@ -149,6 +149,13 @@ class ProofChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+class ProofScanEstimateRequest(BaseModel):
+    states: Optional[List[str]] = None
+    city: Optional[str] = None
+    zip_code: Optional[str] = None
+    county: Optional[str] = None
+    categories: Optional[List[str]] = None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
@@ -2024,3 +2031,377 @@ async def proof_change_password(
         .execute()
 
     return {"success": True, "message": "Password changed successfully"}
+
+@router.post("/scan/estimate")
+async def proof_scan_estimate(
+    data: ProofScanEstimateRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Estimate cost for a regional GM vacancy scan."""
+    supabase = get_supabase()
+
+    if not data.states and not data.city and not data.zip_code and not data.county:
+        raise HTTPException(status_code=400, detail="Select at least one filter (state, city, zip, or county)")
+
+    params = {
+        "p_states": data.states if data.states else None,
+        "p_city": data.city if data.city else None,
+        "p_zip": data.zip_code if data.zip_code else None,
+        "p_county": data.county if data.county else None,
+        "p_categories": data.categories if data.categories else None,
+        "p_new_since_days": None,
+        "p_expiring_within_days": None,
+        "p_page": 1,
+        "p_page_size": 1
+    }
+
+    # Get count using a simple query instead of paginated search
+    query = supabase.table("prospect_master") \
+        .select("id", count="exact") \
+        .eq("is_current", True) \
+        .not_.in_("license_status", DEAD_STATUSES)
+
+    if data.states:
+        query = query.in_("premise_state", data.states)
+    if data.city:
+        query = query.ilike("premise_city", f"%{data.city}%")
+    if data.zip_code:
+        query = query.eq("premise_zip", data.zip_code)
+    if data.county:
+        query = query.ilike("premise_county", f"%{data.county}%")
+    if data.categories:
+        query = query.in_("business_category", data.categories)
+
+    result = query.limit(1).execute()
+    count = result.count if result.count else 0
+
+    cost_per = 0.05
+    total = round(count * cost_per, 2)
+
+    return {
+        "success": True,
+        "count": count,
+        "cost_per_record": cost_per,
+        "total_cost": total
+    }
+
+
+@router.post("/scan/start")
+async def proof_start_scan(
+    data: ProofScanEstimateRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Start a GM vacancy scan. Deducts credits, runs in background."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if not data.states and not data.city and not data.zip_code and not data.county:
+        raise HTTPException(status_code=400, detail="Select at least one filter")
+
+    # Get count
+    query = supabase.table("prospect_master") \
+        .select("id", count="exact") \
+        .eq("is_current", True) \
+        .not_.in_("license_status", DEAD_STATUSES)
+
+    if data.states:
+        query = query.in_("premise_state", data.states)
+    if data.city:
+        query = query.ilike("premise_city", f"%{data.city}%")
+    if data.zip_code:
+        query = query.eq("premise_zip", data.zip_code)
+    if data.county:
+        query = query.ilike("premise_county", f"%{data.county}%")
+    if data.categories:
+        query = query.in_("business_category", data.categories)
+
+    count_result = query.limit(1).execute()
+    count = count_result.count if count_result.count else 0
+
+    if count == 0:
+        raise HTTPException(status_code=400, detail="No restaurants match these filters")
+    if count > 2000:
+        raise HTTPException(status_code=400, detail=f"Too many restaurants ({count}). Narrow your filters to under 2,000.")
+
+    cost_per = 0.05
+    total_cost = round(count * cost_per, 2)
+
+    # Check balance
+    user = supabase.table("proof_users") \
+        .select("credit_balance") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+    balance = float(user.data.get("credit_balance", 0))
+
+    if balance < total_cost:
+        raise HTTPException(status_code=402, detail=f"Insufficient credits. Need ${total_cost:.2f}, have ${balance:.2f}")
+
+    # Deduct credits
+    new_balance = round(balance - total_cost, 2)
+    supabase.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
+    supabase.table("proof_credit_transactions").insert({
+        "user_id": user_id,
+        "transaction_type": "gm_scan",
+        "amount": -total_cost,
+        "balance_after": new_balance,
+        "description": f"GM Scan: {count} restaurants",
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
+
+    # Create scan record
+    filters = {
+        "states": data.states,
+        "city": data.city,
+        "zip_code": data.zip_code,
+        "county": data.county,
+        "categories": data.categories
+    }
+    scan = supabase.table("proof_gm_scans").insert({
+        "user_id": user_id,
+        "filters": filters,
+        "total_count": count,
+        "total_cost": total_cost,
+        "status": "running",
+        "started_at": datetime.utcnow().isoformat()
+    }).execute()
+
+    scan_id = scan.data[0]["id"]
+
+    # Fire background task
+    background_tasks.add_task(
+        _run_gm_scan_background,
+        scan_id, user_id, filters, count
+    )
+
+    return {
+        "success": True,
+        "scan_id": scan_id,
+        "total_count": count,
+        "total_cost": total_cost,
+        "balance_remaining": new_balance
+    }
+
+
+@router.get("/scan/{scan_id}/status")
+async def proof_scan_status(
+    scan_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Poll scan progress."""
+    supabase = get_supabase()
+    scan = supabase.table("proof_gm_scans") \
+        .select("*") \
+        .eq("id", scan_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .single() \
+        .execute()
+
+    if not scan.data:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    return {
+        "success": True,
+        "status": scan.data["status"],
+        "total_count": scan.data["total_count"],
+        "scanned_count": scan.data["scanned_count"],
+        "vacancy_count": scan.data["vacancy_count"],
+        "completed_at": scan.data.get("completed_at")
+    }
+
+
+@router.get("/scan/{scan_id}/results")
+async def proof_scan_results(
+    scan_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get scan results, vacancies first."""
+    supabase = get_supabase()
+
+    # Verify ownership
+    scan = supabase.table("proof_gm_scans") \
+        .select("id, user_id") \
+        .eq("id", scan_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .execute()
+    if not scan.data:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    results = supabase.table("proof_gm_signals") \
+        .select("*") \
+        .eq("scan_id", scan_id) \
+        .order("vacancy_detected", desc=True) \
+        .order("scanned_at") \
+        .execute()
+
+    return {
+        "success": True,
+        "results": results.data
+    }
+
+
+@router.get("/scans/mine")
+async def proof_my_scans(
+    current_user: dict = Depends(verify_proof_token)
+):
+    """List all scans for this user."""
+    supabase = get_supabase()
+    result = supabase.table("proof_gm_scans") \
+        .select("*") \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .order("created_at", desc=True) \
+        .execute()
+    return {"success": True, "scans": result.data}
+
+
+GM_SCAN_PROMPT = """You are a restaurant industry research assistant. Your ONLY job is to determine if this restaurant currently has a General Manager vacancy or leadership transition.
+
+Search job boards (Indeed, LinkedIn, Google Jobs) for current job postings. Search Google for any news about management changes.
+
+Restaurant: {name}
+Location: {city}, {state}
+
+Respond with ONLY this JSON, nothing else:
+{{
+  "vacancy_detected": true/false,
+  "confidence": "high"/"medium"/"low",
+  "source": "indeed"/"linkedin"/"google_jobs"/"news"/"none",
+  "job_title": "exact job title found or null",
+  "posted_date": "approximate date or null",
+  "signal_detail": "one sentence explanation"
+}}"""
+
+
+async def _run_gm_scan_background(scan_id: str, user_id: str, filters: dict, total_count: int):
+    """Background task: scan restaurants for GM vacancies."""
+    supabase = get_supabase()
+
+    try:
+        # Fetch matching restaurants
+        query = supabase.table("prospect_master") \
+            .select("id, dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip, business_category") \
+            .eq("is_current", True) \
+            .not_.in_("license_status", DEAD_STATUSES)
+
+        if filters.get("states"):
+            query = query.in_("premise_state", filters["states"])
+        if filters.get("city"):
+            query = query.ilike("premise_city", f"%{filters['city']}%")
+        if filters.get("zip_code"):
+            query = query.eq("premise_zip", filters["zip_code"])
+        if filters.get("county"):
+            query = query.ilike("premise_county", f"%{filters['county']}%")
+        if filters.get("categories"):
+            query = query.in_("business_category", filters["categories"])
+
+        # Fetch in pages
+        all_prospects = []
+        page = 0
+        while True:
+            batch = query.range(page * 500, (page + 1) * 500 - 1).execute()
+            if not batch.data:
+                break
+            all_prospects.extend(batch.data)
+            if len(batch.data) < 500:
+                break
+            page += 1
+
+        scanned = 0
+        vacancies = 0
+
+        for prospect in all_prospects:
+            name = prospect.get("dba_name") or prospect.get("legal_name") or "Unknown"
+            city = prospect.get("premise_city", "")
+            state = prospect.get("premise_state", "")
+
+            signal = {
+                "scan_id": scan_id,
+                "prospect_id": prospect["id"],
+                "business_name": name,
+                "address": prospect.get("premise_address1"),
+                "city": city,
+                "state": state,
+                "zip": prospect.get("premise_zip"),
+                "category": prospect.get("business_category"),
+                "vacancy_detected": False,
+                "confidence": "low",
+                "source": "none",
+                "signal_detail": "No vacancy signals detected"
+            }
+
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": ANTHROPIC_API_KEY,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json"
+                        },
+                        json={
+                            "model": "claude-haiku-4-5-20251001",
+                            "max_tokens": 300,
+                            "messages": [{"role": "user", "content": GM_SCAN_PROMPT.format(name=name, city=city, state=state)}],
+                            "tools": [{"type": "web_search_20250305", "name": "web_search"}]
+                        },
+                        timeout=30.0
+                    )
+                    resp_data = resp.json()
+
+                if resp.status_code == 200:
+                    text = ""
+                    for block in resp_data.get("content", []):
+                        if block.get("type") == "text":
+                            text += block.get("text", "")
+
+                    if text:
+                        cleaned = text.strip()
+                        first_brace = cleaned.find("{")
+                        last_brace = cleaned.rfind("}")
+                        if first_brace != -1 and last_brace > first_brace:
+                            try:
+                                parsed = json.loads(cleaned[first_brace:last_brace + 1])
+                                signal["vacancy_detected"] = bool(parsed.get("vacancy_detected", False))
+                                signal["confidence"] = parsed.get("confidence", "low")
+                                signal["source"] = parsed.get("source", "none")
+                                signal["job_title"] = parsed.get("job_title")
+                                signal["posted_date"] = parsed.get("posted_date")
+                                signal["signal_detail"] = parsed.get("signal_detail", "")
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+
+            except Exception as e:
+                logger.warning(f"GM scan error for {name}: {e}")
+                signal["signal_detail"] = "Scan error, skipped"
+
+            # Insert signal
+            supabase.table("proof_gm_signals").insert(signal).execute()
+
+            scanned += 1
+            if signal["vacancy_detected"]:
+                vacancies += 1
+
+            # Update progress every 10 records
+            if scanned % 10 == 0 or scanned == len(all_prospects):
+                supabase.table("proof_gm_scans").update({
+                    "scanned_count": scanned,
+                    "vacancy_count": vacancies
+                }).eq("id", scan_id).execute()
+
+        # Mark complete
+        supabase.table("proof_gm_scans").update({
+            "status": "complete",
+            "scanned_count": scanned,
+            "vacancy_count": vacancies,
+            "completed_at": datetime.utcnow().isoformat()
+        }).eq("id", scan_id).execute()
+
+        logger.info(f"GM scan {scan_id} complete: {scanned} scanned, {vacancies} vacancies")
+
+    except Exception as e:
+        logger.error(f"GM scan {scan_id} failed: {e}")
+        supabase.table("proof_gm_scans").update({
+            "status": "failed",
+            "completed_at": datetime.utcnow().isoformat()
+        }).eq("id", scan_id).execute()
