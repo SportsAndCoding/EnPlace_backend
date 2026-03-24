@@ -1387,7 +1387,7 @@ async def proof_update_contact(
     user_id = current_user["proof_user_id"]
     body = await request.json()
 
-    allowed = {"status", "notes", "tags", "last_contacted_at", "phone", "email", "website"}
+    allowed = {"status", "notes", "tags", "last_contacted_at", "phone", "email", "website", "business_name"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -1413,6 +1413,59 @@ async def proof_delete_contact(
     supabase.table("proof_contacts") \
         .delete() \
         .eq("id", contact_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .execute()
+    return {"success": True}
+
+@router.get("/contacts/{contact_id}/notes")
+async def proof_get_contact_notes(
+    contact_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get all notes for a contact."""
+    supabase = get_supabase()
+    result = supabase.table("proof_contact_notes") \
+        .select("*") \
+        .eq("contact_id", contact_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .order("created_at", desc=True) \
+        .execute()
+    return {"success": True, "notes": result.data}
+
+
+@router.post("/contacts/{contact_id}/notes")
+async def proof_add_contact_note(
+    contact_id: str,
+    request: Request,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Add a note to a contact."""
+    supabase = get_supabase()
+    body = await request.json()
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Note cannot be empty")
+
+    result = supabase.table("proof_contact_notes").insert({
+        "contact_id": contact_id,
+        "user_id": current_user["proof_user_id"],
+        "content": content[:5000
+        ]
+    }).execute()
+
+    return {"success": True, "note": result.data[0]}
+
+
+@router.delete("/contacts/notes/{note_id}")
+async def proof_delete_contact_note(
+    note_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Delete a note."""
+    supabase = get_supabase()
+    supabase.table("proof_contact_notes") \
+        .delete() \
+        .eq("id", note_id) \
         .eq("user_id", current_user["proof_user_id"]) \
         .execute()
     return {"success": True}
