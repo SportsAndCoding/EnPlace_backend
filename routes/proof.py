@@ -145,6 +145,10 @@ class ProofImportRecordsRequest(BaseModel):
     mapping: dict
     records: List[dict]
 
+class ProofChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
@@ -358,7 +362,7 @@ async def proof_search(
 
     # Log search (non-blocking)
     try:
-        supabase.table("prospect_searches").insert({
+        supabase.table("proof_search_log").insert({
             "proof_user_id": current_user["proof_user_id"],
             "filters": {
                 "states": data.states,
@@ -369,8 +373,7 @@ async def proof_search(
                 "new_since_days": data.new_since_days,
                 "expiring_within_days": data.expiring_within_days
             },
-            "result_count": len(results),
-            "created_at": datetime.utcnow().isoformat()
+            "result_count": len(results)
         }).execute()
     except Exception:
         pass
@@ -1989,3 +1992,35 @@ async def proof_import_records(
         "skipped": skipped,
         "message": f"Imported {imported} contacts. {skipped} skipped."
     }
+
+@router.post("/change-password")
+async def proof_change_password(
+    data: ProofChangePasswordRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Change password for logged-in user."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    user = supabase.table("proof_users") \
+        .select("password_hash") \
+        .eq("id", user_id) \
+        .single() \
+        .execute()
+
+    if not user.data:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not verify_password(data.current_password, user.data["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+
+    new_hash = hash_password(data.new_password)
+    supabase.table("proof_users") \
+        .update({"password_hash": new_hash}) \
+        .eq("id", user_id) \
+        .execute()
+
+    return {"success": True, "message": "Password changed successfully"}
