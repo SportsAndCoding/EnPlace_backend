@@ -2514,6 +2514,24 @@ async def _run_docket_background(docket_id: str, user_id: str, call_count: int):
             }).eq("id", docket_id).execute()
             return
 
+        # Pre-filter: cap at 200 most actionable contacts for Sonnet
+        active = [c for c in contacts if c.get("status") not in ("won", "lost")]
+        if not active:
+            active = contacts  # If all won/lost, use everything
+        if len(active) > 200:
+            def _score(c):
+                s = 0
+                if c.get("has_dossier"): s += 3
+                if c.get("enrichment_data"): s += 2
+                if c.get("last_contacted_at"): s += 1
+                if c.get("status") in ("meeting_set", "proposal"): s += 4
+                if c.get("status") == "contacted": s += 2
+                if c.get("notes"): s += 1
+                return s
+            active.sort(key=_score, reverse=True)
+            active = active[:200]
+        contacts = active
+
         # Gather notes for all contacts
         contact_ids = [c["id"] for c in contacts]
         notes_result = supabase.table("proof_contact_notes") \
