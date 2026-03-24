@@ -2055,25 +2055,14 @@ async def proof_scan_estimate(
         "p_page_size": 1
     }
 
-    # Get count using a simple query instead of paginated search
-    query = supabase.table("prospect_master") \
-        .select("id", count="exact") \
-        .eq("is_current", True) \
-        .not_.in_("license_status", DEAD_STATUSES)
-
-    if data.states:
-        query = query.in_("premise_state", data.states)
-    if data.city:
-        query = query.ilike("premise_city", f"%{data.city}%")
-    if data.zip_code:
-        query = query.eq("premise_zip", data.zip_code)
-    if data.county:
-        query = query.ilike("premise_county", f"%{data.county}%")
-    if data.categories:
-        query = query.in_("business_category", data.categories)
-
-    result = query.limit(1).execute()
-    count = result.count if result.count else 0
+    result = supabase.rpc("proof_scan_count", {
+        "p_states": data.states if data.states else None,
+        "p_city": data.city if data.city else None,
+        "p_zip": data.zip_code if data.zip_code else None,
+        "p_county": data.county if data.county else None,
+        "p_categories": data.categories if data.categories else None
+    }).execute()
+    count = result.data if isinstance(result.data, int) else 0
 
     cost_per = 0.05
     total = round(count * cost_per, 2)
@@ -2099,25 +2088,14 @@ async def proof_start_scan(
     if not data.states and not data.city and not data.zip_code and not data.county:
         raise HTTPException(status_code=400, detail="Select at least one filter")
 
-    # Get count
-    query = supabase.table("prospect_master") \
-        .select("id", count="exact") \
-        .eq("is_current", True) \
-        .not_.in_("license_status", DEAD_STATUSES)
-
-    if data.states:
-        query = query.in_("premise_state", data.states)
-    if data.city:
-        query = query.ilike("premise_city", f"%{data.city}%")
-    if data.zip_code:
-        query = query.eq("premise_zip", data.zip_code)
-    if data.county:
-        query = query.ilike("premise_county", f"%{data.county}%")
-    if data.categories:
-        query = query.in_("business_category", data.categories)
-
-    count_result = query.limit(1).execute()
-    count = count_result.count if count_result.count else 0
+    count_result = supabase.rpc("proof_scan_count", {
+        "p_states": data.states if data.states else None,
+        "p_city": data.city if data.city else None,
+        "p_zip": data.zip_code if data.zip_code else None,
+        "p_county": data.county if data.county else None,
+        "p_categories": data.categories if data.categories else None
+    }).execute()
+    count = count_result.data if isinstance(count_result.data, int) else 0
 
     if count == 0:
         raise HTTPException(status_code=400, detail="No restaurants match these filters")
@@ -2278,34 +2256,16 @@ async def _run_gm_scan_background(scan_id: str, user_id: str, filters: dict, tot
     supabase = get_supabase()
 
     try:
-        # Fetch matching restaurants
-        query = supabase.table("prospect_master") \
-            .select("id, dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip, business_category") \
-            .eq("is_current", True) \
-            .not_.in_("license_status", DEAD_STATUSES)
-
-        if filters.get("states"):
-            query = query.in_("premise_state", filters["states"])
-        if filters.get("city"):
-            query = query.ilike("premise_city", f"%{filters['city']}%")
-        if filters.get("zip_code"):
-            query = query.eq("premise_zip", filters["zip_code"])
-        if filters.get("county"):
-            query = query.ilike("premise_county", f"%{filters['county']}%")
-        if filters.get("categories"):
-            query = query.in_("business_category", filters["categories"])
-
-        # Fetch in pages
-        all_prospects = []
-        page = 0
-        while True:
-            batch = query.range(page * 500, (page + 1) * 500 - 1).execute()
-            if not batch.data:
-                break
-            all_prospects.extend(batch.data)
-            if len(batch.data) < 500:
-                break
-            page += 1
+        # Fetch deduplicated restaurants via grouped RPC
+        result = supabase.rpc("proof_scan_prospects", {
+            "p_states": filters.get("states"),
+            "p_city": filters.get("city"),
+            "p_zip": filters.get("zip_code"),
+            "p_county": filters.get("county"),
+            "p_categories": filters.get("categories"),
+            "p_limit": 2000
+        }).execute()
+        all_prospects = result.data if isinstance(result.data, list) else (result.data or [])
 
         scanned = 0
         vacancies = 0
