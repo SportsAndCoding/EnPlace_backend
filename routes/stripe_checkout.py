@@ -410,6 +410,9 @@ async def handle_subscription_deleted(subscription):
             }).eq("id", result.data["id"]).execute()
             
             logger.info(f"Marked restaurant {result.data['id']} as churned")
+
+            # Check for partner referral
+            await _check_partner_referral_churn(result.data["id"], supabase)
     
     except Exception as e:
         logger.error(f"Error handling subscription deletion: {e}")
@@ -500,7 +503,9 @@ async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
             .execute()
         
         if not deal_result.data:
-            logger.info(f"No active sales deal found for restaurant {restaurant_id} - no commission created")
+            logger.info(f"No active sales deal found for restaurant {restaurant_id} - no rep commission created")
+            # Still check for partner referral even without a sales deal
+            await _check_partner_referral_invoice(supabase, restaurant_id, invoice)
             return
         
         deal = deal_result.data
@@ -546,6 +551,9 @@ async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
         }).execute()
         
         logger.info(f"Commission created: ${commission_amount:.2f} ({commission_type}) for rep {rep_id}, releases {release_at.date()}")
+
+        # Partner commission (separate from rep commission)
+        await _check_partner_referral_invoice(supabase, restaurant_id, invoice)
     
     except Exception as e:
         logger.error(f"Error creating commission for restaurant {restaurant_id}: {e}")
@@ -767,3 +775,230 @@ async def cancel_subscription(
             "success": True,
             "message": "Subscription will cancel at end of billing period"
         }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PARTNER REFERRAL BRIDGE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _check_partner_referral_invoice(supabase, restaurant_id: int, invoice):
+    """
+    Called when an En Place invoice is paid.
+    If the restaurant was referred by a partner:
+    - First invoice: activate the referral, trigger first-close bonus check
+    - Every invoice: create a 10% recurring commission row
+    """
+    try:
+        referral = supabase.table("proof_partner_referrals") \
+            .select("id, partner_id, status, commission_rate, is_first_close") \
+            .eq("en_place_restaurant_id", restaurant_id) \
+            .not_.in_("status", ["rejected", "churned"]) \
+            .execute()
+
+        if not referral.data:
+            return
+
+        ref = referral.data[0]
+        partner_id = ref["partner_id"]
+        commission_rate = float(ref.get("commission_rate", 0.10))
+        amount_dollars = invoice.amount_paid / 100
+        commission_amount = round(amount_dollars * commission_rate, 2)
+
+        # If this is the first invoice, activate the referral
+        if ref["status"] != "active":
+            supabase.table("proof_partner_referrals") \
+                .update({
+                    "status": "active",
+                    "first_active_at": datetime.utcnow().isoformat(),
+                    "monthly_subscription_value": amount_dollars,
+                    "updated_at": datetime.utcnow().isoformat()
+                }) \
+                .eq("id", ref["id"]) \
+                .execute()
+
+            logger.info(f"Partner referral {ref['id']} activated for restaurant {restaurant_id}")
+
+            # Update partner aggregates + state machine (certified->active, first close bonus)
+            await _update_partner_from_webhook(partner_id, ref["id"], supabase)
+
+        # Create recurring partner commission
+        period_start = None
+        period_end = None
+        if invoice.period_start:
+            period_start = datetime.utcfromtimestamp(invoice.period_start).date().isoformat()
+        if invoice.period_end:
+            period_end = datetime.utcfromtimestamp(invoice.period_end).date().isoformat()
+
+        supabase.table("proof_partner_commissions").insert({
+            "partner_id": partner_id,
+            "referral_id": ref["id"],
+            "commission_type": "recurring",
+            "period_start": period_start,
+            "period_end": period_end,
+            "gross_amount": amount_dollars,
+            "commission_rate": commission_rate,
+            "commission_amount": commission_amount,
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        # Update partner pending commission aggregate
+        pending = supabase.table("proof_partner_commissions") \
+            .select("commission_amount") \
+            .eq("partner_id", partner_id) \
+            .eq("status", "pending") \
+            .execute()
+
+        total_pending = sum(float(c["commission_amount"]) for c in (pending.data or []))
+        total_earned_result = supabase.table("proof_partner_commissions") \
+            .select("commission_amount") \
+            .eq("partner_id", partner_id) \
+            .not_.eq("status", "voided") \
+            .execute()
+        total_earned = sum(float(c["commission_amount"]) for c in (total_earned_result.data or []))
+
+        supabase.table("proof_partners") \
+            .update({
+                "pending_commission": total_pending,
+                "total_commission_earned": total_earned,
+                "updated_at": datetime.utcnow().isoformat()
+            }) \
+            .eq("id", partner_id) \
+            .execute()
+
+        logger.info(f"Partner commission ${commission_amount:.2f} created for referral {ref['id']}")
+
+    except Exception as e:
+        logger.error(f"Partner referral invoice check failed for restaurant {restaurant_id}: {e}")
+
+
+async def _check_partner_referral_churn(restaurant_id: int, supabase):
+    """
+    Called when an En Place subscription is deleted.
+    If the restaurant was referred by a partner, mark the referral as churned
+    and recalculate partner state (active->certified if no more active referrals).
+    """
+    try:
+        referral = supabase.table("proof_partner_referrals") \
+            .select("id, partner_id") \
+            .eq("en_place_restaurant_id", restaurant_id) \
+            .eq("status", "active") \
+            .execute()
+
+        if not referral.data:
+            return
+
+        ref = referral.data[0]
+        partner_id = ref["partner_id"]
+
+        supabase.table("proof_partner_referrals") \
+            .update({
+                "status": "churned",
+                "churned_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }) \
+            .eq("id", ref["id"]) \
+            .execute()
+
+        logger.info(f"Partner referral {ref['id']} churned for restaurant {restaurant_id}")
+
+        # Recalculate active referral count
+        active_count = supabase.table("proof_partner_referrals") \
+            .select("id", count="exact") \
+            .eq("partner_id", partner_id) \
+            .eq("status", "active") \
+            .execute()
+
+        active_referrals = active_count.count or 0
+
+        partner_updates = {
+            "active_referrals": active_referrals,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+
+        if active_referrals == 0:
+            # All referrals churned — restart 6-month clock
+            partner_updates["status"] = "certified"
+            partner_updates["partner_tier_expires_at"] = (datetime.utcnow() + timedelta(days=180)).isoformat()
+            logger.info(f"Partner {partner_id} reverted to certified — 6-month clock restarted")
+
+        supabase.table("proof_partners") \
+            .update(partner_updates) \
+            .eq("id", partner_id) \
+            .execute()
+
+    except Exception as e:
+        logger.error(f"Partner referral churn check failed for restaurant {restaurant_id}: {e}")
+
+
+async def _update_partner_from_webhook(partner_id: str, referral_id: str, supabase):
+    """
+    Called when a partner referral first activates.
+    Updates partner status (certified->active) and handles first close bonus.
+    """
+    try:
+        # Recount active referrals from source of truth
+        active_count = supabase.table("proof_partner_referrals") \
+            .select("id", count="exact") \
+            .eq("partner_id", partner_id) \
+            .eq("status", "active") \
+            .execute()
+
+        active_referrals = active_count.count or 0
+
+        partner = supabase.table("proof_partners") \
+            .select("status, user_id") \
+            .eq("id", partner_id) \
+            .single() \
+            .execute()
+
+        partner_updates = {
+            "active_referrals": active_referrals,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+
+        # State machine: certified/lapsed -> active
+        if partner.data["status"] in ("certified", "lapsed"):
+            partner_updates["status"] = "active"
+            partner_updates["partner_tier_expires_at"] = None
+
+            if partner.data["status"] == "lapsed":
+                supabase.table("proof_users") \
+                    .update({"plan": "partner", "plan_status": "active"}) \
+                    .eq("id", partner.data["user_id"]) \
+                    .execute()
+                logger.info(f"Lapsed partner {partner_id} reactivated")
+
+        supabase.table("proof_partners") \
+            .update(partner_updates) \
+            .eq("id", partner_id) \
+            .execute()
+
+        # First close bonus check
+        first_close_check = supabase.table("proof_partner_referrals") \
+            .select("id") \
+            .eq("partner_id", partner_id) \
+            .eq("is_first_close", True) \
+            .execute()
+
+        if not first_close_check.data:
+            # This IS the first close
+            supabase.table("proof_partner_referrals") \
+                .update({"is_first_close": True}) \
+                .eq("id", referral_id) \
+                .execute()
+
+            supabase.table("proof_partner_commissions").insert({
+                "partner_id": partner_id,
+                "referral_id": referral_id,
+                "commission_type": "first_close_bonus",
+                "gross_amount": 500,
+                "commission_rate": 1.0,
+                "commission_amount": 500,
+                "status": "pending",
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+
+            logger.info(f"First close bonus ($500) created for partner {partner_id}")
+
+    except Exception as e:
+        logger.error(f"Partner webhook update failed for partner {partner_id}: {e}")

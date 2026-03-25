@@ -71,10 +71,16 @@ CREDIT_PACK_AMOUNTS = {
 
 # ── Pricing by plan ──
 # Free tier pays premium rates. Paid tier pays standard rates.
-ENRICHMENT_COST_PAID = 0.01
-ENRICHMENT_COST_FREE = 0.25
-DOSSIER_COST_PAID    = 1.00
-DOSSIER_COST_FREE    = 10.00
+# ── Tiered pricing by plan ──
+PLAN_PRICING = {
+    'free':       {'enrichment': 0.50, 'dossier': 15.00, 'scan': 0.50},
+    'starter':    {'enrichment': 0.15, 'dossier':  7.00, 'scan': 0.30},
+    'individual': {'enrichment': 0.15, 'dossier':  7.00, 'scan': 0.30},  # legacy alias for starter
+    'growth':     {'enrichment': 0.10, 'dossier':  5.00, 'scan': 0.25},
+    'team':       {'enrichment': 0.08, 'dossier':  3.00, 'scan': 0.15},
+    'company':    {'enrichment': 0.08, 'dossier':  3.00, 'scan': 0.15},  # legacy alias for team
+    'partner':    {'enrichment': 0.10, 'dossier':  5.00, 'scan': 0.25},  # growth rates
+}
 
 # Dead license statuses — excluded from all search results
 DEAD_STATUSES = [
@@ -207,12 +213,16 @@ def require_paid(current_user: dict = Depends(verify_proof_token)) -> dict:
 
 
 def get_costs(current_user: dict) -> tuple:
-    """Return (enrichment_cost, dossier_cost) based on user plan."""
-    is_paid = current_user.get("plan", "free") != "free"
-    return (
-        ENRICHMENT_COST_PAID if is_paid else ENRICHMENT_COST_FREE,
-        DOSSIER_COST_PAID    if is_paid else DOSSIER_COST_FREE
-    )
+    """Return (enrichment_cost, dossier_cost) based on user plan tier."""
+    plan = current_user.get("plan", "free")
+    tier = PLAN_PRICING.get(plan, PLAN_PRICING['free'])
+    return (tier['enrichment'], tier['dossier'])
+
+def get_scan_cost(current_user: dict) -> float:
+    """Return per-restaurant scan cost based on user plan tier."""
+    plan = current_user.get("plan", "free")
+    tier = PLAN_PRICING.get(plan, PLAN_PRICING['free'])
+    return tier['scan']
 
 
 def hash_password(password: str) -> str:
@@ -1970,7 +1980,7 @@ async def proof_scan_estimate(
     }).execute()
     count = result.data if isinstance(result.data, int) else 0
 
-    cost_per = 0.10
+    cost_per = get_scan_cost(current_user)
     total = round(count * cost_per, 2)
 
     return {
@@ -2008,7 +2018,7 @@ async def proof_start_scan(
     if count > 2000:
         raise HTTPException(status_code=400, detail=f"Too many restaurants ({count}). Narrow your filters to under 2,000.")
 
-    cost_per = 0.10
+    cost_per = get_scan_cost(current_user)
     total_cost = round(count * cost_per, 2)
 
     # Check balance
