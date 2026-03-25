@@ -384,6 +384,37 @@ async def proof_login(data: ProofLoginRequest):
     }
 
 
+_anthropic_status = {"ok": True, "checked_at": None}
+
+@router.get("/health/ai")
+async def proof_ai_health():
+    """Check if Anthropic API is reachable. Cached for 60 seconds."""
+    now = datetime.utcnow()
+    if _anthropic_status["checked_at"] and (now - _anthropic_status["checked_at"]).total_seconds() < 60:
+        return {"available": _anthropic_status["ok"]}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}]
+                },
+                timeout=10.0
+            )
+            _anthropic_status["ok"] = resp.status_code == 200
+    except Exception:
+        _anthropic_status["ok"] = False
+    _anthropic_status["checked_at"] = now
+    return {"available": _anthropic_status["ok"]}
+
+
 @router.get("/me")
 async def proof_me(current_user: dict = Depends(verify_proof_token)):
     """Get current user profile and credit balance."""
@@ -1920,6 +1951,220 @@ async def handle_proof_payment_failed(invoice):
         logger.warning(f"Proof payment failed: {invoice.subscription}")
     except Exception as e:
         logger.error(f"Error handling proof payment failure: {e}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOICE LOGGER — AI-parsed call notes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VOICE_PARSE_PROMPT = """You extract structured data from sales call notes for a restaurant industry CRM.
+
+Extract these fields. Use null if not determinable.
+
+Required (reject if missing):
+- business_name: The restaurant name
+
+Optional:
+- contact_name: Person spoken to
+- contact_title: Their role (GM, Owner, Manager, Bar Manager, etc.)
+- phone: Phone number if mentioned
+- email: Email if mentioned
+- city: City
+- state: State abbreviation
+- address: Street address if mentioned
+- category: One of: restaurant, bar, restaurant_bar, other
+- note_content: Summary of the conversation (what was discussed, key takeaways)
+- outcome: How it went (positive, neutral, negative, no_answer, voicemail)
+- status_suggestion: Suggested pipeline status based on outcome (lead, contacted, meeting_set, proposal, won, lost, nurture)
+- follow_up_date: When to follow up (parse relative dates like "Tuesday" or "next week")
+- follow_up_note: What to do on follow-up
+
+Respond ONLY with valid JSON. No markdown, no explanation, no code fences.
+
+Example input:
+"Called Sotto on Vine Street, spoke with the bar manager about their bourbon program. They're unhappy with delivery reliability from their current distributor. Contract expires in 60 days. Follow up Thursday with samples."
+
+Example output:
+{
+  "business_name": "Sotto",
+  "contact_name": null,
+  "contact_title": "Bar Manager",
+  "phone": null,
+  "email": null,
+  "city": null,
+  "state": null,
+  "address": "Vine Street",
+  "category": "restaurant_bar",
+  "note_content": "Spoke with bar manager about bourbon program. Unhappy with current distributor's delivery reliability. Contract expires in 60 days.",
+  "outcome": "positive",
+  "status_suggestion": "contacted",
+  "follow_up_date": "Thursday",
+  "follow_up_note": "Bring bourbon samples",
+  "follow_up_draft": null
+}
+
+If the notes mention an existing restaurant the user has been working with, still parse everything. The system will match it.
+Now parse these notes:
+"""
+
+class VoiceLogRequest(BaseModel):
+    notes_text: str
+    contact_id: Optional[str] = None
+
+@router.post("/voice-log")
+async def proof_voice_log(
+    data: VoiceLogRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Parse voice/text call notes and create or update contact + add note."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if not data.notes_text or len(data.notes_text.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Notes too short. Include at least a restaurant name and what happened.")
+
+    # Check plan — Starter+ only
+    plan = current_user.get("plan", "free")
+    if plan == "free":
+        raise HTTPException(status_code=403, detail="Voice logger requires a Starter plan or above.")
+
+    # Parse with Haiku
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 800,
+                    "messages": [
+                        {"role": "user", "content": VOICE_PARSE_PROMPT + data.notes_text}
+                    ]
+                },
+                timeout=30.0
+            )
+
+        if resp.status_code != 200:
+            logger.error(f"Voice parse API error: {resp.json()}")
+            raise HTTPException(status_code=500, detail="AI parsing failed")
+
+        resp_data = resp.json()
+        content = ""
+        for block in resp_data.get("content", []):
+            if block.get("type") == "text":
+                content += block.get("text", "")
+
+        content = content.strip()
+        if content.startswith("```"):
+            first_nl = content.index("\n")
+            content = content[first_nl + 1:]
+            if content.endswith("```"):
+                content = content[:-3].strip()
+
+        parsed = json.loads(content)
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="AI returned unparseable response. Try rephrasing your notes.")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="AI parsing timed out. Try again.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice parse error: {e}")
+        raise HTTPException(status_code=500, detail="AI parsing failed")
+
+    # Validate required field
+    if not parsed.get("business_name"):
+        return {
+            "success": False,
+            "error": "missing_restaurant",
+            "message": "Couldn't identify the restaurant name. Try starting with the restaurant name.",
+            "parsed": parsed
+        }
+
+    # Match or create contact
+    contact_id = data.contact_id
+    matched_existing = False
+
+    if contact_id:
+        # User specified which contact — verify it exists
+        existing = supabase.table("proof_contacts") \
+            .select("id, business_name") \
+            .eq("id", contact_id) \
+            .eq("user_id", user_id) \
+            .execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        matched_existing = True
+    else:
+        # Try to match by business name (fuzzy)
+        bname = parsed["business_name"].strip().lower()
+        contacts = supabase.table("proof_contacts") \
+            .select("id, business_name") \
+            .eq("user_id", user_id) \
+            .execute()
+        for c in (contacts.data or []):
+            if c["business_name"] and c["business_name"].strip().lower() == bname:
+                contact_id = c["id"]
+                matched_existing = True
+                break
+
+    if not contact_id:
+        # Create new contact
+        new_contact = {
+            "user_id": user_id,
+            "business_name": parsed["business_name"],
+            "city": parsed.get("city"),
+            "state": parsed.get("state"),
+            "address": parsed.get("address"),
+            "phone": parsed.get("phone"),
+            "email": parsed.get("email"),
+            "category": parsed.get("category", "restaurant"),
+            "status": parsed.get("status_suggestion", "contacted"),
+            "source": "voice_log",
+            "last_contacted_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.utcnow().isoformat()
+        }
+        # Remove None values
+        new_contact = {k: v for k, v in new_contact.items() if v is not None}
+        result = supabase.table("proof_contacts").insert(new_contact).execute()
+        contact_id = result.data[0]["id"]
+
+    # Update existing contact fields if AI found new info
+    if matched_existing:
+        update_fields = {"last_contacted_at": datetime.utcnow().isoformat()}
+        if parsed.get("phone"):
+            update_fields["phone"] = parsed["phone"]
+        if parsed.get("email"):
+            update_fields["email"] = parsed["email"]
+        if parsed.get("status_suggestion") and parsed["status_suggestion"] != "lead":
+            update_fields["status"] = parsed["status_suggestion"]
+        supabase.table("proof_contacts").update(update_fields).eq("id", contact_id).execute()
+
+    # Add the note
+    note_content = parsed.get("note_content") or data.notes_text
+    if parsed.get("follow_up_note"):
+        note_content += f"\n\nFollow-up: {parsed['follow_up_note']}"
+    if parsed.get("follow_up_date"):
+        note_content += f" ({parsed['follow_up_date']})"
+
+    supabase.table("proof_contact_notes").insert({
+        "contact_id": contact_id,
+        "user_id": user_id,
+        "content": note_content,
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
+
+    return {
+        "success": True,
+        "contact_id": contact_id,
+        "matched_existing": matched_existing,
+        "parsed": parsed,
+        "message": f"{'Updated' if matched_existing else 'Created'} {parsed['business_name']} and added note."
+    }
 
 @router.post("/import/map-headers")
 async def proof_map_headers(
