@@ -31,8 +31,7 @@ from modules.nightly_pipeline.demo_swap_seeder import seed_demo_swap_requests
 from modules.nightly_pipeline.baseline_grill_nudge_cleaner import clear_baseline_grill_nudges
 from modules.nightly_pipeline.release_commissions import release_held_commissions
 from modules.nightly_pipeline.graph_pipeline import run_graph_pipeline
-from modules.nightly_pipeline.partner_credit_grant import run_partner_credit_grants
-from modules.nightly_pipeline.partner_tier_check import run_partner_tier_check
+
 
 # Add project root for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

@@ -33,8 +33,9 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 STRIPE_PRICE_PARTNER_CERT = os.environ.get("STRIPE_PRICE_PARTNER_CERT")
 
-PARTNER_CERT_SUCCESS_URL = "https://proof.en-place.ai/partner/certification?session_id={CHECKOUT_SESSION_ID}"
-PARTNER_CERT_CANCEL_URL = "https://proof.en-place.ai/partner"
+PARTNER_CERT_SUCCESS_URL = "https://proof.en-place.ai/partner-portal?session_id={CHECKOUT_SESSION_ID}"
+PARTNER_CONNECT_RETURN_URL = "https://proof.en-place.ai/partner-portal"
+PARTNER_CONNECT_REFRESH_URL = "https://proof.en-place.ai/partner-portal?connect_refresh=true"
 
 CERTIFICATION_MODULES = [
     "product_deep_dive",
@@ -861,6 +862,170 @@ async def commission_summary(current_user: dict = Depends(verify_proof_token)):
         "total_paid": float(p["total_commission_paid"] or 0),
         "pending": float(p["pending_commission"] or 0),
     }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STRIPE CONNECT — Partner Commission Payouts
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/connect/onboard")
+async def partner_connect_onboard(current_user: dict = Depends(verify_proof_token)):
+    """
+    Create or retrieve Stripe Connect Express account for partner.
+    Returns onboarding link for partner to enter bank details.
+    """
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    partner = supabase.table("proof_partners") \
+        .select("id, status, stripe_connect_account_id") \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if not partner.data:
+        raise HTTPException(status_code=404, detail="Not enrolled in partner program")
+
+    p = partner.data[0]
+    if p["status"] not in ("certified", "active"):
+        raise HTTPException(status_code=403, detail="Stripe Connect is available after certification")
+
+    try:
+        existing_account_id = p.get("stripe_connect_account_id")
+
+        if existing_account_id:
+            account = stripe.Account.retrieve(existing_account_id)
+
+            if account.details_submitted and account.payouts_enabled:
+                # Already fully onboarded — update flag if needed
+                if not partner.data[0].get("stripe_connect_onboarded"):
+                    supabase.table("proof_partners") \
+                        .update({"stripe_connect_onboarded": True, "updated_at": datetime.utcnow().isoformat()}) \
+                        .eq("id", p["id"]) \
+                        .execute()
+
+                return {
+                    "success": True,
+                    "message": "Your payout account is already set up and ready to receive commissions."
+                }
+
+            # Onboarding incomplete — generate new link
+            account_link = stripe.AccountLink.create(
+                account=existing_account_id,
+                refresh_url=PARTNER_CONNECT_REFRESH_URL,
+                return_url=PARTNER_CONNECT_RETURN_URL,
+                type="account_onboarding"
+            )
+
+            return {
+                "success": True,
+                "onboarding_url": account_link.url,
+                "message": "Please complete your payout setup."
+            }
+
+        # Create new Express Connect account
+        user = supabase.table("proof_users") \
+            .select("email, full_name") \
+            .eq("id", user_id) \
+            .single() \
+            .execute()
+
+        account = stripe.Account.create(
+            type="express",
+            country="US",
+            email=user.data.get("email") if user.data else None,
+            capabilities={"transfers": {"requested": True}},
+            business_type="individual",
+            metadata={
+                "proof_user_id": user_id,
+                "partner_id": p["id"],
+                "source": "enplace_partner"
+            }
+        )
+
+        # Store account ID
+        supabase.table("proof_partners") \
+            .update({
+                "stripe_connect_account_id": account.id,
+                "updated_at": datetime.utcnow().isoformat()
+            }) \
+            .eq("id", p["id"]) \
+            .execute()
+
+        logger.info(f"Created Stripe Connect account {account.id} for partner {p['id']}")
+
+        # Generate onboarding link
+        account_link = stripe.AccountLink.create(
+            account=account.id,
+            refresh_url=PARTNER_CONNECT_REFRESH_URL,
+            return_url=PARTNER_CONNECT_RETURN_URL,
+            type="account_onboarding"
+        )
+
+        return {
+            "success": True,
+            "onboarding_url": account_link.url,
+            "message": "Click the link to set up your direct deposit."
+        }
+
+    except stripe.error.StripeError as e:
+        logger.error(f"Partner Connect error for {p['id']}: {e}")
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Partner Connect onboarding error for {p['id']}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create payout account")
+
+
+@router.get("/connect/status")
+async def partner_connect_status(current_user: dict = Depends(verify_proof_token)):
+    """Check if partner has completed Stripe Connect onboarding."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    partner = supabase.table("proof_partners") \
+        .select("id, stripe_connect_account_id, stripe_connect_onboarded") \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if not partner.data:
+        raise HTTPException(status_code=404, detail="Not enrolled in partner program")
+
+    p = partner.data[0]
+    account_id = p.get("stripe_connect_account_id")
+
+    if not account_id:
+        return {
+            "success": True,
+            "is_onboarded": False,
+            "payouts_enabled": False,
+            "details_submitted": False
+        }
+
+    try:
+        account = stripe.Account.retrieve(account_id)
+        is_ready = account.details_submitted and account.payouts_enabled
+
+        # Sync the flag if Stripe says they're good but our DB doesn't know yet
+        if is_ready and not p.get("stripe_connect_onboarded"):
+            supabase.table("proof_partners") \
+                .update({"stripe_connect_onboarded": True, "updated_at": datetime.utcnow().isoformat()}) \
+                .eq("id", p["id"]) \
+                .execute()
+
+        return {
+            "success": True,
+            "is_onboarded": is_ready,
+            "payouts_enabled": account.payouts_enabled,
+            "details_submitted": account.details_submitted,
+            "account_id": account_id
+        }
+
+    except stripe.error.StripeError as e:
+        logger.error(f"Partner Connect status error: {e}")
+        return {
+            "success": True,
+            "is_onboarded": False,
+            "payouts_enabled": False,
+            "details_submitted": False
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

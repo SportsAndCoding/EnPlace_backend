@@ -46,9 +46,11 @@ YELP_API_KEY                = os.environ.get("YELP_API_KEY")
 ANTHROPIC_API_KEY           = os.environ.get("ANTHROPIC_API_KEY")
 
 PROOF_PRICE_IDS = {
-    "individual":  os.environ.get("STRIPE_PRICE_PROOF_INDIVIDUAL"),
+    "starter":     os.environ.get("STRIPE_PRICE_PROOF_STARTER"),
+    "individual":  os.environ.get("STRIPE_PRICE_PROOF_INDIVIDUAL"),  # legacy alias for starter
+    "growth":      os.environ.get("STRIPE_PRICE_PROOF_GROWTH"),
     "team":        os.environ.get("STRIPE_PRICE_PROOF_TEAM"),
-    "company":     os.environ.get("STRIPE_PRICE_PROOF_COMPANY"),
+    "company":     os.environ.get("STRIPE_PRICE_PROOF_COMPANY"),  # legacy
     "credits_10":  os.environ.get("STRIPE_PRICE_PROOF_CREDITS_10"),   # free tier entry
     "credits_25":  os.environ.get("STRIPE_PRICE_PROOF_CREDITS_25"),
     "credits_50":  os.environ.get("STRIPE_PRICE_PROOF_CREDITS_50"),
@@ -56,9 +58,13 @@ PROOF_PRICE_IDS = {
 }
 
 PLAN_SEAT_LIMITS = {
+    "free":       1,
+    "starter":    1,
     "individual": 1,
+    "growth":     1,
     "team":       10,
     "company":    25,
+    "partner":    1,
     "enterprise": None,
 }
 
@@ -248,6 +254,13 @@ def get_monthly_usage(supabase, user_id: str, feature: str) -> int:
             .gte("created_at", month_start) \
             .execute()
         return sum(r.get("scanned_count", 0) for r in (result.data or []))
+    elif feature == 'docket':
+        result = supabase.table("proof_dockets") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .gte("created_at", month_start) \
+            .execute()
+        return len(result.data or [])
     else:
         type_map = {'enrichments': 'enrichment', 'dossiers': 'dossier'}
         tx_type = type_map.get(feature, feature)
@@ -386,6 +399,38 @@ async def proof_me(current_user: dict = Depends(verify_proof_token)):
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"success": True, "user": result.data}
+
+_anthropic_status = {"ok": True, "checked_at": None}
+
+@router.get("/health/ai")
+async def proof_ai_health():
+    """Check if Anthropic API is reachable. Cached for 60 seconds."""
+    now = datetime.utcnow()
+    if _anthropic_status["checked_at"] and (now - _anthropic_status["checked_at"]).total_seconds() < 60:
+        return {"available": _anthropic_status["ok"]}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}]
+                },
+                timeout=10.0
+            )
+            _anthropic_status["ok"] = resp.status_code == 200
+    except Exception:
+        _anthropic_status["ok"] = False
+    
+    _anthropic_status["checked_at"] = now
+    return {"available": _anthropic_status["ok"]}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1441,7 +1486,7 @@ async def proof_subscribe(
     current_user: dict = Depends(verify_proof_token)
 ):
     """Create a Stripe checkout session for a subscription plan."""
-    if data.plan not in ("individual", "team", "company"):
+    if data.plan not in ("starter", "individual", "growth", "team", "company"):
         raise HTTPException(status_code=400, detail="Invalid plan")
 
     price_id = PROOF_PRICE_IDS.get(data.plan)
@@ -2354,6 +2399,17 @@ async def proof_generate_docket(
 
     if data.call_count < 1 or data.call_count > 50:
         raise HTTPException(status_code=400, detail="Call count must be between 1 and 50")
+
+    # Check docket allocation
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'docket')
+    if billable > 0:
+        alloc = PLAN_ALLOCATIONS.get(plan, PLAN_ALLOCATIONS['free'])
+        limit = alloc.get('docket', 0)
+        if limit == 0:
+            raise HTTPException(status_code=403, detail="The Docket requires a Starter plan or above.")
+        used = get_monthly_usage(supabase, user_id, 'docket')
+        raise HTTPException(status_code=403, detail=f"Docket limit reached ({used}/{limit} this month). Upgrade to Growth for unlimited.")
 
     # Check they have contacts
     contacts = supabase.table("proof_contacts") \
