@@ -225,6 +225,54 @@ def get_scan_cost(current_user: dict) -> float:
     return tier['scan']
 
 
+# ── Monthly plan allocations ──
+PLAN_ALLOCATIONS = {
+    'free':       {'enrichments': 5,   'dossiers': 0,  'scan_restaurants': 0,   'docket': 0},
+    'starter':    {'enrichments': 50,  'dossiers': 5,  'scan_restaurants': 100,  'docket': 10},
+    'individual': {'enrichments': 50,  'dossiers': 5,  'scan_restaurants': 100,  'docket': 10},
+    'growth':     {'enrichments': 200, 'dossiers': 15, 'scan_restaurants': 500,  'docket': -1},
+    'team':       {'enrichments': 500, 'dossiers': 40, 'scan_restaurants': 1500, 'docket': -1},
+    'company':    {'enrichments': 500, 'dossiers': 40, 'scan_restaurants': 1500, 'docket': -1},
+    'partner':    {'enrichments': 500, 'dossiers': 50, 'scan_restaurants': 2000, 'docket': -1},
+}
+
+def get_monthly_usage(supabase, user_id: str, feature: str) -> int:
+    """Count how many times a user has used a feature this calendar month."""
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    if feature == 'scan_restaurants':
+        result = supabase.table("proof_gm_scans") \
+            .select("scanned_count") \
+            .eq("user_id", user_id) \
+            .gte("created_at", month_start) \
+            .execute()
+        return sum(r.get("scanned_count", 0) for r in (result.data or []))
+    else:
+        type_map = {'enrichments': 'enrichment', 'dossiers': 'dossier'}
+        tx_type = type_map.get(feature, feature)
+        result = supabase.table("proof_credit_transactions") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .eq("transaction_type", tx_type) \
+            .lt("amount", 0) \
+            .gte("created_at", month_start) \
+            .execute()
+        return len(result.data or [])
+
+def check_allocation(supabase, user_id: str, plan: str, feature: str, units: int = 1) -> tuple:
+    """Check if usage is within plan allocation. Returns (units_covered, units_billable)."""
+    alloc = PLAN_ALLOCATIONS.get(plan, PLAN_ALLOCATIONS['free'])
+    limit = alloc.get(feature, 0)
+    if limit == -1:
+        return (units, 0)
+    used = get_monthly_usage(supabase, user_id, feature)
+    remaining = max(0, limit - used)
+    covered = min(units, remaining)
+    billable = units - covered
+    return (covered, billable)
+
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -580,6 +628,9 @@ async def proof_enrich(
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
     enrichment_cost, _ = get_costs(current_user)
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'enrichments')
+    effective_cost = enrichment_cost if billable > 0 else 0
 
     # Check balance
     user = supabase.table("proof_users") \
@@ -589,10 +640,10 @@ async def proof_enrich(
         .execute()
 
     balance = float(user.data.get("credit_balance", 0))
-    if balance < enrichment_cost:
+    if effective_cost > 0 and balance < effective_cost:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient credits. Balance: ${balance:.2f}, cost: ${enrichment_cost:.2f}"
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, cost: ${effective_cost:.2f}"
         )
 
     # Check cache — cached results are always free
@@ -662,7 +713,7 @@ async def proof_enrich(
         supabase.table("prospect_enrichments").insert(enrichment).execute()
 
         if has_useful_data:
-            new_balance = balance - enrichment_cost
+            new_balance = balance - effective_cost
             supabase.table("proof_users").update({
                 "credit_balance": new_balance
             }).eq("id", user_id).execute()
@@ -670,7 +721,7 @@ async def proof_enrich(
             supabase.table("proof_credit_transactions").insert({
                 "user_id": user_id,
                 "transaction_type": "enrichment",
-                "amount": -enrichment_cost,
+                "amount": -effective_cost,
                 "balance_after": new_balance,
                 "description": f"Enrichment: {business_name}",
                 "prospect_id": prospect_id,
@@ -681,7 +732,7 @@ async def proof_enrich(
                 "success": True,
                 "enrichment": enrichment,
                 "cached": False,
-                "charged": enrichment_cost,
+                "charged": effective_cost,
                 "balance_remaining": new_balance
             }
         else:
@@ -805,7 +856,12 @@ async def proof_dossier(
     """
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
-    _, dossier_cost = get_costs(current_user)
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'dossiers')
+    effective_cost = dossier_cost if billable > 0 else 0
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'dossiers')
+    effective_cost = dossier_cost if billable > 0 else 0
 
     # Check balance
     user = supabase.table("proof_users") \
@@ -815,10 +871,10 @@ async def proof_dossier(
         .execute()
 
     balance = float(user.data.get("credit_balance", 0))
-    if balance < dossier_cost:
+    if effective_cost > 0 and balance < effective_cost:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${dossier_cost:.2f}"
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${effective_cost:.2f}"
         )
 
     # Check cache — return immediately if cached
@@ -852,7 +908,7 @@ async def proof_dossier(
         raise HTTPException(status_code=404, detail="Prospect not found")
 
     # Deduct credit NOW (before background task) so user can't double-spend
-    new_balance = balance - dossier_cost
+    new_balance = balance - effective_cost
     supabase.table("proof_users").update({
         "credit_balance": new_balance
     }).eq("id", user_id).execute()
@@ -860,7 +916,7 @@ async def proof_dossier(
     supabase.table("proof_credit_transactions").insert({
         "user_id": user_id,
         "transaction_type": "dossier",
-        "amount": -dossier_cost,
+        "amount": -effective_cost,
         "balance_after": new_balance,
         "description": f"Dossier: {prospect.data.get('dba_name') or prospect.data.get('legal_name', 'Unknown')}",
         "prospect_id": prospect_id,
@@ -1981,7 +2037,9 @@ async def proof_scan_estimate(
     count = result.data if isinstance(result.data, int) else 0
 
     cost_per = get_scan_cost(current_user)
-    total = round(count * cost_per, 2)
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'scan_restaurants', units=count)
+    total = round(billable * cost_per, 2)
 
     return {
         "success": True,
@@ -2019,7 +2077,9 @@ async def proof_start_scan(
         raise HTTPException(status_code=400, detail=f"Too many restaurants ({count}). Narrow your filters to under 2,000.")
 
     cost_per = get_scan_cost(current_user)
-    total_cost = round(count * cost_per, 2)
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'scan_restaurants', units=count)
+    total_cost = round(billable * cost_per, 2)
 
     # Check balance
     user = supabase.table("proof_users") \
@@ -2029,7 +2089,7 @@ async def proof_start_scan(
         .execute()
     balance = float(user.data.get("credit_balance", 0))
 
-    if balance < total_cost:
+    if total_cost > 0 and balance < total_cost:
         raise HTTPException(status_code=402, detail=f"Insufficient credits. Need ${total_cost:.2f}, have ${balance:.2f}")
 
     # Deduct credits
@@ -2657,7 +2717,9 @@ async def proof_enrich_contact(
     """Enrich a contact directly (no prospect_master needed)."""
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
-    enrichment_cost, _ = get_costs(current_user)
+    plan = current_user.get("plan", "free")
+    covered, billable = check_allocation(supabase, user_id, plan, 'enrichments')
+    effective_cost = enrichment_cost if billable > 0 else 0
 
     # Get contact
     contact = supabase.table("proof_contacts") \
@@ -2748,7 +2810,7 @@ async def proof_enrich_contact(
             supabase.table("proof_credit_transactions").insert({
                 "user_id": user_id,
                 "transaction_type": "enrichment",
-                "amount": -enrichment_cost,
+                "amount": -effective_cost,
                 "balance_after": new_balance,
                 "description": f"Enrich contact: {business_name}",
                 "created_at": datetime.utcnow().isoformat()
@@ -2769,7 +2831,7 @@ async def proof_enrich_contact(
                 "success": True,
                 "enrichment": enrichment,
                 "cached": False,
-                "charged": enrichment_cost,
+                "charged": effective_cost,
                 "balance_remaining": new_balance
             }
         else:
