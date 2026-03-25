@@ -254,6 +254,8 @@ from routes.menu_parser import router as menu_parser_router
 app.include_router(menu_parser_router)
 from routes.proof import router as proof_router
 app.include_router(proof_router)
+from routes.partner import router as partner_router
+app.include_router(partner_router)
 
 
 @app.get("/")

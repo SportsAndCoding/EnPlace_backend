@@ -1678,7 +1678,64 @@ async def handle_proof_checkout(session):
 
                 logger.info(f"Added ${credit_amount} credits to user {user_id}")
 
-        elif meta.get("proof_plan"):
+        elif meta.get("partner_certification"):
+            import secrets, string
+
+            def _gen_ref_code():
+                chars = string.ascii_uppercase + string.digits
+                return "EP-" + ''.join(secrets.choice(chars) for _ in range(4))
+
+            user = supabase.table("proof_users") \
+                .select("plan, stripe_subscription_id, organization_id") \
+                .eq("id", user_id) \
+                .single() \
+                .execute()
+
+            is_org = bool(user.data.get("organization_id")) if user.data else False
+
+            referral_code = _gen_ref_code()
+            for _ in range(10):
+                existing = supabase.table("proof_partners") \
+                    .select("id") \
+                    .eq("referral_code", referral_code) \
+                    .execute()
+                if not existing.data:
+                    break
+                referral_code = _gen_ref_code()
+
+            supabase.table("proof_partners").insert({
+                "user_id": user_id,
+                "status": "pending_cert",
+                "referral_code": referral_code,
+                "certification_stripe_pi": session.payment_intent,
+                "previous_plan": user.data.get("plan", "free") if user.data else "free",
+                "previous_stripe_sub_id": user.data.get("stripe_subscription_id") if user.data else None,
+                "is_org_member": is_org,
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+
+            partner_result = supabase.table("proof_partners") \
+                .select("id") \
+                .eq("user_id", user_id) \
+                .single() \
+                .execute()
+
+            partner_id = partner_result.data["id"]
+
+            cert_modules = [
+                "product_deep_dive", "service_profit_chain", "restaurant_pnl",
+                "identifying_buyers", "demo_walkthrough", "objection_handling",
+                "compliance_boundaries", "final_assessment"
+            ]
+            for mod in cert_modules:
+                supabase.table("proof_partner_certification").insert({
+                    "partner_id": partner_id,
+                    "module_id": mod,
+                    "status": "not_started",
+                    "created_at": datetime.utcnow().isoformat()
+                }).execute()
+
+            logger.info(f"Partner enrolled: user {user_id}, code {referral_code}")
             plan = meta["proof_plan"]
             seat_limit = PLAN_SEAT_LIMITS.get(plan)
 
@@ -1913,7 +1970,7 @@ async def proof_scan_estimate(
     }).execute()
     count = result.data if isinstance(result.data, int) else 0
 
-    cost_per = 0.05
+    cost_per = 0.10
     total = round(count * cost_per, 2)
 
     return {
@@ -1951,7 +2008,7 @@ async def proof_start_scan(
     if count > 2000:
         raise HTTPException(status_code=400, detail=f"Too many restaurants ({count}). Narrow your filters to under 2,000.")
 
-    cost_per = 0.05
+    cost_per = 0.10
     total_cost = round(count * cost_per, 2)
 
     # Check balance
