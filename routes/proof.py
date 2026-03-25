@@ -102,16 +102,17 @@ class ProofLoginRequest(BaseModel):
     password: str
 
 class ProofSearchRequest(BaseModel):
-    states: Optional[List[str]] = None
-    city: Optional[str] = None
-    zip_code: Optional[str] = None
-    county: Optional[str] = None
-    address: Optional[str] = None
-    categories: Optional[List[str]] = None
-    new_since_days: Optional[int] = None
-    expiring_within_days: Optional[int] = None
-    page: int = 1
-    page_size: int = 25
+        states: Optional[List[str]] = None
+        city: Optional[str] = None
+        zip_code: Optional[str] = None
+        county: Optional[str] = None
+        address: Optional[str] = None
+        categories: Optional[List[str]] = None
+        new_since_days: Optional[int] = None
+        expiring_within_days: Optional[int] = None
+        stale_days: Optional[int] = None
+        page: int = 1
+        page_size: int = 25
 
 class ProofSubscriptionRequest(BaseModel):
     plan: str
@@ -347,10 +348,10 @@ async def proof_search(
     plan = current_user.get("plan", "free")
     is_paid = plan != "free"
 
-    if not is_paid and (data.new_since_days or data.expiring_within_days):
+    if not is_paid and (data.new_since_days or data.expiring_within_days or data.stale_days):
         raise HTTPException(
             status_code=403,
-            detail="New issuance and expiry filters require a paid plan"
+            detail="New issuance, expiry, and freshness filters require a paid plan"
         )
 
     params = {
@@ -362,6 +363,7 @@ async def proof_search(
         "p_categories": data.categories if data.categories else None,
         "p_new_since_days": data.new_since_days if is_paid else None,
         "p_expiring_within_days": data.expiring_within_days if is_paid else None,
+        "p_stale_days": data.stale_days if is_paid else None,
         "p_page": data.page,
         "p_page_size": data.page_size
     }
