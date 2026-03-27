@@ -446,9 +446,6 @@ async def pulse_route_plan(
         # Don't force return to start unless requested
         if not data.return_to_start:
             routing.SetFixedCostOfVehicle(0, 0)
-            # Allow ending at any node
-            for i in range(n):
-                routing.AddDisjunction([manager.NodeToIndex(i)], 0)
 
         search_params = pywrapcp.DefaultRoutingSearchParameters()
         search_params.first_solution_strategy = (
