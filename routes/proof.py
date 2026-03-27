@@ -79,13 +79,13 @@ CREDIT_PACK_AMOUNTS = {
 # Free tier pays premium rates. Paid tier pays standard rates.
 # ── Tiered pricing by plan ──
 PLAN_PRICING = {
-    'free':       {'enrichment': 0.50, 'dossier': 15.00, 'scan': 0.50},
-    'starter':    {'enrichment': 0.15, 'dossier':  7.00, 'scan': 0.30},
-    'individual': {'enrichment': 0.15, 'dossier':  7.00, 'scan': 0.30},  # legacy alias for starter
-    'growth':     {'enrichment': 0.10, 'dossier':  5.00, 'scan': 0.25},
-    'team':       {'enrichment': 0.08, 'dossier':  3.00, 'scan': 0.15},
-    'company':    {'enrichment': 0.08, 'dossier':  3.00, 'scan': 0.15},  # legacy alias for team
-    'partner':    {'enrichment': 0.10, 'dossier':  5.00, 'scan': 0.25},  # growth rates
+    'free':       {'enrichment': 0.50, 'dossier': 15.00, 'scan': 0.50, 'route': 0},
+    'starter':    {'enrichment': 0.15, 'dossier':  7.00, 'scan': 0.30, 'route': 1.00},
+    'individual': {'enrichment': 0.15, 'dossier':  7.00, 'scan': 0.30, 'route': 1.00},
+    'growth':     {'enrichment': 0.10, 'dossier':  5.00, 'scan': 0.25, 'route': 0.75},
+    'team':       {'enrichment': 0.08, 'dossier':  3.00, 'scan': 0.15, 'route': 0.50},
+    'company':    {'enrichment': 0.08, 'dossier':  3.00, 'scan': 0.15, 'route': 0.50},
+    'partner':    {'enrichment': 0.10, 'dossier':  5.00, 'scan': 0.25, 'route': 0.75},
 }
 
 # Dead license statuses — excluded from all search results
@@ -260,6 +260,30 @@ async def pulse_route_plan(
 
     if plan == "free":
         raise HTTPException(status_code=403, detail="Route Planner requires a Starter plan or above.")
+
+    # Check route allocation
+    covered, billable = check_allocation(supabase, user_id, plan, 'routes')
+    if billable > 0:
+        route_cost = PLAN_PRICING.get(plan, PLAN_PRICING['free']).get('route', 1.00)
+        balance = float(current_user.get("credit_balance", 0))
+        if balance < route_cost:
+            alloc = PLAN_ALLOCATIONS.get(plan, PLAN_ALLOCATIONS['free'])
+            used = get_monthly_usage(supabase, user_id, 'routes')
+            raise HTTPException(
+                status_code=403,
+                detail=f"Route limit reached ({used}/{alloc.get('routes', 0)} this month). Add credits or upgrade your plan."
+            )
+        # Deduct credit
+        new_balance = balance - route_cost
+        supabase.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
+        supabase.table("proof_credit_transactions").insert({
+            "user_id": user_id,
+            "transaction_type": "route",
+            "amount": -route_cost,
+            "balance_after": new_balance,
+            "description": f"Route optimization ({len(data.stops)} stops)",
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
 
     if len(data.stops) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 stops to plan a route.")
@@ -543,13 +567,13 @@ def get_scan_cost(current_user: dict) -> float:
 
 # ── Monthly plan allocations ──
 PLAN_ALLOCATIONS = {
-    'free':       {'enrichments': 5,   'dossiers': 0,  'scan_restaurants': 0,   'docket': 0},
-    'starter':    {'enrichments': 50,  'dossiers': 5,  'scan_restaurants': 100,  'docket': 10},
-    'individual': {'enrichments': 50,  'dossiers': 5,  'scan_restaurants': 100,  'docket': 10},
-    'growth':     {'enrichments': 200, 'dossiers': 15, 'scan_restaurants': 500,  'docket': -1},
-    'team':       {'enrichments': 500, 'dossiers': 40, 'scan_restaurants': 1500, 'docket': -1},
-    'company':    {'enrichments': 500, 'dossiers': 40, 'scan_restaurants': 1500, 'docket': -1},
-    'partner':    {'enrichments': 500, 'dossiers': 50, 'scan_restaurants': 2000, 'docket': -1},
+    'free':       {'enrichments': 5,   'dossiers': 0,  'scan_restaurants': 0,   'docket': 0,  'routes': 0},
+    'starter':    {'enrichments': 50,  'dossiers': 5,  'scan_restaurants': 100,  'docket': 10, 'routes': 5},
+    'individual': {'enrichments': 50,  'dossiers': 5,  'scan_restaurants': 100,  'docket': 10, 'routes': 5},
+    'growth':     {'enrichments': 200, 'dossiers': 15, 'scan_restaurants': 500,  'docket': -1, 'routes': 15},
+    'team':       {'enrichments': 500, 'dossiers': 40, 'scan_restaurants': 1500, 'docket': -1, 'routes': 30},
+    'company':    {'enrichments': 500, 'dossiers': 40, 'scan_restaurants': 1500, 'docket': -1, 'routes': 30},
+    'partner':    {'enrichments': 500, 'dossiers': 50, 'scan_restaurants': 2000, 'docket': -1, 'routes': 15},
 }
 
 def get_monthly_usage(supabase, user_id: str, feature: str) -> int:
@@ -568,6 +592,14 @@ def get_monthly_usage(supabase, user_id: str, feature: str) -> int:
         result = supabase.table("proof_dockets") \
             .select("id") \
             .eq("user_id", user_id) \
+            .gte("created_at", month_start) \
+            .execute()
+        return len(result.data or [])
+    elif feature == 'routes':
+        result = supabase.table("proof_credit_transactions") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .eq("transaction_type", "route") \
             .gte("created_at", month_start) \
             .execute()
         return len(result.data or [])
@@ -3166,6 +3198,20 @@ async def proof_generate_docket(
 
     if data.call_count < 1 or data.call_count > 50:
         raise HTTPException(status_code=400, detail="Call count must be between 1 and 50")
+
+    # Cooldown: 1 hour between docket generations
+    last_docket = supabase.table("proof_dockets") \
+        .select("created_at") \
+        .eq("user_id", user_id) \
+        .order("created_at", desc=True) \
+        .limit(1) \
+        .execute()
+    if last_docket.data:
+        last_time = datetime.fromisoformat(last_docket.data[0]["created_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+        minutes_since = (datetime.utcnow() - last_time).total_seconds() / 60
+        if minutes_since < 60:
+            remaining = int(60 - minutes_since)
+            raise HTTPException(status_code=429, detail=f"Docket refreshes once per hour. Try again in {remaining} minutes.")
 
     # Check docket allocation
     plan = current_user.get("plan", "free")
