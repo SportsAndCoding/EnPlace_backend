@@ -390,14 +390,14 @@ async def pulse_route_plan(
     # Build time windows (in seconds from midnight)
     time_windows = []
     for sd in stop_data:
-        if sd["earliest"] and sd["latest"]:
+        tw_start = 0
+        tw_end = 86400
+        if sd["earliest"]:
             e_parts = sd["earliest"].split(":")
-            l_parts = sd["latest"].split(":")
             tw_start = int(e_parts[0]) * 3600 + int(e_parts[1]) * 60
+        if sd["latest"]:
+            l_parts = sd["latest"].split(":")
             tw_end = int(l_parts[0]) * 3600 + int(l_parts[1]) * 60
-        else:
-            tw_start = 0
-            tw_end = 86400  # 24 hours
         time_windows.append((tw_start, tw_end))
 
     # Service times (duration at each stop, in seconds)
