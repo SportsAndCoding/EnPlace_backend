@@ -184,6 +184,18 @@ class PulseRouteRequest(BaseModel):
     departure_time: str = "08:00"
     return_to_start: bool = False
 
+class DocketOverrideRequest(BaseModel):
+    docket_id: str
+    contact_id: str
+    method: str  # 'call', 'email', 'visit'
+
+class ContactRuleRequest(BaseModel):
+    contact_id: str
+    rule_text: str
+    day_of_week: Optional[List[str]] = None
+    time_earliest: Optional[str] = None
+    time_latest: Optional[str] = None
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -281,6 +293,17 @@ async def pulse_route_plan(
             "duration_minutes": 0
         })
 
+    # Load existing rules for selected contacts
+    rules_result = supabase.table("proof_contact_rules") \
+        .select("contact_id, day_of_week, time_earliest, time_latest, rule_text") \
+        .eq("user_id", user_id) \
+        .eq("active", True) \
+        .in_("contact_id", contact_ids) \
+        .execute()
+    rules_by_contact = {}
+    for rule in (rules_result.data or []):
+        rules_by_contact[rule["contact_id"]] = rule
+
     missing = []
     for stop in data.stops:
         contact = contacts_map.get(stop.contact_id)
@@ -295,14 +318,24 @@ async def pulse_route_plan(
             missing.append(stop.contact_id)
             continue
         addresses.append(addr)
+        # Merge user-provided constraints with saved rules
+        earliest = stop.earliest
+        latest = stop.latest
+        rule = rules_by_contact.get(stop.contact_id)
+        if rule and not earliest:
+            earliest = rule.get("time_earliest")
+        if rule and not latest:
+            latest = rule.get("time_latest")
+
         stop_data.append({
             "contact_id": stop.contact_id,
             "business_name": contact.get("business_name", "Unknown"),
             "address_raw": addr,
             "phone": contact.get("phone"),
-            "earliest": stop.earliest,
-            "latest": stop.latest,
-            "duration_minutes": stop.duration_minutes
+            "earliest": earliest,
+            "latest": latest,
+            "duration_minutes": stop.duration_minutes,
+            "rule_text": rule.get("rule_text") if rule else None
         })
 
     if missing:
@@ -3241,6 +3274,19 @@ For each prioritized contact, provide:
 - A specific reason why TODAY is the right day to call (not generic)
 - A suggested opening line tailored to what you know about them
 - The call type: "cold_intro", "follow_up", "close_attempt", "re_engage", or "check_in"
+- The recommended contact method: "visit", "call", or "email" based on:
+  * VISIT if: cold_intro with no prior relationship, high-value target, notes mention "stop by" or in-person meeting, or the contact has a physical address but no phone/email
+  * CALL if: has phone number, follow_up or check_in on warm lead, quick re-engage
+  * EMAIL if: has email but no phone, proposal or document needs sending, re-engage on cold lead where a call might feel pushy
+- A brief reason for the method choice
+
+ALSO scan ALL notes for scheduling constraints. Look for any mention of:
+- Specific days someone is available/unavailable ("only there on Tuesdays", "closed Mondays")
+- Time preferences ("mornings are best", "don't call before 10", "lunch rush avoid 11-2")
+- Location patterns ("only at the west side location on Fridays")
+- Upcoming meetings or follow-ups ("said to come back Thursday")
+
+Return these as structured rules in a separate array.
 
 Respond with ONLY valid JSON, no preamble:
 {
@@ -3252,13 +3298,61 @@ Respond with ONLY valid JSON, no preamble:
       "why_today": "Specific reason this is priority today",
       "opening_line": "Hey [name], I saw that...",
       "call_type": "follow_up",
+      "contact_method": "call",
+      "method_reason": "Has phone, warm follow-up from last week",
       "phone": "555-1234 or null",
       "city": "Cincinnati",
       "state": "OH"
     }
   ],
+  "detected_rules": [
+    {
+      "contact_id": "uuid",
+      "business_name": "Name",
+      "rule_text": "Only available weekday mornings",
+      "day_of_week": ["monday","tuesday","wednesday","thursday","friday"],
+      "time_earliest": "08:00",
+      "time_latest": "12:00",
+      "source_quote": "betty said mornings work best, she does yoga afternoons"
+    }
+  ],
   "pipeline_summary": "Brief 2-sentence summary of the overall pipeline health"
 }"""
+
+@router.post("/docket/override-method")
+async def proof_docket_override_method(
+    data: DocketOverrideRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Override AI-recommended contact method for a docket entry."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if data.method not in ("call", "email", "visit"):
+        raise HTTPException(status_code=400, detail="Method must be call, email, or visit")
+
+    # Get current docket
+    result = supabase.table("proof_dockets") \
+        .select("method_overrides") \
+        .eq("id", data.docket_id) \
+        .eq("user_id", user_id) \
+        .single() \
+        .execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Docket not found")
+
+    overrides = result.data.get("method_overrides") or {}
+    overrides[data.contact_id] = {
+        "method": data.method,
+        "overridden_at": datetime.utcnow().isoformat()
+    }
+
+    supabase.table("proof_dockets").update({
+        "method_overrides": overrides
+    }).eq("id", data.docket_id).execute()
+
+    return {"success": True, "method": data.method}
 
 
 async def _run_docket_background(docket_id: str, user_id: str, call_count: int):
@@ -3482,12 +3576,52 @@ Return exactly {call_count} prioritized calls (or fewer if they don't have enoug
                     call["has_dossier"] = False
                     call["prospect_id"] = None
 
+            # Save any AI-detected scheduling rules
+            detected_rules = docket_data.get("detected_rules", [])
+            for rule in detected_rules:
+                rule_cid = rule.get("contact_id")
+                if not rule_cid or rule_cid not in contact_lookup:
+                    continue
+                # Check if similar rule already exists
+                existing = supabase.table("proof_contact_rules") \
+                    .select("id") \
+                    .eq("contact_id", rule_cid) \
+                    .eq("user_id", user_id) \
+                    .eq("active", True) \
+                    .execute()
+                if existing.data:
+                    continue  # Don't duplicate rules
+                try:
+                    supabase.table("proof_contact_rules").insert({
+                        "contact_id": rule_cid,
+                        "user_id": user_id,
+                        "rule_type": "availability",
+                        "rule_text": rule.get("rule_text", ""),
+                        "day_of_week": rule.get("day_of_week"),
+                        "time_earliest": rule.get("time_earliest"),
+                        "time_latest": rule.get("time_latest"),
+                        "source": "ai_parsed",
+                        "created_at": datetime.utcnow().isoformat()
+                    }).execute()
+                    logger.info(f"Saved detected rule for contact {rule_cid}: {rule.get('rule_text')}")
+                except Exception as e:
+                    logger.warning(f"Failed to save detected rule: {e}")
+
+            # Enrich call entries with address data and existing rules for route planner
+            for call in docket_data.get("calls", []):
+                cid = call.get("contact_id")
+                if cid:
+                    contact = next((c for c in contacts if c["id"] == cid), None)
+                    if contact:
+                        call["address"] = contact.get("address")
+                        call["zip"] = contact.get("zip")
+
             supabase.table("proof_dockets").update({
                 "status": "complete",
                 "docket": docket_data,
                 "completed_at": datetime.utcnow().isoformat()
             }).eq("id", docket_id).execute()
-            logger.info(f"Docket {docket_id} complete: {len(docket_data.get('calls', []))} calls")
+            logger.info(f"Docket {docket_id} complete: {len(docket_data.get('calls', []))} calls, {len(detected_rules)} rules detected")
         else:
             supabase.table("proof_dockets").update({
                 "status": "failed",
