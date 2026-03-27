@@ -172,6 +172,18 @@ class ProofScanEstimateRequest(BaseModel):
 class ProofDocketRequest(BaseModel):
     call_count: int = 10
 
+class RouteStop(BaseModel):
+    contact_id: str
+    earliest: Optional[str] = None    # "09:00" format
+    latest: Optional[str] = None      # "17:00" format
+    duration_minutes: int = 15        # time spent at this stop
+
+class PulseRouteRequest(BaseModel):
+    stops: List[RouteStop]
+    start_address: Optional[str] = None  # rep's starting point
+    departure_time: str = "08:00"
+    return_to_start: bool = False
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -223,6 +235,274 @@ def get_costs(current_user: dict) -> tuple:
     plan = current_user.get("plan", "free")
     tier = PLAN_PRICING.get(plan, PLAN_PRICING['free'])
     return (tier['enrichment'], tier['dossier'])
+
+@router.post("/pulse/route")
+async def pulse_route_plan(
+    data: PulseRouteRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Optimize a route with time window constraints using OR-Tools VRPTW."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+    plan = current_user.get("plan", "free")
+
+    if plan == "free":
+        raise HTTPException(status_code=403, detail="Route Planner requires a Starter plan or above.")
+
+    if len(data.stops) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 stops to plan a route.")
+    if len(data.stops) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 stops per route.")
+
+    # Fetch contact addresses
+    contact_ids = [s.contact_id for s in data.stops]
+    contacts_result = supabase.table("proof_contacts") \
+        .select("id, business_name, address, city, state, zip, phone") \
+        .eq("user_id", user_id) \
+        .in_("id", contact_ids) \
+        .execute()
+
+    contacts_map = {c["id"]: c for c in (contacts_result.data or [])}
+
+    # Build address list for Distance Matrix
+    addresses = []
+    stop_data = []
+    has_start = bool(data.start_address and data.start_address.strip())
+
+    if has_start:
+        addresses.append(data.start_address.strip())
+        stop_data.append({
+            "contact_id": None,
+            "business_name": "Start",
+            "address_raw": data.start_address.strip(),
+            "phone": None,
+            "earliest": None,
+            "latest": None,
+            "duration_minutes": 0
+        })
+
+    missing = []
+    for stop in data.stops:
+        contact = contacts_map.get(stop.contact_id)
+        if not contact:
+            missing.append(stop.contact_id)
+            continue
+        addr_parts = [contact.get("address"), contact.get("city"), contact.get("state")]
+        addr = ", ".join([p for p in addr_parts if p])
+        if contact.get("zip"):
+            addr += " " + contact["zip"]
+        if not addr.strip():
+            missing.append(stop.contact_id)
+            continue
+        addresses.append(addr)
+        stop_data.append({
+            "contact_id": stop.contact_id,
+            "business_name": contact.get("business_name", "Unknown"),
+            "address_raw": addr,
+            "phone": contact.get("phone"),
+            "earliest": stop.earliest,
+            "latest": stop.latest,
+            "duration_minutes": stop.duration_minutes
+        })
+
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing address for {len(missing)} contact(s). Enrich them first.")
+
+    if len(addresses) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 valid addresses.")
+
+    n = len(addresses)
+
+    # Get distance matrix from Google
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://maps.googleapis.com/maps/api/distancematrix/json",
+                params={
+                    "origins": "|".join(addresses),
+                    "destinations": "|".join(addresses),
+                    "key": GOOGLE_PLACES_API_KEY,
+                    "units": "imperial"
+                },
+                timeout=30.0
+            )
+            matrix_data = resp.json()
+    except Exception as e:
+        logger.error(f"Distance Matrix API error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to calculate distances. Try again.")
+
+    if matrix_data.get("status") != "OK":
+        raise HTTPException(status_code=500, detail=f"Google API error: {matrix_data.get('status')}")
+
+    # Parse distance matrix into duration (seconds) and distance (meters)
+    duration_matrix = []
+    distance_matrix = []
+    for i, row in enumerate(matrix_data["rows"]):
+        dur_row = []
+        dist_row = []
+        for j, elem in enumerate(row["elements"]):
+            if elem["status"] == "OK":
+                dur_row.append(elem["duration"]["value"])      # seconds
+                dist_row.append(elem["distance"]["value"])     # meters
+            else:
+                dur_row.append(999999)
+                dist_row.append(999999)
+        duration_matrix.append(dur_row)
+        distance_matrix.append(dist_row)
+
+    # Parse departure time
+    dep_parts = data.departure_time.split(":")
+    dep_minutes = int(dep_parts[0]) * 60 + int(dep_parts[1])
+
+    # Build time windows (in seconds from midnight)
+    time_windows = []
+    for sd in stop_data:
+        if sd["earliest"] and sd["latest"]:
+            e_parts = sd["earliest"].split(":")
+            l_parts = sd["latest"].split(":")
+            tw_start = int(e_parts[0]) * 3600 + int(e_parts[1]) * 60
+            tw_end = int(l_parts[0]) * 3600 + int(l_parts[1]) * 60
+        else:
+            tw_start = 0
+            tw_end = 86400  # 24 hours
+        time_windows.append((tw_start, tw_end))
+
+    # Service times (duration at each stop, in seconds)
+    service_times = [sd["duration_minutes"] * 60 for sd in stop_data]
+
+    # Solve with OR-Tools
+    try:
+        from ortools.constraint_solver import routing_enums_pb2, pywrapcp
+
+        manager = pywrapcp.RoutingIndexManager(n, 1, 0 if has_start else 0)
+        routing = pywrapcp.RoutingModel(manager)
+
+        def time_callback(from_index, to_index):
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            travel = duration_matrix[from_node][to_node]
+            service = service_times[from_node]
+            return travel + service
+
+        transit_callback_index = routing.RegisterTransitCallback(time_callback)
+        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+        # Time dimension with time windows
+        routing.AddDimension(
+            transit_callback_index,
+            7200,   # max wait time (2 hours)
+            86400,  # max total time (24 hours)
+            False,
+            "Time"
+        )
+        time_dimension = routing.GetDimensionOrDie("Time")
+
+        # Apply time windows
+        for i in range(n):
+            index = manager.NodeToIndex(i)
+            time_dimension.CumulVar(index).SetRange(
+                time_windows[i][0],
+                time_windows[i][1]
+            )
+
+        # Set departure time for start node
+        dep_seconds = dep_minutes * 60
+        start_index = routing.Start(0)
+        time_dimension.CumulVar(start_index).SetRange(dep_seconds, dep_seconds)
+
+        # Don't force return to start unless requested
+        if not data.return_to_start:
+            routing.SetFixedCostOfVehicle(0, 0)
+            # Allow ending at any node
+            for i in range(n):
+                routing.AddDisjunction([manager.NodeToIndex(i)], 0)
+
+        search_params = pywrapcp.DefaultRoutingSearchParameters()
+        search_params.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+        )
+        search_params.local_search_metaheuristic = (
+            routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+        )
+        search_params.time_limit.seconds = 5
+
+        solution = routing.SolveWithParameters(search_params)
+
+    except Exception as e:
+        logger.error(f"OR-Tools error: {e}")
+        raise HTTPException(status_code=500, detail="Route optimization failed.")
+
+    if not solution:
+        raise HTTPException(status_code=400, detail="No feasible route found with these time constraints. Try relaxing your time windows.")
+
+    # Extract solution
+    route_order = []
+    total_drive_seconds = 0
+    total_distance_meters = 0
+    index = routing.Start(0)
+    prev_node = None
+
+    while not routing.IsEnd(index):
+        node = manager.IndexToNode(index)
+        time_var = time_dimension.CumulVar(index)
+        arrival_seconds = solution.Min(time_var)
+        arrival_h = arrival_seconds // 3600
+        arrival_m = (arrival_seconds % 3600) // 60
+        arrival_time = f"{arrival_h:02d}:{arrival_m:02d}"
+
+        leg_drive = 0
+        leg_distance = 0
+        if prev_node is not None:
+            leg_drive = duration_matrix[prev_node][node]
+            leg_distance = distance_matrix[prev_node][node]
+            total_drive_seconds += leg_drive
+            total_distance_meters += leg_distance
+
+        stop_info = stop_data[node]
+        route_order.append({
+            "stop_number": len(route_order) + 1,
+            "contact_id": stop_info["contact_id"],
+            "business_name": stop_info["business_name"],
+            "address": stop_info["address_raw"],
+            "phone": stop_info["phone"],
+            "arrival_time": arrival_time,
+            "departure_time": f"{(arrival_seconds + service_times[node]) // 3600:02d}:{((arrival_seconds + service_times[node]) % 3600) // 60:02d}",
+            "duration_minutes": stop_info["duration_minutes"],
+            "drive_minutes_from_prev": round(leg_drive / 60, 1) if prev_node is not None else 0,
+            "drive_miles_from_prev": round(leg_distance / 1609.34, 1) if prev_node is not None else 0,
+            "time_window": {
+                "earliest": stop_info["earliest"],
+                "latest": stop_info["latest"]
+            } if stop_info["earliest"] else None
+        })
+
+        prev_node = node
+        index = solution.Value(routing.NextVar(index))
+
+    # Build Google Maps URL
+    waypoints = [s["address"] for s in route_order if s["contact_id"]]  # skip start
+    if len(waypoints) >= 2:
+        origin = waypoints[0]
+        destination = waypoints[-1]
+        mid = waypoints[1:-1]
+        maps_url = f"https://www.google.com/maps/dir/{'/'.join([origin] + mid + [destination])}"
+    else:
+        maps_url = None
+
+    return {
+        "success": True,
+        "route": route_order,
+        "summary": {
+            "total_stops": len(route_order),
+            "total_drive_minutes": round(total_drive_seconds / 60, 1),
+            "total_drive_miles": round(total_distance_meters / 1609.34, 1),
+            "total_time_minutes": round((total_drive_seconds + sum(service_times[manager.IndexToNode(i)] for i in range(n))) / 60, 1),
+            "departure_time": data.departure_time,
+        },
+        "maps_url": maps_url,
+        "cost_note": f"Distance Matrix: {n*n} elements (~${n*n*0.005:.2f})"
+    }
+
 
 def get_scan_cost(current_user: dict) -> float:
     """Return per-restaurant scan cost based on user plan tier."""
