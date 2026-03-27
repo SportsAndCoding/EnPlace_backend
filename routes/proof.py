@@ -2294,6 +2294,218 @@ async def proof_change_password(
 
     return {"success": True, "message": "Password changed successfully"}
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PULSE — CLOSED LOCATIONS SCAN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CLOSED_STATUSES = [
+    'EXPIRED', 'Expired', 'Expired - Original Required', 'Expired - Non Renewable',
+    'CANCELED / DEACTIVATED', 'CANCELED', 'Cancelled', 'Canceled',
+    'Surrendered', 'surend', 'Ceased', 'Closed', 'CLOSED',
+    'REVOKED', 'Revoked', 'Inactive', 'INACTIVE', 'inactive', 'InActive'
+]
+
+@router.post("/pulse/closed/estimate")
+async def pulse_closed_estimate(
+    data: ProofScanEstimateRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Estimate number of closed/expired restaurant locations in a region."""
+    supabase = get_supabase()
+    if not data.states and not data.city and not data.zip_code and not data.county:
+        raise HTTPException(status_code=400, detail="Select at least one filter")
+
+    query = supabase.table("prospect_master") \
+        .select("id", count="exact") \
+        .in_("license_status", CLOSED_STATUSES)
+
+    if data.states:
+        query = query.in_("premise_state", [s.upper() for s in data.states])
+    if data.city:
+        query = query.ilike("premise_city", f"%{data.city}%")
+    if data.zip_code:
+        query = query.eq("premise_zip", data.zip_code)
+    if data.county:
+        query = query.ilike("premise_county", f"%{data.county}%")
+    if data.categories:
+        query = query.in_("business_category", data.categories)
+
+    result = query.execute()
+    count = result.count or 0
+
+    return {
+        "success": True,
+        "count": count,
+        "filters": {
+            "states": data.states,
+            "city": data.city,
+            "zip_code": data.zip_code,
+            "county": data.county,
+            "categories": data.categories
+        }
+    }
+
+
+@router.post("/pulse/closed/search")
+async def pulse_closed_search(
+    data: ProofScanEstimateRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Return closed/expired restaurant locations in a region."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+    plan = current_user.get("plan", "free")
+
+    if plan == "free":
+        raise HTTPException(status_code=403, detail="Closed Locations requires a Starter plan or above.")
+
+    if not data.states and not data.city and not data.zip_code and not data.county:
+        raise HTTPException(status_code=400, detail="Select at least one filter")
+
+    query = supabase.table("prospect_master") \
+        .select("id, dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip, premise_county, business_category, raw_license_type, license_status, license_expiry_date, license_issue_date") \
+        .in_("license_status", CLOSED_STATUSES) \
+        .order("license_expiry_date", desc=True) \
+        .limit(500)
+
+    if data.states:
+        query = query.in_("premise_state", [s.upper() for s in data.states])
+    if data.city:
+        query = query.ilike("premise_city", f"%{data.city}%")
+    if data.zip_code:
+        query = query.eq("premise_zip", data.zip_code)
+    if data.county:
+        query = query.ilike("premise_county", f"%{data.county}%")
+    if data.categories:
+        query = query.in_("business_category", data.categories)
+
+    result = query.execute()
+    records = result.data or []
+
+    # Calculate days since closure
+    from datetime import datetime
+    now = datetime.utcnow()
+    for r in records:
+        if r.get("license_expiry_date"):
+            try:
+                exp = datetime.fromisoformat(r["license_expiry_date"].replace("Z", "+00:00")).replace(tzinfo=None)
+                r["days_since_closure"] = (now - exp).days
+            except Exception:
+                r["days_since_closure"] = None
+        else:
+            r["days_since_closure"] = None
+
+    return {
+        "success": True,
+        "count": len(records),
+        "locations": records
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PULSE — COMPETITOR FOOTPRINT SCAN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PulseCompetitorRequest(BaseModel):
+    business_name: str
+    city: str
+    state: str
+    category: Optional[str] = None
+    radius_miles: Optional[int] = 5
+
+@router.post("/pulse/competitors")
+async def pulse_competitor_scan(
+    data: PulseCompetitorRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Find active restaurants in the same category near a target location."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+    plan = current_user.get("plan", "free")
+
+    if plan == "free":
+        raise HTTPException(status_code=403, detail="Competitor Footprint requires a Starter plan or above.")
+
+    # First find the target restaurant to get its zip/county
+    target_query = supabase.table("prospect_master") \
+        .select("id, dba_name, premise_address1, premise_city, premise_state, premise_zip, premise_county, business_category") \
+        .ilike("premise_city", f"%{data.city}%")
+
+    if data.state:
+        target_query = target_query.eq("premise_state", data.state.upper())
+
+    target_query = target_query.ilike("dba_name", f"%{data.business_name}%") \
+        .limit(1)
+
+    target_result = target_query.execute()
+
+    # Determine category and location for competitor search
+    target = target_result.data[0] if target_result.data else None
+    search_category = data.category
+    search_county = None
+    search_zip = None
+    search_city = data.city
+
+    if target:
+        if not search_category:
+            search_category = target.get("business_category")
+        search_county = target.get("premise_county")
+        search_zip = target.get("premise_zip")
+
+    # Find competitors: same area, active licenses
+    active_statuses = ['Active', 'ACTIVE', 'active', 'ISSUED', 'APPROVED', 'Active - Renewal Pending', 'Renewed', 'RENEWAL']
+
+    comp_query = supabase.table("prospect_master") \
+        .select("id, dba_name, legal_name, premise_address1, premise_city, premise_state, premise_zip, premise_county, business_category, raw_license_type, license_status, license_issue_date") \
+        .in_("license_status", active_statuses) \
+        .order("license_issue_date", desc=True) \
+        .limit(200)
+
+    # Search by county if available (approximates radius), otherwise city
+    if search_county:
+        comp_query = comp_query.ilike("premise_county", f"%{search_county}%")
+    else:
+        comp_query = comp_query.ilike("premise_city", f"%{search_city}%")
+
+    if data.state:
+        comp_query = comp_query.eq("premise_state", data.state.upper())
+
+    # Filter by category if specified
+    if search_category:
+        comp_query = comp_query.eq("business_category", search_category)
+
+    comp_result = comp_query.execute()
+    competitors = comp_result.data or []
+
+    # Remove the target restaurant from results
+    if target:
+        competitors = [c for c in competitors if c["id"] != target["id"]]
+
+    # Calculate age (how long they've been licensed)
+    for c in competitors:
+        if c.get("license_issue_date"):
+            try:
+                issued = datetime.fromisoformat(c["license_issue_date"].replace("Z", "+00:00")).replace(tzinfo=None)
+                c["years_licensed"] = round((datetime.utcnow() - issued).days / 365.25, 1)
+            except Exception:
+                c["years_licensed"] = None
+        else:
+            c["years_licensed"] = None
+
+    # Summary stats
+    total = len(competitors)
+    new_entrants = len([c for c in competitors if c.get("years_licensed") and c["years_licensed"] < 1])
+
+    return {
+        "success": True,
+        "target": target,
+        "category": search_category,
+        "area": search_county or search_city,
+        "total_competitors": total,
+        "new_entrants_last_year": new_entrants,
+        "competitors": competitors
+    }
+
 @router.post("/scan/estimate")
 async def proof_scan_estimate(
     data: ProofScanEstimateRequest,
