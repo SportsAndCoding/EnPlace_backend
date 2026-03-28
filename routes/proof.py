@@ -196,6 +196,23 @@ class ContactRuleRequest(BaseModel):
     time_earliest: Optional[str] = None
     time_latest: Optional[str] = None
 
+class DealCreateRequest(BaseModel):
+    contact_id: str
+    title: str
+    value: float = 0
+    recurring: bool = False
+    recurring_frequency: Optional[str] = None  # 'weekly', 'monthly', 'quarterly', 'annual'
+    stage: str = "discovery"
+    notes: Optional[str] = None
+
+class DealUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    value: Optional[float] = None
+    recurring: Optional[bool] = None
+    recurring_frequency: Optional[str] = None
+    stage: Optional[str] = None
+    notes: Optional[str] = None
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -627,6 +644,39 @@ def check_allocation(supabase, user_id: str, plan: str, feature: str, units: int
     billable = units - covered
     return (covered, billable)
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ACTIVITY LOGGING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def log_activity(supabase, user_id: str, activity_type: str, contact_id: str = None,
+                 deal_id: str = None, metadata: dict = None, org_id: str = None):
+    """Log a rep activity for admin tracking."""
+    try:
+        supabase.table("proof_activity_log").insert({
+            "user_id": user_id,
+            "organization_id": org_id,
+            "activity_type": activity_type,
+            "contact_id": contact_id,
+            "deal_id": deal_id,
+            "metadata": metadata,
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+    except Exception as e:
+        logger.warning(f"Activity log failed: {e}")
+
+def check_spending_limit(supabase, user_id: str, monthly_limit, cost: float) -> bool:
+    """Check if a credit deduction would exceed the user's monthly spending limit."""
+    if monthly_limit is None:
+        return True  # No limit set
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    result = supabase.table("proof_credit_transactions") \
+        .select("amount") \
+        .eq("user_id", user_id) \
+        .lt("amount", 0) \
+        .gte("created_at", month_start) \
+        .execute()
+    spent = abs(sum(float(c["amount"]) for c in (result.data or [])))
+    return (spent + cost) <= float(monthly_limit)
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -830,8 +880,19 @@ async def proof_search(
             detail="New issuance, expiry, and freshness filters require a paid plan"
         )
 
+    # Enforce territory restrictions
+    territory = current_user.get("territory_states")
+    search_states = data.states if data.states else None
+    if territory:
+        if search_states:
+            search_states = [s for s in search_states if s.upper() in territory]
+            if not search_states:
+                raise HTTPException(status_code=403, detail="Those states are outside your assigned territory.")
+        else:
+            search_states = territory
+
     params = {
-        "p_states": data.states if data.states else None,
+        "p_states": search_states,
         "p_city": data.city if data.city else None,
         "p_zip": data.zip_code if data.zip_code else None,
         "p_county": data.county if data.county else None,
@@ -2500,6 +2561,10 @@ async def proof_voice_log(
         "created_at": datetime.utcnow().isoformat()
     }).execute()
 
+    log_activity(supabase, user_id, "voice_log", contact_id=contact_id,
+                 metadata={"matched_existing": matched_existing, "business_name": parsed.get("business_name")},
+                 org_id=current_user.get("organization_id"))
+    
     return {
         "success": True,
         "contact_id": contact_id,
@@ -3395,6 +3460,11 @@ async def proof_docket_override_method(
         "method_overrides": overrides
     }).eq("id", data.docket_id).execute()
 
+    # Log the override for admin tracking
+    log_activity(supabase, user_id, "method_override", contact_id=data.contact_id,
+                 metadata={"method": data.method, "docket_id": data.docket_id},
+                 org_id=current_user.get("organization_id"))
+
     return {"success": True, "method": data.method}
 
 
@@ -3871,6 +3941,12 @@ async def proof_contact_dossier(
         .single() \
         .execute()
     balance = float(user.data.get("credit_balance", 0))
+    monthly_limit = user.data.get("monthly_credit_limit")
+    if monthly_limit is not None and not check_spending_limit(supabase, user_id, monthly_limit, dossier_cost):
+        raise HTTPException(
+            status_code=403,
+            detail="Monthly spending limit reached. Contact your admin to increase your limit."
+        )
     if balance < dossier_cost:
         raise HTTPException(
             status_code=402,
@@ -3921,4 +3997,392 @@ async def proof_contact_dossier(
         "charged": dossier_cost,
         "balance_remaining": new_balance,
         "message": "Dossier generating in background"
+    }
+
+@router.post("/deals")
+async def proof_create_deal(
+    data: DealCreateRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Create a new deal on a contact."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if data.stage not in ("discovery", "proposal", "negotiation", "won", "lost"):
+        raise HTTPException(status_code=400, detail="Invalid stage")
+
+    deal = {
+        "contact_id": data.contact_id,
+        "user_id": user_id,
+        "organization_id": current_user.get("organization_id"),
+        "title": data.title,
+        "value": data.value,
+        "recurring": data.recurring,
+        "recurring_frequency": data.recurring_frequency,
+        "stage": data.stage,
+        "notes": data.notes,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
+    }
+    if data.stage == "won":
+        deal["closed_at"] = datetime.utcnow().isoformat()
+
+    result = supabase.table("proof_deals").insert(deal).execute()
+
+    log_activity(supabase, user_id, "deal_created", contact_id=data.contact_id,
+                 deal_id=result.data[0]["id"] if result.data else None,
+                 metadata={"title": data.title, "value": data.value, "stage": data.stage},
+                 org_id=current_user.get("organization_id"))
+
+    return {"success": True, "deal": result.data[0] if result.data else None}
+
+
+@router.get("/deals")
+async def proof_list_deals(
+    contact_id: Optional[str] = None,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """List deals for current user, optionally filtered by contact."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    query = supabase.table("proof_deals") \
+        .select("*") \
+        .eq("user_id", user_id) \
+        .order("created_at", desc=True)
+
+    if contact_id:
+        query = query.eq("contact_id", contact_id)
+
+    result = query.execute()
+    return {"success": True, "deals": result.data or []}
+
+
+@router.patch("/deals/{deal_id}")
+async def proof_update_deal(
+    deal_id: str,
+    data: DealUpdateRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Update a deal."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    update = {"updated_at": datetime.utcnow().isoformat()}
+    if data.title is not None:
+        update["title"] = data.title
+    if data.value is not None:
+        update["value"] = data.value
+    if data.recurring is not None:
+        update["recurring"] = data.recurring
+    if data.recurring_frequency is not None:
+        update["recurring_frequency"] = data.recurring_frequency
+    if data.notes is not None:
+        update["notes"] = data.notes
+    if data.stage is not None:
+        if data.stage not in ("discovery", "proposal", "negotiation", "won", "lost"):
+            raise HTTPException(status_code=400, detail="Invalid stage")
+        update["stage"] = data.stage
+        if data.stage == "won":
+            update["closed_at"] = datetime.utcnow().isoformat()
+        elif data.stage != "lost":
+            update["closed_at"] = None
+
+    result = supabase.table("proof_deals") \
+        .update(update) \
+        .eq("id", deal_id) \
+        .eq("user_id", user_id) \
+        .execute()
+
+    log_activity(supabase, user_id, "deal_updated", deal_id=deal_id,
+                 metadata={"changes": update},
+                 org_id=current_user.get("organization_id"))
+
+    return {"success": True, "deal": result.data[0] if result.data else None}
+
+
+@router.delete("/deals/{deal_id}")
+async def proof_delete_deal(
+    deal_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Delete a deal."""
+    supabase = get_supabase()
+    supabase.table("proof_deals") \
+        .delete() \
+        .eq("id", deal_id) \
+        .eq("user_id", current_user["proof_user_id"]) \
+        .execute()
+    return {"success": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN — TEAM DASHBOARD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/admin/dashboard")
+async def proof_admin_dashboard(
+    period: str = "month",
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get team activity dashboard. Admin only."""
+    if not current_user.get("is_org_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    org_id = current_user.get("organization_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
+
+    supabase = get_supabase()
+    now = datetime.utcnow()
+
+    if period == "week":
+        start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "quarter":
+        quarter_month = ((now.month - 1) // 3) * 3 + 1
+        start = now.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "year":
+        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    start_iso = start.isoformat()
+
+    # Get all members
+    members = supabase.table("proof_users") \
+        .select("id, email, full_name, credit_balance, territory_states, monthly_credit_limit, last_login, is_org_admin") \
+        .eq("organization_id", org_id) \
+        .execute()
+
+    member_ids = [m["id"] for m in (members.data or [])]
+
+    # Get activities for all members in period
+    activities = supabase.table("proof_activity_log") \
+        .select("user_id, activity_type, metadata, created_at") \
+        .eq("organization_id", org_id) \
+        .gte("created_at", start_iso) \
+        .order("created_at", desc=True) \
+        .limit(5000) \
+        .execute()
+
+    # Get deals for all members
+    deals = supabase.table("proof_deals") \
+        .select("user_id, title, value, stage, recurring, recurring_frequency, closed_at, contact_id, created_at") \
+        .in_("user_id", member_ids) \
+        .execute()
+
+    # Get docket method overrides in period
+    dockets = supabase.table("proof_dockets") \
+        .select("user_id, method_overrides, created_at") \
+        .in_("user_id", member_ids) \
+        .gte("created_at", start_iso) \
+        .execute()
+
+    # Build per-member summaries
+    member_summaries = []
+    for m in (members.data or []):
+        uid = m["id"]
+        user_activities = [a for a in (activities.data or []) if a["user_id"] == uid]
+
+        # Count by activity type
+        type_counts = {}
+        for a in user_activities:
+            t = a["activity_type"]
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+        # Count method overrides
+        override_count = 0
+        for d in (dockets.data or []):
+            if d["user_id"] == uid and d.get("method_overrides"):
+                override_count += len(d["method_overrides"])
+
+        # Deal metrics
+        user_deals = [d for d in (deals.data or []) if d["user_id"] == uid]
+        won_deals = [d for d in user_deals if d["stage"] == "won"]
+        active_deals = [d for d in user_deals if d["stage"] not in ("won", "lost")]
+        pipeline_value = sum(float(d.get("value", 0)) for d in active_deals)
+        closed_value = sum(float(d.get("value", 0)) for d in won_deals)
+        recurring_value = sum(float(d.get("value", 0)) for d in won_deals if d.get("recurring"))
+
+        # Credit usage in period
+        credit_result = supabase.table("proof_credit_transactions") \
+            .select("amount") \
+            .eq("user_id", uid) \
+            .lt("amount", 0) \
+            .gte("created_at", start_iso) \
+            .execute()
+        credits_used = abs(sum(float(c["amount"]) for c in (credit_result.data or [])))
+
+        member_summaries.append({
+            "user_id": uid,
+            "full_name": m.get("full_name", ""),
+            "email": m.get("email", ""),
+            "is_admin": m.get("is_org_admin", False),
+            "credit_balance": float(m.get("credit_balance", 0)),
+            "credits_used_period": credits_used,
+            "monthly_credit_limit": float(m["monthly_credit_limit"]) if m.get("monthly_credit_limit") else None,
+            "territory_states": m.get("territory_states"),
+            "last_login": m.get("last_login"),
+            "activity_counts": type_counts,
+            "method_overrides": override_count,
+            "total_activities": len(user_activities),
+            "deals": {
+                "active": len(active_deals),
+                "won": len(won_deals),
+                "lost": len([d for d in user_deals if d["stage"] == "lost"]),
+                "pipeline_value": pipeline_value,
+                "closed_value": closed_value,
+                "recurring_value": recurring_value
+            }
+        })
+
+    # Org-level totals
+    total_activities = len(activities.data or [])
+    total_pipeline = sum(m["deals"]["pipeline_value"] for m in member_summaries)
+    total_closed = sum(m["deals"]["closed_value"] for m in member_summaries)
+    total_recurring = sum(m["deals"]["recurring_value"] for m in member_summaries)
+
+    return {
+        "success": True,
+        "period": period,
+        "period_start": start_iso,
+        "team_size": len(members.data or []),
+        "totals": {
+            "activities": total_activities,
+            "pipeline_value": total_pipeline,
+            "closed_value": total_closed,
+            "recurring_value": total_recurring
+        },
+        "members": member_summaries
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN — TERRITORY ASSIGNMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TerritoryRequest(BaseModel):
+    user_id: str
+    states: Optional[List[str]] = None  # None = unrestricted
+
+@router.post("/admin/territory")
+async def proof_admin_set_territory(
+    data: TerritoryRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Assign territory states to a team member. Admin only."""
+    if not current_user.get("is_org_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    org_id = current_user.get("organization_id")
+    supabase = get_supabase()
+
+    # Verify user is in the same org
+    target = supabase.table("proof_users") \
+        .select("id, organization_id") \
+        .eq("id", data.user_id) \
+        .single() \
+        .execute()
+
+    if not target.data or target.data.get("organization_id") != org_id:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
+
+    states = [s.upper() for s in data.states] if data.states else None
+
+    supabase.table("proof_users") \
+        .update({"territory_states": states}) \
+        .eq("id", data.user_id) \
+        .execute()
+
+    return {"success": True, "territory_states": states}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN — SPENDING LIMITS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SpendingLimitRequest(BaseModel):
+    user_id: str
+    monthly_limit: Optional[float] = None  # None = unlimited
+
+@router.post("/admin/spending-limit")
+async def proof_admin_set_spending_limit(
+    data: SpendingLimitRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Set monthly credit spending limit for a team member. Admin only."""
+    if not current_user.get("is_org_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    org_id = current_user.get("organization_id")
+    supabase = get_supabase()
+
+    target = supabase.table("proof_users") \
+        .select("id, organization_id") \
+        .eq("id", data.user_id) \
+        .single() \
+        .execute()
+
+    if not target.data or target.data.get("organization_id") != org_id:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
+
+    supabase.table("proof_users") \
+        .update({"monthly_credit_limit": data.monthly_limit}) \
+        .eq("id", data.user_id) \
+        .execute()
+
+    return {"success": True, "monthly_credit_limit": data.monthly_limit}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTO-REFILL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AutoRefillRequest(BaseModel):
+    threshold: Optional[float] = None   # trigger when balance drops below this
+    amount: Optional[float] = None      # refill to this amount
+
+@router.post("/credits/auto-refill")
+async def proof_set_auto_refill(
+    data: AutoRefillRequest,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Set auto-refill preferences. Pass null to disable."""
+    supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
+
+    if data.threshold is not None and data.amount is not None:
+        if data.amount < data.threshold:
+            raise HTTPException(status_code=400, detail="Refill amount must be greater than threshold")
+        if data.amount not in (25, 50, 100):
+            raise HTTPException(status_code=400, detail="Refill amount must be $25, $50, or $100")
+
+    supabase.table("proof_users").update({
+        "auto_refill_threshold": data.threshold,
+        "auto_refill_amount": data.amount
+    }).eq("id", user_id).execute()
+
+    return {
+        "success": True,
+        "auto_refill_threshold": data.threshold,
+        "auto_refill_amount": data.amount
+    }
+
+
+@router.get("/credits/auto-refill")
+async def proof_get_auto_refill(
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Get current auto-refill settings."""
+    supabase = get_supabase()
+    result = supabase.table("proof_users") \
+        .select("auto_refill_threshold, auto_refill_amount") \
+        .eq("id", current_user["proof_user_id"]) \
+        .single() \
+        .execute()
+
+    return {
+        "success": True,
+        "auto_refill_threshold": result.data.get("auto_refill_threshold") if result.data else None,
+        "auto_refill_amount": result.data.get("auto_refill_amount") if result.data else None
     }
