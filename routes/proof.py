@@ -2958,10 +2958,10 @@ async def proof_scan_estimate(
         "p_city": data.city if data.city else None,
         "p_zip": data.zip_code if data.zip_code else None,
         "p_county": data.county if data.county else None,
-        "p_categories": data.categories if data.categories else None
+        "p_categories": data.categories if data.categories else None,
+        "p_stale_days": None
     }).execute()
     count = result.data if isinstance(result.data, int) else 0
-
     cost_per = get_scan_cost(current_user)
     plan = current_user.get("plan", "free")
     covered, billable = check_allocation(supabase, user_id, plan, 'scan_restaurants', units=count)
@@ -2993,10 +2993,10 @@ async def proof_start_scan(
         "p_city": data.city if data.city else None,
         "p_zip": data.zip_code if data.zip_code else None,
         "p_county": data.county if data.county else None,
-        "p_categories": data.categories if data.categories else None
+        "p_categories": data.categories if data.categories else None,
+        "p_stale_days": None
     }).execute()
     count = count_result.data if isinstance(count_result.data, int) else 0
-
     if count == 0:
         raise HTTPException(status_code=400, detail="No restaurants match these filters")
     if count > 2000:
