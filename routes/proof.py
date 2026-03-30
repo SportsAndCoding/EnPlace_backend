@@ -2937,6 +2937,7 @@ async def proof_scan_estimate(
 ):
     """Estimate cost for a regional GM vacancy scan."""
     supabase = get_supabase()
+    user_id = current_user["proof_user_id"]
 
     if not data.states and not data.city and not data.zip_code and not data.county:
         raise HTTPException(status_code=400, detail="Select at least one filter (state, city, zip, or county)")
