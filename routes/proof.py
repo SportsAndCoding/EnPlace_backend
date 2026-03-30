@@ -1336,9 +1336,7 @@ async def proof_dossier(
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
     plan = current_user.get("plan", "free")
-    covered, billable = check_allocation(supabase, user_id, plan, 'dossiers')
-    effective_cost = dossier_cost if billable > 0 else 0
-    plan = current_user.get("plan", "free")
+    _, dossier_cost = get_costs(current_user)
     covered, billable = check_allocation(supabase, user_id, plan, 'dossiers')
     effective_cost = dossier_cost if billable > 0 else 0
 
