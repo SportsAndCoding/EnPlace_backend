@@ -1340,19 +1340,26 @@ async def proof_dossier(
     covered, billable = check_allocation(supabase, user_id, plan, 'dossiers')
     effective_cost = dossier_cost if billable > 0 else 0
 
-    # Check balance
+    # Check balance and spending limit
     user = supabase.table("proof_users") \
-        .select("credit_balance") \
+        .select("credit_balance, monthly_credit_limit") \
         .eq("id", user_id) \
         .single() \
         .execute()
 
     balance = float(user.data.get("credit_balance", 0))
-    if effective_cost > 0 and balance < effective_cost:
-        raise HTTPException(
-            status_code=402,
-            detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${effective_cost:.2f}"
-        )
+    monthly_limit = user.data.get("monthly_credit_limit")
+    if effective_cost > 0:
+        if monthly_limit is not None and not check_spending_limit(supabase, user_id, monthly_limit, effective_cost):
+            raise HTTPException(
+                status_code=403,
+                detail="Monthly spending limit reached. Contact your admin to increase your limit."
+            )
+        if balance < effective_cost:
+            raise HTTPException(
+                status_code=402,
+                detail=f"Insufficient credits. Balance: ${balance:.2f}, dossier cost: ${effective_cost:.2f}"
+            )
 
     # Check cache — return immediately if cached
     cached = supabase.table("proof_dossier_cache") \
@@ -1385,7 +1392,7 @@ async def proof_dossier(
         raise HTTPException(status_code=404, detail="Prospect not found")
 
     # Deduct credit NOW (before background task) so user can't double-spend
-    new_balance = balance - effective_cost
+    new_balance = round(balance - effective_cost, 2)
     supabase.table("proof_users").update({
         "credit_balance": new_balance
     }).eq("id", user_id).execute()
@@ -1403,24 +1410,47 @@ async def proof_dossier(
     # Fire background task and return immediately
     background_tasks.add_task(
         _generate_dossier_background,
-        prospect_id, user_id, prospect.data
+        prospect_id, user_id, prospect.data, effective_cost
     )
 
     return {
         "success": True,
         "status": "generating",
         "cached": False,
-        "charged": dossier_cost,
+        "charged": effective_cost,
         "balance_remaining": new_balance
     }
 
 
-async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_data: dict):
-    """Background task: call Anthropic, cache result."""
+async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_data: dict, charged_cost: float = 0):
+    """Background task: call Anthropic, cache result. Refunds on failure."""
     p = prospect_data
     business_name = p.get("dba_name") or p.get("legal_name", "Unknown")
     city = p.get("premise_city", "")
     state = p.get("premise_state", "")
+
+    def _refund():
+        """Refund credits if dossier generation fails."""
+        if charged_cost <= 0:
+            return
+        try:
+            sb = get_supabase()
+            user = sb.table("proof_users").select("credit_balance").eq("id", user_id).single().execute()
+            current_balance = float(user.data.get("credit_balance", 0))
+            new_balance = round(current_balance + charged_cost, 2)
+            sb.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
+            sb.table("proof_credit_transactions").insert({
+                "user_id": user_id,
+                "transaction_type": "dossier_refund",
+                "amount": charged_cost,
+                "balance_after": new_balance,
+                "description": f"Refund: Dossier failed for {business_name}",
+                "prospect_id": prospect_id,
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
+            logger.info(f"Refunded ${charged_cost:.2f} for failed dossier {prospect_id}")
+        except Exception as refund_err:
+            logger.error(f"REFUND FAILED for dossier {prospect_id}, user {user_id}, amount ${charged_cost:.2f}: {refund_err}")
 
     user_prompt = (
         f"Generate a complete dossier for: {business_name}, "
@@ -1451,6 +1481,7 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
 
         if resp.status_code != 200:
             logger.error(f"Anthropic API error for dossier {prospect_id}: {resp_data}")
+            _refund()
             return
 
         dossier_text = ""
@@ -1460,6 +1491,7 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
 
         if not dossier_text:
             logger.error(f"Empty dossier response for {prospect_id}")
+            _refund()
             return
 
         cleaned_text = dossier_text.strip()
@@ -1502,6 +1534,7 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
 
     except Exception as e:
         logger.error(f"Background dossier error for {prospect_id}: {e}")
+        _refund()
 
 @router.get("/dossier/{prospect_id}/status")
 async def proof_dossier_status(
@@ -3934,7 +3967,7 @@ async def proof_contact_dossier(
 
     # Check balance
     user = supabase.table("proof_users") \
-        .select("credit_balance") \
+        .select("credit_balance, monthly_credit_limit") \
         .eq("id", user_id) \
         .single() \
         .execute()
@@ -3980,7 +4013,7 @@ async def proof_contact_dossier(
     # Use contact_id as the key in dossier cache
     background_tasks.add_task(
         _generate_dossier_background,
-        contact_id, user_id, prospect_data
+        contact_id, user_id, prospect_data, dossier_cost
     )
 
     # Mark contact as having a dossier (will be generated shortly)
