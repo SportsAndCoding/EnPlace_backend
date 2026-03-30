@@ -94,8 +94,8 @@ DEAD_STATUSES = [
     "REVOKED", "INACTIVE", "DENIED", "VOID"
 ]
 
-PROOF_SUCCESS_URL = "https://proof.en-place.ai/credits?session_id={CHECKOUT_SESSION_ID}"
-PROOF_CANCEL_URL  = "https://proof.en-place.ai/credits"
+PROOF_SUCCESS_URL = "https://mise.en-place.ai/credits?session_id={CHECKOUT_SESSION_ID}"
+PROOF_CANCEL_URL  = "https://mise.en-place.ai/credits"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -291,7 +291,7 @@ async def pulse_route_plan(
                 detail=f"Route limit reached ({used}/{alloc.get('routes', 0)} this month). Add credits or upgrade your plan."
             )
         # Deduct credit
-        new_balance = balance - route_cost
+        new_balance = round(balance - route_cost, 2)
         supabase.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
         supabase.table("proof_credit_transactions").insert({
             "user_id": user_id,
@@ -823,38 +823,6 @@ async def proof_me(current_user: dict = Depends(verify_proof_token)):
 
     return {"success": True, "user": result.data}
 
-_anthropic_status = {"ok": True, "checked_at": None}
-
-@router.get("/health/ai")
-async def proof_ai_health():
-    """Check if Anthropic API is reachable. Cached for 60 seconds."""
-    now = datetime.utcnow()
-    if _anthropic_status["checked_at"] and (now - _anthropic_status["checked_at"]).total_seconds() < 60:
-        return {"available": _anthropic_status["ok"]}
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}]
-                },
-                timeout=10.0
-            )
-            _anthropic_status["ok"] = resp.status_code == 200
-    except Exception:
-        _anthropic_status["ok"] = False
-    
-    _anthropic_status["checked_at"] = now
-    return {"available": _anthropic_status["ok"]}
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SEARCH
@@ -1192,7 +1160,7 @@ async def proof_enrich(
         supabase.table("prospect_enrichments").insert(enrichment).execute()
 
         if has_useful_data:
-            new_balance = balance - effective_cost
+            new_balance = round(balance - effective_cost, 2)
             supabase.table("proof_users").update({
                 "credit_balance": new_balance
             }).eq("id", user_id).execute()
@@ -1222,7 +1190,7 @@ async def proof_enrich(
                 "cached": False,
                 "charged": 0,
                 "balance_remaining": balance,
-                "message": "No public data found for this location — no charge applied"
+                "message": "No public data found for this location. No charge applied"
             }
 
     except httpx.TimeoutException:
@@ -1230,6 +1198,24 @@ async def proof_enrich(
     except Exception as e:
         logger.error(f"Enrichment error for {prospect_id}: {e}")
         raise HTTPException(status_code=500, detail="Enrichment failed")
+
+
+@router.get("/enrich/{prospect_id}/status")
+async def proof_enrich_status(
+    prospect_id: str,
+    current_user: dict = Depends(verify_proof_token)
+):
+    """Check if enrichment data exists in cache. Never triggers enrichment or charges."""
+    supabase = get_supabase()
+    cached = supabase.table("prospect_enrichments") \
+        .select("*") \
+        .eq("prospect_id", prospect_id) \
+        .execute()
+
+    if cached.data:
+        return {"status": "complete", "enrichment": cached.data[0]}
+
+    return {"status": "none"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3789,6 +3775,7 @@ async def proof_enrich_contact(
     supabase = get_supabase()
     user_id = current_user["proof_user_id"]
     plan = current_user.get("plan", "free")
+    enrichment_cost, _ = get_costs(current_user)
     covered, billable = check_allocation(supabase, user_id, plan, 'enrichments')
     effective_cost = enrichment_cost if billable > 0 else 0
 
@@ -3825,10 +3812,10 @@ async def proof_enrich_contact(
         .single() \
         .execute()
     balance = float(user.data.get("credit_balance", 0))
-    if balance < enrichment_cost:
+    if effective_cost > 0 and balance < effective_cost:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient credits. Balance: ${balance:.2f}, cost: ${enrichment_cost:.2f}"
+            detail=f"Insufficient credits. Balance: ${balance:.2f}, cost: ${effective_cost:.2f}"
         )
 
     business_name = c.get("business_name") or c.get("legal_name") or ""
@@ -3876,7 +3863,7 @@ async def proof_enrich_contact(
 
         if has_data:
             # Charge credits
-            new_balance = round(balance - enrichment_cost, 2)
+            new_balance = round(balance - effective_cost, 2)
             supabase.table("proof_users").update({"credit_balance": new_balance}).eq("id", user_id).execute()
             supabase.table("proof_credit_transactions").insert({
                 "user_id": user_id,
