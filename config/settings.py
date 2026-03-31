@@ -15,6 +15,7 @@ ALLOWED_ORIGINS = [
     "https://en-place.ai",
     "https://app.en-place.ai",
     "https://enplaceappv2.vercel.app",
+    "https://brigade.en-place.ai",
     "https://proof.en-place.ai",
     "https://mise.en-place.ai",
     "http://localhost:3000",

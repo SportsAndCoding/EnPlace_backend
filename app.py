@@ -256,6 +256,8 @@ from routes.proof import router as proof_router
 app.include_router(proof_router)
 from routes.partner import router as partner_router
 app.include_router(partner_router)
+from routes.brigade import router as brigade_router
+app.include_router(brigade_router)
 
 
 @app.get("/")
