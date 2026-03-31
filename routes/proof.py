@@ -169,6 +169,7 @@ class ProofScanEstimateRequest(BaseModel):
     zip_code: Optional[str] = None
     county: Optional[str] = None
     categories: Optional[List[str]] = None
+    role: str = "gm"
 
 class ProofDocketRequest(BaseModel):
     call_count: int = 10
@@ -3031,7 +3032,7 @@ async def proof_start_scan(
         "transaction_type": "gm_scan",
         "amount": -total_cost,
         "balance_after": new_balance,
-        "description": f"GM Scan: {count} restaurants",
+        "description": f"{SCAN_ROLES.get(data.role, SCAN_ROLES['gm'])['title']} Scan: {count} restaurants",
         "created_at": datetime.utcnow().isoformat()
     }).execute()
 
@@ -3043,21 +3044,22 @@ async def proof_start_scan(
         "county": data.county,
         "categories": data.categories
     }
+    role = data.role if data.role in SCAN_ROLES else "gm"
+    role_config = SCAN_ROLES[role]
     scan = supabase.table("proof_gm_scans").insert({
         "user_id": user_id,
         "filters": filters,
         "total_count": count,
         "total_cost": total_cost,
         "status": "running",
+        "scan_role": role,
         "started_at": datetime.utcnow().isoformat()
     }).execute()
-
     scan_id = scan.data[0]["id"]
-
     # Fire background task
     background_tasks.add_task(
         _run_gm_scan_background,
-        scan_id, user_id, filters, count
+        scan_id, user_id, filters, count, role
     )
 
     return {
@@ -3140,9 +3142,32 @@ async def proof_my_scans(
     return {"success": True, "scans": result.data}
 
 
-GM_SCAN_PROMPT = """You are a restaurant industry research assistant. Your ONLY job is to determine if this restaurant currently has a General Manager vacancy or leadership transition.
+SCAN_ROLES = {
+    "gm": {
+        "title": "General Manager",
+        "search_terms": ['"General Manager"', '"GM"'],
+        "job_titles": ["general manager", "gm", "restaurant manager", "store manager"]
+    },
+    "chef": {
+        "title": "Executive Chef / Head Chef",
+        "search_terms": ['"Executive Chef"', '"Head Chef"', '"Chef de Cuisine"'],
+        "job_titles": ["executive chef", "head chef", "chef de cuisine", "kitchen director"]
+    },
+    "bar": {
+        "title": "Bar Manager / Beverage Director",
+        "search_terms": ['"Bar Manager"', '"Beverage Director"', '"Beverage Manager"'],
+        "job_titles": ["bar manager", "beverage director", "beverage manager"]
+    },
+    "kitchen": {
+        "title": "Kitchen Manager",
+        "search_terms": ['"Kitchen Manager"', '"Back of House Manager"', '"BOH Manager"'],
+        "job_titles": ["kitchen manager", "back of house manager", "boh manager"]
+    }
+}
 
-Search job boards (Indeed, LinkedIn, Google Jobs) for current job postings. Search Google for any news about management changes.
+LEADERSHIP_SCAN_PROMPT = """You are a restaurant industry research assistant. Your ONLY job is to determine if this restaurant currently has a {role_title} vacancy or leadership transition in that role.
+
+Search job boards (Indeed, LinkedIn, Google Jobs) for current job postings matching these titles: {job_titles}. Search Google for any news about management changes.
 
 Restaurant: {name}
 Location: {city}, {state}
@@ -3158,8 +3183,9 @@ Respond with ONLY this JSON, nothing else:
 }}"""
 
 
-async def _run_gm_scan_background(scan_id: str, user_id: str, filters: dict, total_count: int):
-    """Background task: scan restaurants for GM vacancies."""
+async def _run_gm_scan_background(scan_id: str, user_id: str, filters: dict, total_count: int, role: str = "gm"):
+    """Background task: scan restaurants for leadership vacancies."""
+    role_config = SCAN_ROLES.get(role, SCAN_ROLES["gm"])
     supabase = get_supabase()
 
     try:
@@ -3209,7 +3235,7 @@ async def _run_gm_scan_background(scan_id: str, user_id: str, filters: dict, tot
                         json={
                             "model": "claude-haiku-4-5-20251001",
                             "max_tokens": 300,
-                            "messages": [{"role": "user", "content": GM_SCAN_PROMPT.format(name=name, city=city, state=state)}],
+                            "messages": [{"role": "user", "content": LEADERSHIP_SCAN_PROMPT.format(role_title=role_config["title"], job_titles=", ".join(role_config["job_titles"]), name=name, city=city, state=state)}],
                             "tools": [{"type": "web_search_20250305", "name": "web_search"}]
                         },
                         timeout=30.0
