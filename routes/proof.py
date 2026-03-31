@@ -25,6 +25,7 @@ import logging
 import bcrypt
 import secrets
 import json
+import re
 from json_repair import repair_json
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -1475,7 +1476,10 @@ async def _generate_dossier_background(prospect_id: str, user_id: str, prospect_
             if block.get("type") == "text":
                 dossier_text += block.get("text", "")
 
-        if not dossier_text:
+        # Strip web search citation tags
+        dossier_text = re.sub(r'</?(?:cite|antml:cite)[^>]*>', '', dossier_text)
+
+        if not dossier_text.strip():
             logger.error(f"Empty dossier response for {prospect_id}")
             _refund()
             return
