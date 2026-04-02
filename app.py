@@ -258,6 +258,10 @@ from routes.partner import router as partner_router
 app.include_router(partner_router)
 from routes.brigade import router as brigade_router
 app.include_router(brigade_router)
+from routes.relay import router as relay_router
+app.include_router(relay_router)
+from routes.scout import router as scout_router
+app.include_router(scout_router)
 
 
 @app.get("/")

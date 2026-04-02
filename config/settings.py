@@ -18,6 +18,8 @@ ALLOWED_ORIGINS = [
     "https://brigade.en-place.ai",
     "https://proof.en-place.ai",
     "https://mise.en-place.ai",
+    "https://relay.en-place.ai",
+    "https://scout.en-place.ai",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 
