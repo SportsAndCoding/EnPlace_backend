@@ -17,6 +17,7 @@ import asyncio
 import logging
 import bcrypt
 import json
+import re
 from json_repair import repair_json
 from datetime import datetime, timedelta
 from typing import Optional, List
