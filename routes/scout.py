@@ -304,20 +304,25 @@ async def run_scout_search(search_type: str, role: str, location: str) -> list:
 
         resp_data = resp.json()
 
-        # Extract text content from response (may contain tool_use blocks too)
+        # Extract JSON from response. Web search returns multiple text blocks;
+        # only the first one with a JSON array matters.
         content = ""
         for block in resp_data.get("content", []):
             if block.get("type") == "text":
-                content += block.get("text", "")
+                text = block.get("text", "").strip()
+                # Look for the block that contains our JSON array
+                if "[" in text and "]" in text:
+                    content = text
+                    break
 
-        content = content.strip()
+        if not content:
+            return []
 
         # Strip markdown fences if present
-        if content.startswith("```"):
-            first_nl = content.index("\n")
-            content = content[first_nl + 1:]
-            if content.endswith("```"):
-                content = content[:-3].strip()
+        if "```" in content:
+            match = re.search(r'```(?:json)?\s*\n?(.*?)```', content, re.DOTALL)
+            if match:
+                content = match.group(1).strip()
 
         # Try json_repair for resilience
         try:
