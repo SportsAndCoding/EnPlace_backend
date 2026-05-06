@@ -30,7 +30,7 @@ async def get_restaurant(
     supabase = get_supabase()
     
     try:
-        response = supabase.from_('restaurants') \
+        response = supabase.from_('organizations') \
             .select('id, name, address, timezone, operating_hours, staffing_ratios, role_ratios, allow_overtime, status, pay_frequency, next_pay_date') \
             .eq('id', organization_id) \
             .single() \
