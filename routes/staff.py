@@ -15,8 +15,8 @@ router = APIRouter()
 @router.get("")
 async def list_staff(current_staff: Dict[str, Any] = Depends(verify_jwt_token)):
     """Get all staff for the restaurant"""
-    restaurant_id = current_staff["restaurant_id"]
-    staff = await get_staff_list(restaurant_id)
+    organization_id = current_staff["organization_id"]
+    staff = await get_staff_list(organization_id)
     
     return {
         "success": True,
@@ -33,7 +33,7 @@ async def create_staff(
     staff = await create_staff_member(
         staff_data=staff_data,
         created_by=current_staff["staff_id"],
-        restaurant_id=current_staff["restaurant_id"],
+        organization_id=current_staff["organization_id"],
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent")
     )
@@ -65,7 +65,7 @@ async def update_staff(
             staff_id=staff_id,
             staff_data=staff_data,
             changed_by=current_staff["staff_id"],
-            restaurant_id=current_staff["restaurant_id"],
+            organization_id=current_staff["organization_id"],
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent")
         )
@@ -99,7 +99,7 @@ async def deactivate_staff(
         last_work_date=last_work_date,
         notes=notes,
         changed_by=current_staff["staff_id"],
-        restaurant_id=current_staff["restaurant_id"],
+        organization_id=current_staff["organization_id"],
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent")
     )
@@ -128,7 +128,7 @@ async def reactivate_staff(
         response = supabase.table('staff') \
             .update({'status': 'active'}) \
             .eq('staff_id', staff_id) \
-            .eq('restaurant_id', current_staff["restaurant_id"]) \
+            .eq('organization_id', current_staff["organization_id"]) \
             .execute()
         
         if not response.data:
@@ -139,7 +139,7 @@ async def reactivate_staff(
             staff_id=staff_id,
             action='REACTIVATE',
             changed_by=current_staff["staff_id"],
-            restaurant_id=current_staff["restaurant_id"],
+            organization_id=current_staff["organization_id"],
             changed_fields={'status': {'old': 'inactive', 'new': 'active'}},
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent")
@@ -171,13 +171,13 @@ async def get_staff_metrics(current_user: dict = Depends(verify_jwt_token)):
     Requires: Manager portal access
     """
     try:
-        restaurant_id = current_user['restaurant_id']
+        organization_id = current_user['organization_id']
         
         # Initialize metrics service
         metrics_service = StaffMetricsService()
         
         # Calculate metrics
-        result = await metrics_service.get_staff_metrics(restaurant_id)
+        result = await metrics_service.get_staff_metrics(organization_id)
         
         if not result['success']:
             raise HTTPException(status_code=500, detail=result.get('error', 'Failed to calculate metrics'))

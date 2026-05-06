@@ -24,7 +24,7 @@ async def get_shift_swaps(
     
     try:
         swaps = await service.get_swaps(
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             status_filter=status_filter,
             include_past=include_past
         )
@@ -53,7 +53,7 @@ async def get_shift_swap(
     try:
         swap = await service.get_swap_by_id(
             swap_id=swap_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not swap:
@@ -96,7 +96,7 @@ async def approve_swap(
     try:
         result = await service.approve_swap(
             swap_id=swap_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             decided_by=current_user['staff_id']
         )
         
@@ -142,7 +142,7 @@ async def reject_swap(
     try:
         result = await service.reject_swap(
             swap_id=swap_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             decided_by=current_user['staff_id'],
             notes=notes
         )

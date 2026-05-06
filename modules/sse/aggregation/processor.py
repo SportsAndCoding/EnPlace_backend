@@ -9,7 +9,7 @@ from core.supabase_client import get_supabase
 logger = logging.getLogger(__name__)
 
 
-def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
+def process_restaurant(organization_id: int, target_date: date) -> Dict[str, Any]:
     """
     Process a single restaurant for a specific target date as part of the nightly SSE pipeline.
 
@@ -23,7 +23,7 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
     No signal calculation is performed yet — this is the data-loading scaffold.
 
     Args:
-        restaurant_id: The ID of the restaurant to process
+        organization_id: The ID of the restaurant to process
         target_date: The date (YYYY-MM-DD) being processed
 
     Returns:
@@ -36,7 +36,7 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         staff_response = (
             supabase.table("staff")
             .select("*")
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
             .eq("status", "active")
             .execute()
         )
@@ -44,11 +44,11 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         if not staff_response.data:
             logger.info(
                 "No active staff found for restaurant %s on %s",
-                restaurant_id,
+                organization_id,
                 target_date,
             )
             return {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "target_date": str(target_date),
                 "staff_count": 0,
                 "checkins_found": 0,
@@ -61,7 +61,7 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         checkins_response = (
             supabase.table("aime_daily_checkins")
             .select("*")
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
             .eq("checkin_date", target_date)
             .execute()
         )
@@ -78,7 +78,7 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
 
             # Prepare the stub row for sse_staff_day_metrics
             sse_row = {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "target_date": str(target_date),
                 "signals": json.dumps({}),  # Empty JSON object — signals added later
@@ -97,14 +97,14 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
             if insert_response.data is None:
                 logger.warning(
                     "Failed to insert SSE stubs for restaurant %s on %s: %s",
-                    restaurant_id,
+                    organization_id,
                     target_date,
                     insert_response,
                 )
 
         # Step 5: Return summary
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "target_date": str(target_date),
             "staff_count": len(staff_list),
             "checkins_found": len(checkins_data),
@@ -114,13 +114,13 @@ def process_restaurant(restaurant_id: int, target_date: date) -> Dict[str, Any]:
     except Exception as e:
         logger.error(
             "Error processing restaurant %s for date %s: %s",
-            restaurant_id,
+            organization_id,
             target_date,
             str(e),
             exc_info=True,
         )
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "target_date": str(target_date),
             "status": "error",
             "error": str(e),

@@ -25,7 +25,7 @@ class CandidatesService:
             candidate_code = self._generate_candidate_code()
             
             payload = {
-                "restaurant_id": candidate_data["restaurant_id"],
+                "organization_id": candidate_data["organization_id"],
                 "candidate_code": candidate_code,
                 "name": candidate_data["name"],
                 "email": candidate_data.get("email"),
@@ -50,14 +50,14 @@ class CandidatesService:
     async def get_candidate_by_id(
         self, 
         candidate_id: str, 
-        restaurant_id: int
+        organization_id: int
     ) -> Optional[Dict[str, Any]]:
         """Get a specific candidate"""
         try:
             result = self.supabase.table("hiring_candidates") \
                 .select("*") \
                 .eq("id", candidate_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -70,7 +70,7 @@ class CandidatesService:
     
     async def get_candidates_by_restaurant(
         self,
-        restaurant_id: int,
+        organization_id: int,
         status: Optional[str] = None,
         role: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -78,7 +78,7 @@ class CandidatesService:
         try:
             query = self.supabase.table("hiring_candidates") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id)
+                .eq("organization_id", organization_id)
             
             if status:
                 query = query.eq("status", status)
@@ -97,7 +97,7 @@ class CandidatesService:
     async def update_candidate(
         self, 
         candidate_id: str, 
-        restaurant_id: int,
+        organization_id: int,
         update_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Update a candidate"""
@@ -120,12 +120,12 @@ class CandidatesService:
             payload["updated_at"] = datetime.utcnow().isoformat()
             
             if not payload:
-                return await self.get_candidate_by_id(candidate_id, restaurant_id)
+                return await self.get_candidate_by_id(candidate_id, organization_id)
             
             result = self.supabase.table("hiring_candidates") \
                 .update(payload) \
                 .eq("id", candidate_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -139,7 +139,7 @@ class CandidatesService:
     async def score_candidate(
         self,
         candidate_id: str,
-        restaurant_id: int,
+        organization_id: int,
         scenario_rankings: Dict[str, str]
     ) -> Dict[str, Any]:
         """
@@ -252,7 +252,7 @@ class CandidatesService:
             result = self.supabase.table("hiring_candidates") \
                 .update(update_payload) \
                 .eq("id", candidate_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -267,7 +267,7 @@ class CandidatesService:
     async def hire_candidate(
         self,
         candidate_id: str,
-        restaurant_id: int,
+        organization_id: int,
         staff_id: str
     ) -> Optional[Dict[str, Any]]:
         """Mark candidate as hired and link to staff record"""
@@ -283,7 +283,7 @@ class CandidatesService:
             result = self.supabase.table("hiring_candidates") \
                 .update(payload) \
                 .eq("id", candidate_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -294,12 +294,12 @@ class CandidatesService:
             logger.error(f"Hire candidate error: {e}")
             raise e
     
-    async def get_stats(self, restaurant_id: int) -> Dict[str, int]:
+    async def get_stats(self, organization_id: int) -> Dict[str, int]:
         """Get candidate pipeline stats"""
         try:
             result = self.supabase.table("hiring_candidates") \
                 .select("status, recommendation") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             candidates = result.data or []

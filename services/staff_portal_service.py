@@ -16,10 +16,10 @@ class StaffPortalService:
     def __init__(self):
         self.supabase = get_supabase()
 
-    def _get_now_for_restaurant(self, restaurant_id: int) -> datetime:
+    def _get_now_for_restaurant(self, organization_id: int) -> datetime:
         """Get current datetime in restaurant timezone."""
         try:
-            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            result = self.supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
             tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
         except:
             tz_name = "America/New_York"
@@ -34,7 +34,7 @@ class StaffPortalService:
         """Get full staff profile for portal display"""
         try:
             result = self.supabase.table("staff") \
-                .select("staff_id, restaurant_id, full_name, email, position, phone, hire_date, status, skills, stability_points_balance, aime_score, burnout_risk_score") \
+                .select("staff_id, organization_id, full_name, email, position, phone, hire_date, status, skills, stability_points_balance, aime_score, burnout_risk_score") \
                 .eq("staff_id", staff_id) \
                 .single() \
                 .execute()
@@ -59,11 +59,11 @@ class StaffPortalService:
             profile["tier_progress"] = self._get_tier_progress(balance)
             
             # Fetch restaurant feature flags for paywall
-            restaurant_id = profile.get("restaurant_id")
-            if restaurant_id:
-                restaurant_result = self.supabase.table("restaurants") \
+            organization_id = profile.get("organization_id")
+            if organization_id:
+                restaurant_result = self.supabase.table("organizations") \
                     .select("has_open_shift_marketplace, has_shift_swap, has_schedule_optimizer, has_stable_hire, has_house_guardian, name") \
-                    .eq("id", restaurant_id) \
+                    .eq("id", organization_id) \
                     .single() \
                     .execute()
                 
@@ -264,7 +264,7 @@ class StaffPortalService:
     async def award_points(
         self,
         staff_id: str,
-        restaurant_id: int,
+        organization_id: int,
         points: int,
         transaction_type: str,
         description: Optional[str] = None
@@ -284,7 +284,7 @@ class StaffPortalService:
             # Insert transaction
             tx_payload = {
                 "staff_id": staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "points": points,
                 "balance_after": new_balance,
                 "transaction_type": transaction_type,
@@ -314,7 +314,7 @@ class StaffPortalService:
     async def redeem_points(
         self,
         staff_id: str,
-        restaurant_id: int,
+        organization_id: int,
         item_id: str,
         item_name: str,
         cost: int
@@ -338,7 +338,7 @@ class StaffPortalService:
             # Insert redemption transaction
             tx_payload = {
                 "staff_id": staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "points": -cost,
                 "balance_after": new_balance,
                 "transaction_type": "redemption",
@@ -377,7 +377,7 @@ class StaffPortalService:
     async def create_callout(
         self,
         staff_id: str,
-        restaurant_id: int,
+        organization_id: int,
         callout_date: date,
         reason: str,
         shift_id: Optional[int] = None,
@@ -387,7 +387,7 @@ class StaffPortalService:
         try:
             payload = {
                 "staff_id": staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "callout_date": callout_date.isoformat(),
                 "reason": reason,
                 "shift_id": shift_id,
@@ -413,7 +413,7 @@ class StaffPortalService:
                             "reason": reason
                         }) \
                         .eq("id", shift_id) \
-                        .eq("restaurant_id", restaurant_id) \
+                        .eq("organization_id", organization_id) \
                         .execute()
                     logger.info(f"Shift {shift_id} marked as callout")
                 except Exception as shift_err:
@@ -428,7 +428,7 @@ class StaffPortalService:
 
     async def get_callouts(
         self,
-        restaurant_id: int,
+        organization_id: int,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         staff_id: Optional[str] = None
@@ -437,7 +437,7 @@ class StaffPortalService:
         try:
             query = self.supabase.table("callouts") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id)
+                .eq("organization_id", organization_id)
 
             if start_date:
                 query = query.gte("callout_date", start_date.isoformat())
@@ -460,7 +460,7 @@ class StaffPortalService:
     async def get_my_schedule(
         self,
         staff_id: str,
-        restaurant_id: int,
+        organization_id: int,
         start_date: date,
         end_date: date
     ) -> List[Dict[str, Any]]:
@@ -469,7 +469,7 @@ class StaffPortalService:
             result = self.supabase.table("sse_shifts") \
                 .select("id, shift_date, scheduled_start, scheduled_end, shift_type, position, status, is_published") \
                 .eq("staff_id", staff_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("shift_date", start_date.isoformat()) \
                 .lte("shift_date", end_date.isoformat()) \
                 .eq("is_published", True) \
@@ -491,15 +491,15 @@ class StaffPortalService:
         self,
         staff_id: str,
         shift_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> Dict[str, Any]:
         """Staff volunteers for an open shift - adds to volunteers list"""
         try:
             # Verify shift exists and is open
             shift_result = self.supabase.table("open_shifts") \
-                .select("id, restaurant_id, status, position, date, start_time, end_time") \
+                .select("id, organization_id, status, position, date, start_time, end_time") \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
             
@@ -525,7 +525,7 @@ class StaffPortalService:
                 .insert({
                     "open_shift_id": shift_id,
                     "staff_id": staff_id,
-                    "restaurant_id": shift.get("restaurant_id"),
+                    "organization_id": shift.get("organization_id"),
                     "status": "pending"
                 }) \
                 .execute()
@@ -550,7 +550,7 @@ class StaffPortalService:
     async def get_my_open_shift_claims(
         self,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> List[Dict[str, Any]]:
         """Get open shifts this staff member has volunteered for"""
         try:
@@ -563,7 +563,7 @@ class StaffPortalService:
             claims = []
             for vol in (result.data or []):
                 shift = vol.get("open_shifts")
-                if shift and shift.get("restaurant_id") == restaurant_id:
+                if shift and shift.get("organization_id") == organization_id:
                     claims.append({
                         "volunteer_id": vol["id"],
                         "volunteer_status": vol["status"],
@@ -583,7 +583,7 @@ class StaffPortalService:
     async def create_swap_request(
         self,
         staff_id: str,
-        restaurant_id: int,
+        organization_id: int,
         shift_id: int,
         reason: Optional[str] = None,
         target_staff_id: Optional[str] = None
@@ -592,9 +592,9 @@ class StaffPortalService:
         try:
             # Verify shift exists and belongs to requesting staff
             shift_result = self.supabase.table("sse_shifts") \
-                .select("id, staff_id, restaurant_id, shift_date") \
+                .select("id, staff_id, organization_id, shift_date") \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
 
@@ -606,7 +606,7 @@ class StaffPortalService:
 
             # Check shift is at least 72 hours away
             shift_date = datetime.strptime(shift_result.data["shift_date"], "%Y-%m-%d")
-            now = self._get_now_for_restaurant(restaurant_id).replace(tzinfo=None)  # Make naive for comparison
+            now = self._get_now_for_restaurant(organization_id).replace(tzinfo=None)  # Make naive for comparison
             hours_until = (shift_date - now).total_seconds() / 3600
             if hours_until < 72:
                 raise ValueError("Shifts must be at least 72 hours away to swap")
@@ -623,7 +623,7 @@ class StaffPortalService:
 
             # Create swap request
             payload = {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "shift_id": shift_id,
                 "requesting_staff_id": staff_id,
                 "target_staff_id": target_staff_id,
@@ -649,14 +649,14 @@ class StaffPortalService:
     async def get_my_swap_requests(
         self,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> List[Dict[str, Any]]:
         """Get swap requests created by this staff member"""
         try:
             result = self.supabase.table("shift_swaps") \
                 .select("*") \
                 .eq("requesting_staff_id", staff_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .order("created_at", desc=True) \
                 .execute()
 
@@ -670,14 +670,14 @@ class StaffPortalService:
     async def get_available_swap_requests(
         self,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> List[Dict[str, Any]]:
         """Get swap requests from other staff that this person could accept"""
         try:
             # Get pending swaps where target is null or matches this staff
             result = self.supabase.table("shift_swaps") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("status", "posted") \
                 .neq("requesting_staff_id", staff_id) \
                 .execute()
@@ -749,7 +749,7 @@ class StaffPortalService:
         self,
         swap_id: int,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> Dict[str, Any]:
         """Accept a swap request (as the receiving staff)"""
         try:
@@ -757,7 +757,7 @@ class StaffPortalService:
             swap_result = self.supabase.table("shift_swaps") \
                 .select("*") \
                 .eq("id", swap_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("status", "posted") \
                 .single() \
                 .execute()
@@ -793,7 +793,7 @@ class StaffPortalService:
         self,
         swap_id: int,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> bool:
         """Cancel a swap request (only by the requester)"""
         try:
@@ -801,7 +801,7 @@ class StaffPortalService:
             swap_result = self.supabase.table("shift_swaps") \
                 .select("requesting_staff_id") \
                 .eq("id", swap_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
 
@@ -844,7 +844,7 @@ class StaffPortalService:
     async def save_personality_profile(
         self,
         staff_id: str,
-        restaurant_id: int,
+        organization_id: int,
         scenario_rankings: Dict[str, str],
         source: str = "self_assessment"
     ) -> Dict[str, Any]:
@@ -882,7 +882,7 @@ class StaffPortalService:
             points_to_award = 10 if is_first else 2
             payload = {
                 "staff_id": staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "scenario_rankings": scenario_rankings,
                 "fingerprint": profile["fingerprint"],
                 "persona_primary": profile["persona_primary"],
@@ -908,7 +908,7 @@ class StaffPortalService:
                 try:
                     await self.award_points(
                         staff_id=staff_id,
-                        restaurant_id=restaurant_id,
+                        organization_id=organization_id,
                         points=points_to_award,
                         transaction_type="personalityAssessment",
                         description="Personality Assessment" if is_first else "Personality Assessment (retake)"
@@ -926,7 +926,7 @@ class StaffPortalService:
             logger.error(f"Save personality profile error: {e}")
             raise e
 
-    async def get_team_composition(self, restaurant_id: int) -> Dict[str, Any]:
+    async def get_team_composition(self, organization_id: int) -> Dict[str, Any]:
         """
         Aggregate personality profiles for all active staff at a restaurant.
         Returns team fingerprint average, persona distribution, completion rate, gap analysis.
@@ -935,7 +935,7 @@ class StaffPortalService:
             # Get all personality profiles for this restaurant
             profiles_result = self.supabase.table("staff_personality_profiles") \
                 .select("staff_id, fingerprint, persona_primary, persona_scores, stability_score, source, completed_at") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
 
             profiles = profiles_result.data or []
@@ -943,7 +943,7 @@ class StaffPortalService:
             # Get total active staff count
             staff_result = self.supabase.table("staff") \
                 .select("staff_id, full_name, position") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .ilike("status", "active") \
                 .execute()
 
@@ -984,15 +984,15 @@ class StaffPortalService:
 
             # ── Research-backed composition analysis ──
             # Get restaurant type for format-aware scoring
-            restaurant_type = "casual_dining"
+            organization_subtype = "casual_dining"
             try:
-                rest_result = self.supabase.table("restaurants") \
-                    .select("restaurant_type") \
-                    .eq("id", restaurant_id) \
+                rest_result = self.supabase.table("organizations") \
+                    .select("organization_subtype") \
+                    .eq("id", organization_id) \
                     .limit(1) \
                     .execute()
-                if rest_result.data and rest_result.data[0].get("restaurant_type"):
-                    restaurant_type = rest_result.data[0]["restaurant_type"]
+                if rest_result.data and rest_result.data[0].get("organization_subtype"):
+                    organization_subtype = rest_result.data[0]["organization_subtype"]
             except Exception:
                 pass  # Fall back to casual_dining
 
@@ -1011,7 +1011,7 @@ class StaffPortalService:
             composition = analyze_team_composition(
                 persona_counts=persona_counts,
                 total_assessed=completed,
-                restaurant_type=restaurant_type,
+                organization_subtype=organization_subtype,
                 position_persona_map=position_persona_map,
             )
 
@@ -1072,7 +1072,7 @@ class StaffPortalService:
         self,
         candidate_id: str,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> Optional[Dict[str, Any]]:
         """
         When a candidate is hired via Stable Hire, copy their personality data
@@ -1083,7 +1083,7 @@ class StaffPortalService:
             candidate_result = self.supabase.table("hiring_candidates") \
                 .select("scenario_rankings, fingerprint, stability_score") \
                 .eq("id", candidate_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
 
@@ -1106,7 +1106,7 @@ class StaffPortalService:
 
             payload = {
                 "staff_id": staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "scenario_rankings": rankings,
                 "fingerprint": fingerprint,
                 "persona_primary": persona_primary,

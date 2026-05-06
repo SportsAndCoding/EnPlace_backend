@@ -45,7 +45,7 @@ from supabase import create_client
 def _get_today_for_demo_bistro(client) -> date:
     """Get today's date in Demo Bistro's timezone."""
     try:
-        result = client.table("restaurants").select("timezone").eq("id", 1).single().execute()
+        result = client.table("organizations").select("timezone").eq("id", 1).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -110,7 +110,7 @@ def load_signatures(signatures_path: str = "quitter_signatures.json") -> Dict[st
 
 def get_active_restaurants(client) -> List[Dict[str, Any]]:
     """Get list of restaurants that need processing."""
-    result = client.table("restaurants") \
+    result = client.table("organizations") \
         .select("id, name, status") \
         .eq("status", "active") \
         .execute()
@@ -125,12 +125,12 @@ def seed_demo_bistro(client, run_date: date) -> int:
     # Delete existing check-ins for today
     client.table("sse_daily_checkins") \
         .delete() \
-        .eq("restaurant_id", 1) \
+        .eq("organization_id", 1) \
         .eq("checkin_date", run_date.isoformat()) \
         .execute()
     
     # Generate and insert
-    checkins = generate_demo_bistro_checkins(run_date, restaurant_id=1)
+    checkins = generate_demo_bistro_checkins(run_date, organization_id=1)
     
     if checkins:
         client.table("sse_daily_checkins").insert(checkins).execute()
@@ -140,7 +140,7 @@ def seed_demo_bistro(client, run_date: date) -> int:
 
 def score_restaurant_staff(
     client,
-    restaurant_id: int,
+    organization_id: int,
     signatures: Dict[str, Any],
     run_date: date,
     lookback_days: int = 14,
@@ -204,7 +204,7 @@ def score_restaurant_staff(
     # Score staff
     flight_scores = score_staff_flight_risk(
         client,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         signatures=sig_objects,
         lookback_days=lookback_days,
     )
@@ -214,7 +214,7 @@ def score_restaurant_staff(
     for score in flight_scores:
         records.append({
             "staff_id": score.staff_id,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "calculated_date": run_date.isoformat(),
             "score": score.score,
             "risk_level": score.risk_level,
@@ -238,11 +238,11 @@ def write_flight_risk_scores(client, records: List[Dict[str, Any]], run_date: da
         return
     
     # Delete existing scores for this date
-    restaurant_ids = list(set(r["restaurant_id"] for r in records))
+    restaurant_ids = list(set(r["organization_id"] for r in records))
     for rid in restaurant_ids:
         client.table("staff_flight_risk") \
             .delete() \
-            .eq("restaurant_id", rid) \
+            .eq("organization_id", rid) \
             .eq("calculated_date", run_date.isoformat()) \
             .execute()
     
@@ -252,7 +252,7 @@ def write_flight_risk_scores(client, records: List[Dict[str, Any]], run_date: da
 
 def calculate_restaurant_metrics(
     client,
-    restaurant_id: int,
+    organization_id: int,
     flight_risk_records: List[Dict[str, Any]],
     run_date: date,
 ) -> Dict[str, Any]:
@@ -260,15 +260,15 @@ def calculate_restaurant_metrics(
     from modules.network_intelligence.pattern_matcher import calculate_network_percentile
     
     # Get network percentiles
-    mood_result = calculate_network_percentile(client, restaurant_id, "mood")
-    safety_result = calculate_network_percentile(client, restaurant_id, "safety")
-    fairness_result = calculate_network_percentile(client, restaurant_id, "fairness")
-    respect_result = calculate_network_percentile(client, restaurant_id, "respect")
+    mood_result = calculate_network_percentile(client, organization_id, "mood")
+    safety_result = calculate_network_percentile(client, organization_id, "safety")
+    fairness_result = calculate_network_percentile(client, organization_id, "fairness")
+    respect_result = calculate_network_percentile(client, organization_id, "respect")
     
     # Count risk levels
     risk_counts = {"low": 0, "moderate": 0, "elevated": 0, "high": 0, "critical": 0}
     for record in flight_risk_records:
-        if record["restaurant_id"] == restaurant_id:
+        if record["organization_id"] == organization_id:
             risk_counts[record["risk_level"]] += 1
     
     # Calculate overall health (average of percentiles)
@@ -283,7 +283,7 @@ def calculate_restaurant_metrics(
     overall = int(sum(percentiles) / len(percentiles)) if percentiles else None
     
     return {
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "calculated_date": run_date.isoformat(),
         "mood_percentile": mood_result.get("percentile"),
         "safety_percentile": safety_result.get("percentile"),
@@ -294,8 +294,8 @@ def calculate_restaurant_metrics(
         "avg_safe_rate": safety_result.get("restaurant_value"),
         "avg_fair_rate": fairness_result.get("restaurant_value"),
         "avg_respected_rate": respect_result.get("restaurant_value"),
-        "total_active_staff": len([r for r in flight_risk_records if r["restaurant_id"] == restaurant_id]),
-        "staff_with_checkins": len([r for r in flight_risk_records if r["restaurant_id"] == restaurant_id]),
+        "total_active_staff": len([r for r in flight_risk_records if r["organization_id"] == organization_id]),
+        "staff_with_checkins": len([r for r in flight_risk_records if r["organization_id"] == organization_id]),
         "checkin_rate": 0.85,  # Placeholder
         "low_risk_count": risk_counts["low"],
         "moderate_risk_count": risk_counts["moderate"],
@@ -310,7 +310,7 @@ def write_restaurant_metrics(client, metrics: Dict[str, Any], run_date: date):
     # Delete existing metrics for this date
     client.table("restaurant_daily_metrics") \
         .delete() \
-        .eq("restaurant_id", metrics["restaurant_id"]) \
+        .eq("organization_id", metrics["organization_id"]) \
         .eq("calculated_date", run_date.isoformat()) \
         .execute()
     
@@ -359,18 +359,18 @@ def run_pipeline(run_date: Optional[date] = None):
 
         # Step 1b: Seed Demo Bistro shifts with intentional gaps
         print(f"\n[1b/5] Seeding Demo Bistro shifts...")
-        shift_stats = seed_demo_shifts(client, restaurant_id=1)
+        shift_stats = seed_demo_shifts(client, organization_id=1)
         print(f"      Created {shift_stats['created']} shifts, {shift_stats['gaps_created']} intentional gaps")
         
         # Step 1c: Reset Stable Hire demo data
         print(f"\n[1c/5] Resetting Stable Hire demo data...")
-        hire_stats = reset_stable_hire_demo(client, restaurant_id=1)
+        hire_stats = reset_stable_hire_demo(client, organization_id=1)
         print(f"      Deleted {hire_stats['deleted']} demo candidates")
         print(f"      Reset {hire_stats['reset_to_open']} to open, {hire_stats['set_hired']} hired, {hire_stats['set_rejected']} rejected")
 
         # Step 1d: Seed Shift Swap demo data
         print(f"\n[1d/5] Seeding Shift Swap demo data...")
-        swap_stats = seed_demo_swap_requests(client, restaurant_id=1)
+        swap_stats = seed_demo_swap_requests(client, organization_id=1)
         print(f"      Deleted {swap_stats['deleted']} old demo swaps")
         print(f"      Created {swap_stats['created']} fresh swap requests (posted + accepted)")
 
@@ -423,7 +423,7 @@ def run_pipeline(run_date: Optional[date] = None):
         print(f"      Cascades computed: {graph_stats.get('total_cascades_computed', 0)}")
         if graph_stats.get("errors"):
             for err in graph_stats["errors"]:
-                print(f"      [ERROR] Restaurant {err['restaurant_id']}: {err['error']}")
+                print(f"      [ERROR] Restaurant {err['organization_id']}: {err['error']}")
         
         # Step 5: Calculate and write restaurant metrics
         print(f"\n[5/5] Calculating restaurant metrics...")

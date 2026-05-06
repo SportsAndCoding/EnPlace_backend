@@ -16,15 +16,15 @@ class RestaurantUpdate(BaseModel):
 
 router = APIRouter(prefix="/api/restaurants", tags=["restaurants"])
 
-@router.get("/{restaurant_id}")
+@router.get("/{organization_id}")
 async def get_restaurant(
-    restaurant_id: int,
+    organization_id: int,
     current_user: dict = Depends(get_current_user)
 ):
     """Get restaurant settings including operating hours and staffing ratios"""
     
     # Verify user has access to this restaurant
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     supabase = get_supabase()
@@ -32,7 +32,7 @@ async def get_restaurant(
     try:
         response = supabase.from_('restaurants') \
             .select('id, name, address, timezone, operating_hours, staffing_ratios, role_ratios, allow_overtime, status, pay_frequency, next_pay_date') \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .single() \
             .execute()
         
@@ -51,14 +51,14 @@ async def get_restaurant(
         )
 
 
-@router.put("/{restaurant_id}")
+@router.put("/{organization_id}")
 async def update_restaurant(
-    restaurant_id: int,
+    organization_id: int,
     update_data: RestaurantUpdate,
     current_user: dict = Depends(require_edit_permission)
 ):
     """Update restaurant settings"""
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     supabase = get_supabase()
@@ -85,7 +85,7 @@ async def update_restaurant(
 
         response = supabase.from_('restaurants') \
             .update(updates) \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .execute()
 
         if not response.data:
@@ -106,16 +106,16 @@ async def update_restaurant(
         )
 
 
-@router.get("/restaurants/{restaurant_id}/operating-settings")
+@router.get("/restaurants/{organization_id}/operating-settings")
 async def get_operating_settings(
-    restaurant_id: int,
+    organization_id: int,
     current_user: dict = Depends(get_current_user)
 ):
     """Get restaurant operating hours and settings"""
     
     result = await supabase.table('restaurant_operating_settings')\
         .select('*')\
-        .eq('restaurant_id', restaurant_id)\
+        .eq('organization_id', organization_id)\
         .execute()
     
     if not result.data:
@@ -124,9 +124,9 @@ async def get_operating_settings(
     return result.data[0]
 
 
-@router.get("/{restaurant_id}/operating-settings")
+@router.get("/{organization_id}/operating-settings")
 async def get_operating_settings(
-    restaurant_id: int,
+    organization_id: int,
     current_user: dict = Depends(get_current_user)
 ):
     """Get restaurant operating hours and settings"""
@@ -135,7 +135,7 @@ async def get_operating_settings(
     
     result = supabase.table('restaurant_operating_settings')\
         .select('*')\
-        .eq('restaurant_id', restaurant_id)\
+        .eq('organization_id', organization_id)\
         .execute()
     
     if not result.data:
@@ -144,9 +144,9 @@ async def get_operating_settings(
     return result.data[0]
 
 
-@router.post("/{restaurant_id}/operating-settings")
+@router.post("/{organization_id}/operating-settings")
 async def update_operating_settings(
-    restaurant_id: int,
+    organization_id: int,
     settings: dict,
     current_user: dict = Depends(get_current_user)
 ):
@@ -167,26 +167,26 @@ async def update_operating_settings(
     
     result = supabase.table('restaurant_operating_settings')\
         .upsert({
-            'restaurant_id': restaurant_id,
+            'organization_id': organization_id,
             **settings
         })\
         .execute()
     
     return {'success': True, 'data': result.data[0]}
 
-@router.get("/{restaurant_id}/modules")
+@router.get("/{organization_id}/modules")
 async def get_restaurant_modules(
-    restaurant_id: int,
+    organization_id: int,
     current_user: dict = Depends(get_current_user)
 ):
     """Get enabled modules for a restaurant - reads from restaurants.has_* columns (source of truth)"""
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
     supabase = get_supabase()
     try:
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select("has_open_shift_marketplace, has_shift_swap, has_schedule_optimizer, has_stable_hire, has_house_guardian") \
-            .eq("id", restaurant_id) \
+            .eq("id", organization_id) \
             .single() \
             .execute()
         
@@ -205,7 +205,7 @@ async def get_restaurant_modules(
         
         return {
             "success": True,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "modules": modules
         }
     except HTTPException:

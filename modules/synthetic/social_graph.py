@@ -350,21 +350,21 @@ class StaffGraph:
 
     def __init__(
         self,
-        restaurant_id: int,
+        organization_id: int,
         decay_rate: float = 0.02,
         min_edge_weight: float = 0.05,
     ):
         """
         Parameters
         ----------
-        restaurant_id : int
+        organization_id : int
         decay_rate : float
             Fraction of edge weight lost per day without interaction.
             At 0.02, an unreinforced edge loses ~45% strength in 30 days.
         min_edge_weight : float
             Edges decayed below this threshold are pruned.
         """
-        self.restaurant_id = restaurant_id
+        self.organization_id = organization_id
         self.decay_rate = decay_rate
         self.min_edge_weight = min_edge_weight
 
@@ -636,7 +636,7 @@ class StaffGraph:
 
                     # Deterministic roll per iteration + neighbor
                     roll = _det_float(
-                        f"cascade:{self.restaurant_id}:{removed_staff_id}"
+                        f"cascade:{self.organization_id}:{removed_staff_id}"
                         f":{neighbor_id}:{iteration}:{hop}"
                     )
 
@@ -1002,7 +1002,7 @@ class StaffGraph:
             "nodes": viz_nodes,
             "edges": viz_edges,
             "metadata": {
-                "restaurant_id": self.restaurant_id,
+                "organization_id": self.organization_id,
                 "day_index": day,
                 "active_staff_count": n_active,
                 "edge_count": len(viz_edges),

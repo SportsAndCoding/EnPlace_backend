@@ -17,7 +17,7 @@ class ShiftsService:
         """Create a new shift"""
         try:
             payload = {
-                "restaurant_id": shift_data["restaurant_id"],
+                "organization_id": shift_data["organization_id"],
                 "staff_id": shift_data.get("staff_id"),
                 "shift_date": shift_data["shift_date"].isoformat() if isinstance(shift_data["shift_date"], date) else shift_data["shift_date"],
                 "scheduled_start": shift_data["scheduled_start"].isoformat() if hasattr(shift_data["scheduled_start"], 'isoformat') else shift_data["scheduled_start"],
@@ -42,14 +42,14 @@ class ShiftsService:
     async def get_shift_by_id(
         self, 
         shift_id: int, 
-        restaurant_id: int
+        organization_id: int
     ) -> Optional[Dict[str, Any]]:
         """Get a specific shift by ID - NO EMBED"""
         try:
             result = self.supabase.table("sse_shifts") \
-                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
+                .select("id, organization_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if not result.data or len(result.data) == 0:
@@ -63,7 +63,7 @@ class ShiftsService:
     
     async def get_shifts_by_restaurant(
         self,
-        restaurant_id: int,
+        organization_id: int,
         start_date: date,
         end_date: date,
         staff_id: Optional[str] = None,
@@ -72,8 +72,8 @@ class ShiftsService:
         """Get shifts for a restaurant - NO EMBED"""
         try:
             query = self.supabase.table("sse_shifts") \
-                .select("id, restaurant_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
-                .eq("restaurant_id", restaurant_id) \
+                .select("id, organization_id, staff_id, shift_date, scheduled_start, scheduled_end, shift_type, day_type, is_published, created_by, created_at, status, position, reason, original_staff_id") \
+                .eq("organization_id", organization_id) \
                 .gte("shift_date", start_date.isoformat()) \
                 .lte("shift_date", end_date.isoformat())
             
@@ -116,7 +116,7 @@ class ShiftsService:
     async def update_shift(
         self, 
         shift_id: int, 
-        restaurant_id: int,
+        organization_id: int,
         update_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Update an existing shift"""
@@ -131,12 +131,12 @@ class ShiftsService:
                 payload["scheduled_end"] = payload["scheduled_end"].isoformat()
             
             if not payload:
-                return await self.get_shift_by_id(shift_id, restaurant_id)
+                return await self.get_shift_by_id(shift_id, organization_id)
             
             result = self.supabase.table("sse_shifts") \
                 .update(payload) \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -150,14 +150,14 @@ class ShiftsService:
     async def delete_shift(
         self, 
         shift_id: int, 
-        restaurant_id: int
+        organization_id: int
     ) -> bool:
         """Delete a shift"""
         try:
             result = self.supabase.table("sse_shifts") \
                 .delete() \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             return result.data is not None and len(result.data) > 0
@@ -168,7 +168,7 @@ class ShiftsService:
     
     async def get_open_shifts(
         self,
-        restaurant_id: int,
+        organization_id: int,
         start_date: date,
         end_date: date
     ) -> List[Dict[str, Any]]:
@@ -177,8 +177,8 @@ class ShiftsService:
             from datetime import datetime, timezone
             
             result = self.supabase.table("open_shifts") \
-                .select("id, restaurant_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by") \
-                .eq("restaurant_id", restaurant_id) \
+                .select("id, organization_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by") \
+                .eq("organization_id", organization_id) \
                 .in_("status", ["open", "pending"]) \
                 .gte("date", start_date.isoformat()) \
                 .lte("date", end_date.isoformat()) \
@@ -199,7 +199,7 @@ class ShiftsService:
                     
                 shifts.append({
                     "id": row["id"],
-                    "restaurant_id": row["restaurant_id"],
+                    "organization_id": row["organization_id"],
                     "position": row["position"],
                     "shift_date": row["date"],
                     "scheduled_start": row["start_time"],
@@ -216,13 +216,13 @@ class ShiftsService:
             raise e
     async def get_pending_open_shift_claims(
         self,
-        restaurant_id: int
+        organization_id: int
     ) -> List[Dict[str, Any]]:
         """Get open shifts with pending claims (for manager approval)"""
         try:
             result = self.supabase.table("open_shifts") \
-                .select("id, restaurant_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by, claimed_at") \
-                .eq("restaurant_id", restaurant_id) \
+                .select("id, organization_id, position, date, start_time, end_time, bonus_pay, description, status, created_at, claimed_by, claimed_at") \
+                .eq("organization_id", organization_id) \
                 .eq("status", "pending") \
                 .order("date") \
                 .order("start_time") \
@@ -247,7 +247,7 @@ class ShiftsService:
                 claimer = staff_map.get(row.get('claimed_by'), {})
                 claims.append({
                     "id": row["id"],
-                    "restaurant_id": row["restaurant_id"],
+                    "organization_id": row["organization_id"],
                     "position": row["position"],
                     "date": row["date"],
                     "start_time": row["start_time"],
@@ -270,14 +270,14 @@ class ShiftsService:
             logger.error(f"Get pending open shift claims error: {e}")
             raise e
 
-    async def get_shift_volunteers(self, shift_id: int, restaurant_id: int) -> List[Dict[str, Any]]:
+    async def get_shift_volunteers(self, shift_id: int, organization_id: int) -> List[Dict[str, Any]]:
         """Get volunteers for a shift with staff details"""
         try:
             # First verify shift belongs to restaurant
             shift_check = self.supabase.table("sse_shifts") \
                 .select("id") \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
             
@@ -356,7 +356,7 @@ class ShiftsService:
                 shift_check = self.supabase.table("sse_shifts") \
                     .select("id") \
                     .eq("id", shift_id) \
-                    .eq("restaurant_id", restaurant_id) \
+                    .eq("organization_id", organization_id) \
                     .single() \
                     .execute()
                 
@@ -420,7 +420,7 @@ class ShiftsService:
     async def update_open_shift(
         self,
         shift_id: str,
-        restaurant_id: int,
+        organization_id: int,
         update_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Update an open_shifts record (UUID-based marketplace shifts)"""
@@ -432,7 +432,7 @@ class ShiftsService:
             result = self.supabase.table("open_shifts") \
                 .update(payload) \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             return result.data[0] if result.data else None
@@ -443,7 +443,7 @@ class ShiftsService:
     async def get_open_shift_volunteers(
         self,
         shift_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> List[Dict[str, Any]]:
         """Get all volunteers for an open shift"""
         try:
@@ -489,7 +489,7 @@ class ShiftsService:
         self,
         shift_id: str,
         staff_id: str,
-        restaurant_id: int
+        organization_id: int
     ) -> Dict[str, Any]:
         """Manager selects a volunteer for an open shift"""
         try:
@@ -497,7 +497,7 @@ class ShiftsService:
             shift_result = self.supabase.table("open_shifts") \
                 .select("*") \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
             
@@ -513,7 +513,7 @@ class ShiftsService:
                     "status": "approved"
                 }) \
                 .eq("id", shift_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if not update_result.data:
@@ -549,7 +549,7 @@ class ShiftsService:
             
             self.supabase.table("sse_shifts") \
                 .insert({
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "staff_id": staff_id,
                     "shift_date": shift_date,
                     "scheduled_start": scheduled_start,

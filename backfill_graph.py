@@ -10,7 +10,7 @@ total_edges = 0
 total_scored = 0
 
 while current <= end:
-    result = process_restaurant_graph(restaurant_id=1, target_date=current)
+    result = process_restaurant_graph(organization_id=1, target_date=current)
     edges = result.get("edges_updated", 0)
     scored = result.get("staff_scored", 0)
     cascades = result.get("cascades_computed", 0)

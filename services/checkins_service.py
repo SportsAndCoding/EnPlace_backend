@@ -10,10 +10,10 @@ class CheckinsService:
     def __init__(self):
         self.supabase = get_supabase()
     
-    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+    def _get_today_for_restaurant(self, organization_id: int) -> date:
         """Get today's date in restaurant timezone."""
         try:
-            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            result = self.supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
             tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
         except:
             tz_name = "America/New_York"
@@ -29,8 +29,8 @@ class CheckinsService:
             # Build insert payload
             payload = {
                 "staff_id": checkin_data["staff_id"],
-                "restaurant_id": checkin_data["restaurant_id"],
-                "checkin_date": self._get_today_for_restaurant(checkin_data["restaurant_id"]).isoformat(),
+                "organization_id": checkin_data["organization_id"],
+                "checkin_date": self._get_today_for_restaurant(checkin_data["organization_id"]).isoformat(),
                 "mood_emoji": checkin_data["mood_emoji"],
                 "felt_safe": checkin_data.get("felt_safe"),
                 "felt_fair": checkin_data.get("felt_fair"),
@@ -78,7 +78,7 @@ class CheckinsService:
     
     async def get_checkins_by_restaurant(
         self,
-        restaurant_id: int,
+        organization_id: int,
         start_date: date,
         end_date: date
     ) -> List[Dict[str, Any]]:
@@ -86,7 +86,7 @@ class CheckinsService:
         try:
             result = self.supabase.table("sse_daily_checkins") \
                 .select("*, staff:staff_id(full_name, position)") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("checkin_date", start_date.isoformat()) \
                 .lte("checkin_date", end_date.isoformat()) \
                 .order("checkin_date", desc=True) \
@@ -98,7 +98,7 @@ class CheckinsService:
             logger.error(f"Get checkins error: {e}")
             raise e
     
-    async def get_today_checkin(self, staff_id: str, restaurant_id: int) -> Optional[Dict[str, Any]]:
+    async def get_today_checkin(self, staff_id: str, organization_id: int) -> Optional[Dict[str, Any]]:
         """Check if staff already checked in today"""
-        today = self._get_today_for_restaurant(restaurant_id)
+        today = self._get_today_for_restaurant(organization_id)
         return await self.get_checkin_by_staff_and_date(staff_id, today)

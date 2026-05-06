@@ -24,7 +24,7 @@ Usage:
     result = analyze_team_composition(
         persona_counts={"steadyOperator": 16, "quietContributor": 11, ...},
         total_assessed=39,
-        restaurant_type="casual_dining",
+        organization_subtype="casual_dining",
         position_persona_map={"Server": {"steadyOperator": 5, ...}, ...}
     )
 """
@@ -218,7 +218,7 @@ PERSONA_META = {
 def analyze_team_composition(
     persona_counts: Dict[str, int],
     total_assessed: int,
-    restaurant_type: str = DEFAULT_FORMAT,
+    organization_subtype: str = DEFAULT_FORMAT,
     position_persona_map: Optional[Dict[str, Dict[str, int]]] = None,
 ) -> Dict[str, Any]:
     """
@@ -230,7 +230,7 @@ def analyze_team_composition(
         {"steadyOperator": 16, "quietContributor": 11, "socialNavigator": 8, "flightRisk": 4}
     total_assessed : int
         Total number of staff with completed assessments.
-    restaurant_type : str
+    organization_subtype : str
         One of: fine_dining, casual_dining, fast_casual, high_volume_bar
     position_persona_map : dict, optional
         {"Server": {"steadyOperator": 5, "socialNavigator": 3, ...}, ...}
@@ -242,7 +242,7 @@ def analyze_team_composition(
                alerts, position_insights, overall_health_score
     """
 
-    profile = FORMAT_PROFILES.get(restaurant_type, FORMAT_PROFILES[DEFAULT_FORMAT])
+    profile = FORMAT_PROFILES.get(organization_subtype, FORMAT_PROFILES[DEFAULT_FORMAT])
     ideal = profile["ideal"]
 
     if total_assessed == 0:
@@ -289,7 +289,7 @@ def analyze_team_composition(
 
     return {
         "format_profile": {
-            "type": restaurant_type,
+            "type": organization_subtype,
             "label": profile["label"],
             "description": profile["description"],
             "ideal_ratios": {k: round(v * 100, 1) for k, v in ideal.items()},

@@ -15,11 +15,11 @@ async def get_adoption(current_user: dict = Depends(get_current_user)):
     Available to all manager-level users.
     """
     try:
-        restaurant_id = current_user.get("restaurant_id")
-        if not restaurant_id:
-            raise HTTPException(status_code=400, detail="No restaurant_id in token")
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="No organization_id in token")
 
-        data = get_adoption_metrics(restaurant_id)
+        data = get_adoption_metrics(organization_id)
         return data
 
     except HTTPException:

@@ -20,7 +20,7 @@ from database.supabase_client import get_supabase
 logger = logging.getLogger(__name__)
 
 
-def get_adoption_metrics(restaurant_id: int) -> Dict[str, Any]:
+def get_adoption_metrics(organization_id: int) -> Dict[str, Any]:
     """
     Compute all adoption metrics for a restaurant.
     Returns a complete adoption dashboard payload.
@@ -37,7 +37,7 @@ def get_adoption_metrics(restaurant_id: int) -> Dict[str, Any]:
     # Active staff
     staff_result = supabase.table("staff") \
         .select("staff_id, full_name, position, portal_access, last_login, is_owner, status") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "active") \
         .execute()
     all_staff = staff_result.data or []
@@ -47,7 +47,7 @@ def get_adoption_metrics(restaurant_id: int) -> Dict[str, Any]:
     # Check-ins (last 7 days)
     checkins_7d = supabase.table("sse_daily_checkins") \
         .select("staff_id, checkin_date") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("checkin_date", seven_days_ago.isoformat()) \
         .execute()
     checkins_7d_data = checkins_7d.data or []
@@ -58,7 +58,7 @@ def get_adoption_metrics(restaurant_id: int) -> Dict[str, Any]:
     # Manager daily logs (last 7 days)
     logs_7d = supabase.table("manager_daily_logs") \
         .select("manager_staff_id, log_date") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("log_date", seven_days_ago.isoformat()) \
         .execute()
     logs_7d_data = logs_7d.data or []
@@ -66,7 +66,7 @@ def get_adoption_metrics(restaurant_id: int) -> Dict[str, Any]:
     # Escalation actions (last 30 days)
     esc_events = supabase.table("sse_escalation_events") \
         .select("id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("triggered_at", thirty_days_ago.isoformat()) \
         .execute()
     esc_ids = [e["id"] for e in (esc_events.data or [])]
@@ -93,7 +93,7 @@ def get_adoption_metrics(restaurant_id: int) -> Dict[str, Any]:
 
     return {
         "success": True,
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "health_score": health_score,
         "checkins": checkin_metrics,

@@ -16,7 +16,7 @@ class StaffBase(BaseModel):
 
 class StaffCreate(StaffBase):
     email: EmailStr
-    restaurant_id: int
+    organization_id: int
 
 class StaffUpdate(StaffBase):
     email: Optional[EmailStr] = None
@@ -25,7 +25,7 @@ class StaffResponse(StaffBase):
     id: int
     email: str
     status: str
-    restaurant_id: int
+    organization_id: int
     hire_date: date
     
     class Config:

@@ -69,11 +69,11 @@ async def get_earning_rules(user: dict = Depends(verify_jwt_token)):
     """Get all earning rules for the user's restaurant"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         result = supabase.table("reward_earning_rules") \
             .select("*") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .order("rule_key") \
             .execute()
         
@@ -92,7 +92,7 @@ async def update_earning_rules(
     """Update earning rules (manager only)"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         for rule_key, updates in request.rules.items():
             supabase.table("reward_earning_rules") \
@@ -101,7 +101,7 @@ async def update_earning_rules(
                     "is_enabled": updates.is_enabled,
                     "updated_at": datetime.utcnow().isoformat()
                 }) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("rule_key", rule_key) \
                 .execute()
         
@@ -121,11 +121,11 @@ async def get_reward_catalog(user: dict = Depends(verify_jwt_token)):
     """Get reward catalog for the user's restaurant"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         result = supabase.table("reward_catalog") \
             .select("*") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .order("sort_order") \
             .execute()
         
@@ -141,11 +141,11 @@ async def get_available_rewards(user: dict = Depends(verify_jwt_token)):
     """Get only enabled rewards for staff portal"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         result = supabase.table("reward_catalog") \
             .select("id, item_key, name, description, icon, category, cost, requires_approval") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("is_enabled", True) \
             .order("sort_order") \
             .execute()
@@ -165,7 +165,7 @@ async def update_reward_catalog(
     """Update reward catalog items (manager only)"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         for item_key, updates in request.items.items():
             supabase.table("reward_catalog") \
@@ -175,7 +175,7 @@ async def update_reward_catalog(
                     "is_enabled": updates.is_enabled,
                     "updated_at": datetime.utcnow().isoformat()
                 }) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("item_key", item_key) \
                 .execute()
         
@@ -194,7 +194,7 @@ async def add_catalog_item(
     """Add a custom reward item (manager only)"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         # Generate a unique key
         item_key = f"custom_{int(datetime.utcnow().timestamp())}"
@@ -202,7 +202,7 @@ async def add_catalog_item(
         # Get max sort_order for this restaurant
         max_order = supabase.table("reward_catalog") \
             .select("sort_order") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .order("sort_order", desc=True) \
             .limit(1) \
             .execute()
@@ -211,7 +211,7 @@ async def add_catalog_item(
         
         result = supabase.table("reward_catalog") \
             .insert({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "item_key": item_key,
                 "name": item.name,
                 "description": item.description,
@@ -239,13 +239,13 @@ async def delete_catalog_item(
     """Delete a reward item (manager only)"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         # Only allow deleting custom items (those with 'custom_' prefix)
         item = supabase.table("reward_catalog") \
             .select("item_key") \
             .eq("id", item_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .single() \
             .execute()
         
@@ -256,7 +256,7 @@ async def delete_catalog_item(
         supabase.table("reward_catalog") \
             .delete() \
             .eq("id", item_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
         
         return {"success": True, "message": "Item deleted"}
@@ -281,13 +281,13 @@ async def redeem_reward(
     try:
         supabase = get_supabase()
         staff_id = user.get("staff_id")
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         # Get the catalog item
         item = supabase.table("reward_catalog") \
             .select("*") \
             .eq("id", request.catalog_item_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("is_enabled", True) \
             .single() \
             .execute()
@@ -324,7 +324,7 @@ async def redeem_reward(
         supabase.table("stability_points") \
             .insert({
                 "staff_id": staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "points": -catalog_item["cost"],
                 "balance_after": new_balance,
                 "transaction_type": "redemption",
@@ -340,7 +340,7 @@ async def redeem_reward(
         # Create redemption record
         redemption = supabase.table("reward_redemptions") \
             .insert({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "catalog_item_id": catalog_item["id"],
                 "item_name": catalog_item["name"],
@@ -369,11 +369,11 @@ async def get_pending_redemptions(user: dict = Depends(require_manager)):
     """Get pending redemptions for Action Board"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         result = supabase.table("reward_redemptions") \
             .select("*, staff:staff_id(full_name, position)") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "pending") \
             .order("requested_at", desc=True) \
             .execute()
@@ -393,11 +393,11 @@ async def get_redemption_history(
     """Get redemption history"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         
         result = supabase.table("reward_redemptions") \
             .select("*, staff:staff_id(full_name, position)") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .order("requested_at", desc=True) \
             .limit(limit) \
             .execute()
@@ -439,7 +439,7 @@ async def resolve_redemption(
     """Approve, fulfill, or decline a redemption (manager only)"""
     try:
         supabase = get_supabase()
-        restaurant_id = user.get("restaurant_id")
+        organization_id = user.get("organization_id")
         manager_staff_id = user.get("staff_id")
         
         if resolution.status not in ["approved", "fulfilled", "declined"]:
@@ -449,7 +449,7 @@ async def resolve_redemption(
         redemption = supabase.table("reward_redemptions") \
             .select("*") \
             .eq("id", redemption_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .single() \
             .execute()
         
@@ -481,7 +481,7 @@ async def resolve_redemption(
             supabase.table("stability_points") \
                 .insert({
                     "staff_id": staff_id,
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "points": point_cost,
                     "balance_after": new_balance,
                     "transaction_type": "refund",

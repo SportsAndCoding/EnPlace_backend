@@ -13,20 +13,20 @@ router = APIRouter(prefix="/api/alignment", tags=["alignment"])
 
 @router.get("")
 async def get_alignment(
-    restaurant_id: int,
+    organization_id: int,
     days: int = Query(default=7, ge=1, le=30),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Get Staff-Manager Alignment scores.
     """
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     service = AlignmentService()
     try:
         alignment_data = await service.get_alignment_data(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             days=days
         )
         return {"success": True, **alignment_data}
@@ -83,7 +83,7 @@ async def _recalculate_all_synthetic_sma() -> dict:
 
     while True:
         emotions_result = supabase.table("synthetic_daily_emotions") \
-            .select("restaurant_id, day_index, mood_emoji") \
+            .select("organization_id, day_index, mood_emoji") \
             .gte("day_index", recent_start) \
             .range(offset, offset + batch_size - 1) \
             .execute()
@@ -98,7 +98,7 @@ async def _recalculate_all_synthetic_sma() -> dict:
         return {"error": "No recent emotion data", "updated": 0}
 
     manager_result = supabase.table("synthetic_manager_logs") \
-        .select("restaurant_id, day_index, overall_rating") \
+        .select("organization_id, day_index, overall_rating") \
         .gte("day_index", recent_start) \
         .execute()
 
@@ -108,14 +108,14 @@ async def _recalculate_all_synthetic_sma() -> dict:
     # Aggregate staff mood by restaurant+day
     staff_by_day = {}
     for row in all_emotions:
-        key = (row["restaurant_id"], row["day_index"])
+        key = (row["organization_id"], row["day_index"])
         if key not in staff_by_day:
             staff_by_day[key] = []
         if row.get("mood_emoji") is not None:
             staff_by_day[key].append(row["mood_emoji"])
 
     manager_by_day = {
-        (row["restaurant_id"], row["day_index"]): row.get("overall_rating")
+        (row["organization_id"], row["day_index"]): row.get("overall_rating")
         for row in manager_result.data
     }
 
@@ -143,15 +143,15 @@ async def _recalculate_all_synthetic_sma() -> dict:
     # Update database
     updated = 0
     errors = 0
-    for restaurant_id, sma_score in scores.items():
+    for organization_id, sma_score in scores.items():
         try:
-            supabase.table("synthetic_restaurants") \
+            supabase.table("synthetic_organizations") \
                 .update({"sma_score": sma_score}) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             updated += 1
         except Exception as e:
-            logger.error(f"Error updating restaurant {restaurant_id}: {e}")
+            logger.error(f"Error updating restaurant {organization_id}: {e}")
             errors += 1
 
     score_values = list(scores.values())

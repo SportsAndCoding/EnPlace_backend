@@ -81,7 +81,7 @@ def run_graph_pipeline(
 
     # Get active restaurants
     try:
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select("id, name") \
             .in_("status", ["active", "Active"]) \
             .execute()
@@ -133,7 +133,7 @@ def run_graph_pipeline(
 
         except Exception as e:
             total_stats["restaurants_failed"] += 1
-            errors.append({"restaurant_id": rid, "error": str(e)})
+            errors.append({"organization_id": rid, "error": str(e)})
             logger.error(
                 "Graph pipeline failed for %s (ID %d): %s",
                 rname, rid, e,
@@ -153,7 +153,7 @@ def run_graph_pipeline(
 # ------------------------------------------------------------------
 
 def process_restaurant_graph(
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
 ) -> Dict[str, int]:
     """
@@ -162,16 +162,16 @@ def process_restaurant_graph(
     Returns dict of stats: edges_updated, staff_scored, cascades_computed.
     """
     # Step 1: Load active staff
-    active_staff = _load_active_staff(restaurant_id)
+    active_staff = _load_active_staff(organization_id)
     if len(active_staff) < 2:
         # Need at least 2 people to have a graph
         return {"edges_updated": 0, "staff_scored": 0, "cascades_computed": 0}
 
     # Step 2: Build graph from persisted edges + staff state
-    graph = _load_graph_from_db(restaurant_id, active_staff)
+    graph = _load_graph_from_db(organization_id, active_staff)
 
     # Step 3: Generate organic pairwise events for today
-    events = generate_organic_pairwise_events(restaurant_id, target_date)
+    events = generate_organic_pairwise_events(organization_id, target_date)
 
     # Step 4: Update graph (decay + reinforce)
     day_index = (target_date - date(2025, 1, 1)).days  # consistent day numbering
@@ -184,23 +184,23 @@ def process_restaurant_graph(
     ranking = compute_retention_priority(graph=graph)
 
     # Step 7: Persist updated edges
-    edges_updated = _persist_graph_edges(restaurant_id, graph, target_date)
+    edges_updated = _persist_graph_edges(organization_id, graph, target_date)
 
     # Step 8: Write per-staff metrics
     staff_scored = _write_staff_graph_metrics(
-        restaurant_id, graph, ranking, target_date
+        organization_id, graph, ranking, target_date
     )
 
     # Step 9: Run cascade analysis for critical/important staff
     cascades_computed = _run_cascade_analysis(
-        restaurant_id, graph, ranking, target_date
+        organization_id, graph, ranking, target_date
     )
 
     # Step 10: Decay existing shock modifiers
-    _decay_shock_modifiers_db(restaurant_id)
+    _decay_shock_modifiers_db(organization_id)
 
     # Step 11: Update mood buffer
-    _update_mood_buffer(restaurant_id, graph)
+    _update_mood_buffer(organization_id, graph)
 
     return {
         "edges_updated": edges_updated,
@@ -213,11 +213,11 @@ def process_restaurant_graph(
 # DATA LOADERS
 # ------------------------------------------------------------------
 
-def _load_active_staff(restaurant_id: int) -> List[Dict[str, Any]]:
+def _load_active_staff(organization_id: int) -> List[Dict[str, Any]]:
     """Load active staff with their current state from the staff table."""
     result = supabase.table("staff") \
         .select("staff_id, position, hire_date, status") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .in_("status", ["active", "Active"]) \
         .execute()
 
@@ -242,13 +242,13 @@ def _load_active_staff(restaurant_id: int) -> List[Dict[str, Any]]:
 
 
 def _load_graph_from_db(
-    restaurant_id: int,
+    organization_id: int,
     active_staff: List[Dict[str, Any]],
 ) -> StaffGraph:
     """
     Reconstruct a StaffGraph from persisted edges and staff state.
     """
-    graph = StaffGraph(restaurant_id=restaurant_id)
+    graph = StaffGraph(organization_id=organization_id)
 
     # Add active staff as nodes
     # We don't know their persona in production — default to "workhorse"
@@ -264,7 +264,7 @@ def _load_graph_from_db(
     # Load persisted edges
     edge_result = supabase.table("staff_graph_edges") \
         .select("staff_id_a, staff_id_b, weight, edge_type_weights, last_interaction_date") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .execute()
 
     active_ids = {s["staff_id"] for s in active_staff}
@@ -289,13 +289,13 @@ def _load_graph_from_db(
                 pass
 
     # Load latest check-in moods to populate node state
-    _populate_node_moods(restaurant_id, graph, active_ids)
+    _populate_node_moods(organization_id, graph, active_ids)
 
     return graph
 
 
 def _populate_node_moods(
-    restaurant_id: int,
+    organization_id: int,
     graph: StaffGraph,
     active_ids: set,
 ):
@@ -308,7 +308,7 @@ def _populate_node_moods(
 
     checkin_result = supabase.table("sse_daily_checkins") \
         .select("staff_id, mood_emoji, checkin_date") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("checkin_date", cutoff) \
         .order("checkin_date", desc=True) \
         .execute()
@@ -338,7 +338,7 @@ def _populate_node_moods(
     today_str = date.today().isoformat()
     fr_result = supabase.table("staff_flight_risk") \
         .select("staff_id, safe_rate, fair_rate, respected_rate") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("calculated_date", today_str) \
         .execute()
 
@@ -359,13 +359,13 @@ def _populate_node_moods(
 # ------------------------------------------------------------------
 
 def _persist_graph_edges(
-    restaurant_id: int,
+    organization_id: int,
     graph: StaffGraph,
     target_date: date,
 ) -> int:
     """
     Write graph edges back to staff_graph_edges.
-    Uses upsert on the unique constraint (restaurant_id, staff_id_a, staff_id_b).
+    Uses upsert on the unique constraint (organization_id, staff_id_a, staff_id_b).
     Deletes edges that have decayed below threshold.
     """
     # Delete all existing edges for this restaurant, then re-insert active ones.
@@ -373,10 +373,10 @@ def _persist_graph_edges(
     try:
         supabase.table("staff_graph_edges") \
             .delete() \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
     except Exception as e:
-        logger.warning("Could not clear edges for restaurant %d: %s", restaurant_id, e)
+        logger.warning("Could not clear edges for restaurant %d: %s", organization_id, e)
 
     # Build rows from graph state
     rows = []
@@ -393,7 +393,7 @@ def _persist_graph_edges(
         lid = date(2025, 1, 1) + timedelta(days=edge.last_interaction_day)
 
         rows.append({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "staff_id_a": a,
             "staff_id_b": b,
             "weight": round(edge.weight, 4),
@@ -409,13 +409,13 @@ def _persist_graph_edges(
             try:
                 supabase.table("staff_graph_edges").insert(batch).execute()
             except Exception as e:
-                logger.error("Edge insert failed for restaurant %d: %s", restaurant_id, e)
+                logger.error("Edge insert failed for restaurant %d: %s", organization_id, e)
 
     return len(rows)
 
 
 def _write_staff_graph_metrics(
-    restaurant_id: int,
+    organization_id: int,
     graph: StaffGraph,
     ranking: List[Dict[str, Any]],
     target_date: date,
@@ -430,7 +430,7 @@ def _write_staff_graph_metrics(
     try:
         supabase.table("staff_graph_metrics") \
             .delete() \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("calculated_date", date_str) \
             .execute()
     except Exception:
@@ -448,7 +448,7 @@ def _write_staff_graph_metrics(
 
         rows.append({
             "staff_id": sid,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "calculated_date": date_str,
             "betweenness_centrality": round(node.betweenness_centrality, 3),
             "eigenvector_centrality": round(node.eigenvector_centrality, 3),
@@ -477,13 +477,13 @@ def _write_staff_graph_metrics(
             try:
                 supabase.table("staff_graph_metrics").insert(batch).execute()
             except Exception as e:
-                logger.error("Metrics insert failed for restaurant %d: %s", restaurant_id, e)
+                logger.error("Metrics insert failed for restaurant %d: %s", organization_id, e)
 
     return len(rows)
 
 
 def _run_cascade_analysis(
-    restaurant_id: int,
+    organization_id: int,
     graph: StaffGraph,
     ranking: List[Dict[str, Any]],
     target_date: date,
@@ -497,7 +497,7 @@ def _run_cascade_analysis(
     try:
         supabase.table("staff_cascade_analysis") \
             .delete() \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("analysis_date", date_str) \
             .execute()
     except Exception:
@@ -529,7 +529,7 @@ def _run_cascade_analysis(
         cost = what_if["cost_framing"]
 
         rows.append({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "target_staff_id": sid,
             "analysis_date": date_str,
             "cascade_severity": cost.get("severity"),
@@ -548,7 +548,7 @@ def _run_cascade_analysis(
         try:
             supabase.table("staff_cascade_analysis").insert(rows).execute()
         except Exception as e:
-            logger.error("Cascade insert failed for restaurant %d: %s", restaurant_id, e)
+            logger.error("Cascade insert failed for restaurant %d: %s", organization_id, e)
 
     return len(rows)
 
@@ -557,14 +557,14 @@ def _run_cascade_analysis(
 # SHOCK MODIFIER MANAGEMENT
 # ------------------------------------------------------------------
 
-def _decay_shock_modifiers_db(restaurant_id: int):
+def _decay_shock_modifiers_db(organization_id: int):
     """
     Decay shock modifiers and delete expired ones.
     Called once per restaurant per nightly run.
     """
     result = supabase.table("staff_shock_modifiers") \
         .select("id, staff_id, modifier") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .execute()
 
     if not result.data:
@@ -616,7 +616,7 @@ def _decay_shock_modifiers_db(restaurant_id: int):
             pass
 
 
-def _update_mood_buffer(restaurant_id: int, graph: StaffGraph):
+def _update_mood_buffer(organization_id: int, graph: StaffGraph):
     """
     Persist mood buffer values for continuous contagion accumulation.
     Simple upsert: one row per staff.
@@ -635,7 +635,7 @@ def _update_mood_buffer(restaurant_id: int, graph: StaffGraph):
         try:
             supabase.table("staff_mood_buffer") \
                 .upsert({
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "staff_id": sid,
                     "buffered_mood": buffered_mood,
                     "updated_at": now,

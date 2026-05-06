@@ -1,7 +1,7 @@
 """
 seed_social_graph.py
 
-Populates Demo Bistro (restaurant_id=1) with realistic social graph data:
+Populates Demo Bistro (organization_id=1) with realistic social graph data:
   - staff_graph_metrics: 25 staff × 10 dates (every 3 days for 30 days)
   - staff_graph_edges: ~55 relationship edges
   - staff_cascade_analysis: 4 critical/important staff what-if analyses
@@ -264,7 +264,7 @@ def seed_metrics():
 
             rows.append({
                 "staff_id": sid,
-                "restaurant_id": RESTAURANT_ID,
+                "organization_id": RESTAURANT_ID,
                 "calculated_date": calc_date.isoformat(),
                 "betweenness_centrality": between,
                 "eigenvector_centrality": eigen,
@@ -293,7 +293,7 @@ def seed_metrics():
         chunk = rows[i:i+50]
         supabase.table("staff_graph_metrics").upsert(
             chunk,
-            on_conflict="staff_id,restaurant_id,calculated_date"
+            on_conflict="staff_id,organization_id,calculated_date"
         ).execute()
     print(f"  ✓ {len(rows)} metrics inserted across {len(set(r['calculated_date'] for r in rows))} dates")
 
@@ -317,7 +317,7 @@ def seed_edges():
         id_a, id_b = (a, b) if a < b else (b, a)
 
         rows.append({
-            "restaurant_id": RESTAURANT_ID,
+            "organization_id": RESTAURANT_ID,
             "staff_id_a": id_a,
             "staff_id_b": id_b,
             "weight": round(weight, 3),
@@ -328,7 +328,7 @@ def seed_edges():
     print(f"Inserting {len(rows)} edges...")
     supabase.table("staff_graph_edges").upsert(
         rows,
-        on_conflict="restaurant_id,staff_id_a,staff_id_b"
+        on_conflict="organization_id,staff_id_a,staff_id_b"
     ).execute()
     print(f"  ✓ {len(rows)} edges inserted")
 
@@ -428,7 +428,7 @@ def seed_cascade_analysis():
     rows = []
     for a in analyses:
         rows.append({
-            "restaurant_id": RESTAURANT_ID,
+            "organization_id": RESTAURANT_ID,
             "target_staff_id": a["target_staff_id"],
             "analysis_date": today.isoformat(),
             "cascade_severity": a["cascade_severity"],
@@ -459,10 +459,10 @@ if __name__ == "__main__":
     print()
 
     # Clean existing demo data first
-    print("Cleaning existing graph data for restaurant_id=1...")
-    supabase.table("staff_graph_metrics").delete().eq("restaurant_id", RESTAURANT_ID).execute()
-    supabase.table("staff_graph_edges").delete().eq("restaurant_id", RESTAURANT_ID).execute()
-    supabase.table("staff_cascade_analysis").delete().eq("restaurant_id", RESTAURANT_ID).execute()
+    print("Cleaning existing graph data for organization_id=1...")
+    supabase.table("staff_graph_metrics").delete().eq("organization_id", RESTAURANT_ID).execute()
+    supabase.table("staff_graph_edges").delete().eq("organization_id", RESTAURANT_ID).execute()
+    supabase.table("staff_cascade_analysis").delete().eq("organization_id", RESTAURANT_ID).execute()
     print("  ✓ Cleaned\n")
 
     seed_metrics()

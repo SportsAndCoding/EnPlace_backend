@@ -197,18 +197,18 @@ async def browse_roster(code: str):
     supabase = get_supabase()
 
     code_result = supabase.table("restaurant_onboarding_status") \
-        .select("restaurant_id") \
+        .select("organization_id") \
         .eq("join_code", code.upper()) \
         .execute()
 
     if not code_result.data:
         return {"success": False, "error": "Invalid join code"}
 
-    restaurant_id = code_result.data[0]["restaurant_id"]
+    organization_id = code_result.data[0]["organization_id"]
 
     roster = supabase.table("staff") \
         .select("staff_id, full_name, position") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .is_("password_hash", "null") \
         .eq("status", "active") \
         .order("full_name") \
@@ -241,7 +241,7 @@ async def validate_join_code(code: str):
     supabase = get_supabase()
 
     result = supabase.table("restaurant_onboarding_status") \
-        .select("restaurant_id, join_code") \
+        .select("organization_id, join_code") \
         .eq("join_code", code.upper()) \
         .execute()
 
@@ -251,12 +251,12 @@ async def validate_join_code(code: str):
             error="Invalid join code"
         )
 
-    restaurant_id = result.data[0]["restaurant_id"]
+    organization_id = result.data[0]["organization_id"]
 
     # Get restaurant name
-    restaurant = supabase.table("restaurants") \
+    restaurant = supabase.table("organizations") \
         .select("name") \
-        .eq("id", restaurant_id) \
+        .eq("id", organization_id) \
         .single() \
         .execute()
 
@@ -280,9 +280,9 @@ async def find_roster_match(data: FindMatchRequest):
     """
     supabase = get_supabase()
 
-    # Validate join code and get restaurant_id
+    # Validate join code and get organization_id
     code_result = supabase.table("restaurant_onboarding_status") \
-        .select("restaurant_id") \
+        .select("organization_id") \
         .eq("join_code", data.join_code.upper()) \
         .execute()
 
@@ -292,12 +292,12 @@ async def find_roster_match(data: FindMatchRequest):
             error="Invalid join code"
         )
 
-    restaurant_id = code_result.data[0]["restaurant_id"]
+    organization_id = code_result.data[0]["organization_id"]
 
     # Get unclaimed staff (no password_hash)
     roster_result = supabase.table("staff") \
         .select("staff_id, full_name, position") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .is_("password_hash", "null") \
         .eq("status", "active") \
         .execute()
@@ -347,7 +347,7 @@ async def staff_join(data: StaffJoinRequest):
 
     # Validate join code
     code_result = supabase.table("restaurant_onboarding_status") \
-        .select("restaurant_id") \
+        .select("organization_id") \
         .eq("join_code", data.join_code.upper()) \
         .execute()
 
@@ -357,13 +357,13 @@ async def staff_join(data: StaffJoinRequest):
             error="Invalid join code"
         )
 
-    restaurant_id = code_result.data[0]["restaurant_id"]
+    organization_id = code_result.data[0]["organization_id"]
 
     # Verify staff_id exists and is unclaimed
     staff_result = supabase.table("staff") \
         .select("staff_id, full_name, password_hash") \
         .eq("staff_id", data.staff_id) \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .single() \
         .execute()
 
@@ -382,7 +382,7 @@ async def staff_join(data: StaffJoinRequest):
     # Check email isn't already used
     email_check = supabase.table("staff") \
         .select("staff_id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("email", data.email.lower()) \
         .execute()
 
@@ -412,7 +412,7 @@ async def staff_join(data: StaffJoinRequest):
             "full_name": staff_result.data["full_name"],
             "position": staff_result.data.get("position", "Staff"),
             "portal_access": "staff",
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "can_edit_staff": False
         })
 

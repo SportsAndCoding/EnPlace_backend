@@ -118,7 +118,7 @@ def create_jwt_token(staff_data: dict) -> str:
         "full_name": staff_data["full_name"],
         "position": staff_data["position"],
         "portal_access": staff_data["portal_access"],
-        "restaurant_id": staff_data.get("restaurant_id"),  # None for En Place staff
+        "organization_id": staff_data.get("organization_id"),  # None for En Place staff
         "can_edit_staff": staff_data.get("can_edit_staff", False),
         "exp": datetime.utcnow() + timedelta(hours=24),
         "iat": datetime.utcnow()
@@ -332,7 +332,7 @@ async def register_sales_rep(request: RegisterSalesRepRequest):
         
         staff_data = {
             "staff_id": staff_id,
-            "restaurant_id": None,  # En Place staff, not restaurant staff
+            "organization_id": None,  # En Place staff, not restaurant staff
             "email": request.email.lower(),
             "password_hash": password_hash,
             "full_name": request.full_name,
@@ -382,7 +382,7 @@ async def register_sales_rep(request: RegisterSalesRepRequest):
         "full_name": request.full_name,
         "position": staff_data["position"],
         "portal_access": role,
-        "restaurant_id": None,
+        "organization_id": None,
         "can_edit_staff": False
     })
     

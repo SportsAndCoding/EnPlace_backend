@@ -31,11 +31,11 @@ def aggregate_signals(staff_data: Dict[str, Any], target_date: date) -> Dict[str
         Complete merged signals dictionary ready for storage in sse_staff_day_metrics.
     """
     staff_id = staff_data.get("staff_id")
-    restaurant_id = staff_data.get("restaurant_id")
+    organization_id = staff_data.get("organization_id")
 
     result: Dict[str, Any] = {
         "staff_id": staff_id,
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "target_date": target_date.isoformat(),
         "is_valid": staff_id is not None and staff_id != "unknown",
     }

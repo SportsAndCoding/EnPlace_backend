@@ -26,23 +26,23 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def load_staff_for_restaurant(restaurant_id: int) -> list:
+def load_staff_for_restaurant(organization_id: int) -> list:
     """Load staff from synthetic_staff_master for a restaurant."""
     result = supabase.table("synthetic_staff_master") \
         .select("staff_id, exit_day") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .execute()
     return result.data or []
 
 
-def deterministic_random(restaurant_id: int, day_index: int, salt: str = "") -> float:
+def deterministic_random(organization_id: int, day_index: int, salt: str = "") -> float:
     """Generate deterministic random [0,1) based on inputs."""
-    seed_str = f"{restaurant_id}:{day_index}:{salt}"
+    seed_str = f"{organization_id}:{day_index}:{salt}"
     hash_val = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
     return (hash_val % 1_000_000) / 1_000_000
 
 
-def get_coverage_persona(restaurant_id: int) -> dict:
+def get_coverage_persona(organization_id: int) -> dict:
     """
     Assign a coverage persona to a restaurant.
     
@@ -52,7 +52,7 @@ def get_coverage_persona(restaurant_id: int) -> dict:
     - 25% struggling (75-85% coverage)
     - 15% poor (65-75% coverage)
     """
-    seed = int(hashlib.sha256(f"coverage:{restaurant_id}".encode()).hexdigest(), 16)
+    seed = int(hashlib.sha256(f"coverage:{organization_id}".encode()).hexdigest(), 16)
     roll = (seed % 100) / 100
     
     if roll < 0.25:
@@ -85,12 +85,12 @@ def get_coverage_persona(restaurant_id: int) -> dict:
         }
 
 
-def get_restaurant_size(restaurant_id: int) -> int:
+def get_restaurant_size(organization_id: int) -> int:
     """
     Determine how many shifts per day a restaurant needs.
     Based on restaurant profiles.
     """
-    seed = int(hashlib.sha256(f"size:{restaurant_id}".encode()).hexdigest(), 16)
+    seed = int(hashlib.sha256(f"size:{organization_id}".encode()).hexdigest(), 16)
     roll = (seed % 100) / 100
     
     if roll < 0.20:
@@ -104,15 +104,15 @@ def get_restaurant_size(restaurant_id: int) -> int:
 
 
 def generate_restaurant_shifts(
-    restaurant_id: int,
+    organization_id: int,
     staff_list: list,
     total_days: int = 365,
 ) -> list:
     """
     Generate all shifts for a restaurant using real staff from synthetic_staff_master.
     """
-    persona = get_coverage_persona(restaurant_id)
-    shifts_per_day = get_restaurant_size(restaurant_id)
+    persona = get_coverage_persona(organization_id)
+    shifts_per_day = get_restaurant_size(organization_id)
 
     shifts = []
 
@@ -128,7 +128,7 @@ def generate_restaurant_shifts(
         ]
 
         # Calculate coverage probability for this day
-        daily_variance = (deterministic_random(restaurant_id, day_index, "var") - 0.5) * 2 * persona["variance"]
+        daily_variance = (deterministic_random(organization_id, day_index, "var") - 0.5) * 2 * persona["variance"]
         weekend_penalty = persona["weekend_penalty"] if is_weekend else 0
 
         coverage_prob = persona["base_coverage"] + daily_variance - weekend_penalty
@@ -142,16 +142,16 @@ def generate_restaurant_shifts(
             shift_type = shift_types[i % len(shift_types)]
 
             # Determine if this shift is covered
-            is_covered = deterministic_random(restaurant_id, day_index, f"shift_{i}") < coverage_prob
+            is_covered = deterministic_random(organization_id, day_index, f"shift_{i}") < coverage_prob
 
             # Assign real staff_id from master table
             staff_id = None
             if is_covered and available_staff:
-                staff_idx = int(deterministic_random(restaurant_id, day_index, f"staff_{i}") * len(available_staff))
+                staff_idx = int(deterministic_random(organization_id, day_index, f"staff_{i}") * len(available_staff))
                 staff_id = available_staff[staff_idx]["staff_id"]
 
             shifts.append({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "day_index": day_index,
                 "shift_type": shift_type,
@@ -172,19 +172,19 @@ def main():
     persona_counts = defaultdict(int)
     
     # Generate for restaurants 101-200
-    for restaurant_id in range(101, 201):
-        persona = get_coverage_persona(restaurant_id)
+    for organization_id in range(101, 201):
+        persona = get_coverage_persona(organization_id)
         persona_counts[persona["type"]] += 1
 
-        staff_list = load_staff_for_restaurant(restaurant_id)
-        shifts = generate_restaurant_shifts(restaurant_id, staff_list, total_days=365)
+        staff_list = load_staff_for_restaurant(organization_id)
+        shifts = generate_restaurant_shifts(organization_id, staff_list, total_days=365)
         all_shifts.extend(shifts)
         
-        if restaurant_id % 20 == 0 or restaurant_id == 101:
+        if organization_id % 20 == 0 or organization_id == 101:
             covered = sum(1 for s in shifts if s["is_covered"])
             total = len(shifts)
             pct = covered / total * 100
-            print(f"  Restaurant {restaurant_id}: {persona['type']}, {pct:.1f}% coverage, {total} shifts")
+            print(f"  Restaurant {organization_id}: {persona['type']}, {pct:.1f}% coverage, {total} shifts")
     
     print(f"\nTotal shifts generated: {len(all_shifts):,}")
     
@@ -192,7 +192,7 @@ def main():
     print(f"\nWriting to {output_path}...")
     
     fieldnames = [
-        'restaurant_id',
+        'organization_id',
         'staff_id',
         'day_index',
         'shift_type',
@@ -222,7 +222,7 @@ def main():
     
     restaurant_coverage = defaultdict(lambda: {"covered": 0, "total": 0})
     for shift in recent_shifts:
-        rid = shift["restaurant_id"]
+        rid = shift["organization_id"]
         restaurant_coverage[rid]["total"] += 1
         if shift["is_covered"]:
             restaurant_coverage[rid]["covered"] += 1

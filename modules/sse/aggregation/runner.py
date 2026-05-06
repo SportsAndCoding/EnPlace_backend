@@ -41,7 +41,7 @@ def run_sse_aggregation(target_date: date | None = None) -> Dict[str, Any]:
 
     try:
         # Fetch all restaurant IDs
-        response = supabase.table("restaurants").select("id").execute()
+        response = supabase.table("organizations").select("id").execute()
 
         if not response.data:
             logger.warning("No restaurants found in the database.")
@@ -60,28 +60,28 @@ def run_sse_aggregation(target_date: date | None = None) -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
 
         # Process each restaurant sequentially
-        for idx, restaurant_id in enumerate(restaurant_ids, start=1):
+        for idx, organization_id in enumerate(restaurant_ids, start=1):
             logger.info(
                 "Processing restaurant %d/%d (ID: %s)",
                 idx,
                 restaurant_count,
-                restaurant_id,
+                organization_id,
             )
 
             try:
-                result = process_restaurant(restaurant_id, target_date)
+                result = process_restaurant(organization_id, target_date)
                 results.append(result)
 
                 if result["status"] == "error":
                     logger.error(
                         "Failed to process restaurant %s: %s",
-                        restaurant_id,
+                        organization_id,
                         result.get("error"),
                     )
                 else:
                     logger.info(
                         "Successfully processed restaurant %s (%d staff, %d checkins)",
-                        restaurant_id,
+                        organization_id,
                         result.get("staff_count", 0),
                         result.get("checkins_found", 0),
                     )
@@ -89,7 +89,7 @@ def run_sse_aggregation(target_date: date | None = None) -> Dict[str, Any]:
             except Exception as e:
                 # This catch-all ensures one bad restaurant never crashes the whole job
                 error_result = {
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "target_date": str(target_date),
                     "status": "error",
                     "error": str(e),
@@ -97,7 +97,7 @@ def run_sse_aggregation(target_date: date | None = None) -> Dict[str, Any]:
                 results.append(error_result)
                 logger.error(
                     "Unexpected error processing restaurant %s: %s",
-                    restaurant_id,
+                    organization_id,
                     str(e),
                     exc_info=True,
                 )

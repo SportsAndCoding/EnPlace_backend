@@ -608,7 +608,7 @@ async def submit_referral(
     # ── Layer 3: Active subscriber check ──
     # restaurants table uses 'name' column — need to verify
     # Using ilike for fuzzy match since restaurant names may differ slightly
-    subscriber_check = supabase.table("restaurants") \
+    subscriber_check = supabase.table("organizations") \
         .select("id, name") \
         .ilike("name", f"%{name_clean}%") \
         .execute()

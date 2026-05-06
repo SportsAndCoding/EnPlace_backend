@@ -21,5 +21,5 @@ r2 = sb.table('checkins').select('*').limit(1).execute()
 print(list(r2.data[0].keys()) if r2.data else 'No data')
 
 print("\n=== STAFF (SMS fields) ===")
-r3 = sb.table('staff').select('staff_id, full_name, phone, sms_notifications_enabled, restaurant_id').limit(1).execute()
+r3 = sb.table('staff').select('staff_id, full_name, phone, sms_notifications_enabled, organization_id').limit(1).execute()
 print(r3.data[0] if r3.data else 'No data')

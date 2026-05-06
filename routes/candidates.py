@@ -29,7 +29,7 @@ async def create_candidate(
         )
     
     # Verify restaurant access
-    if current_user['restaurant_id'] != candidate.restaurant_id:
+    if current_user['organization_id'] != candidate.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -56,7 +56,7 @@ async def create_candidate(
 
 @router.get("")
 async def get_candidates(
-    restaurant_id: int,
+    organization_id: int,
     status: Optional[str] = Query(default=None),
     role: Optional[str] = Query(default=None),
     current_user: dict = Depends(get_current_user)
@@ -69,7 +69,7 @@ async def get_candidates(
     - role: 'server', 'line_cook', 'dishwasher', etc.
     """
     # Verify restaurant access
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -79,12 +79,12 @@ async def get_candidates(
     
     try:
         candidates = await service.get_candidates_by_restaurant(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             status=status,
             role=role
         )
         
-        stats = await service.get_stats(restaurant_id)
+        stats = await service.get_stats(organization_id)
         
         return {
             "success": True,
@@ -111,7 +111,7 @@ async def get_candidate(
     try:
         candidate = await service.get_candidate_by_id(
             candidate_id=candidate_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not candidate:
@@ -157,7 +157,7 @@ async def update_candidate(
         # Verify candidate exists
         existing = await service.get_candidate_by_id(
             candidate_id=candidate_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -168,7 +168,7 @@ async def update_candidate(
         
         result = await service.update_candidate(
             candidate_id=candidate_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             update_data=candidate.dict()
         )
         
@@ -220,7 +220,7 @@ async def score_candidate(
         # Verify candidate exists
         existing = await service.get_candidate_by_id(
             candidate_id=candidate_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -231,7 +231,7 @@ async def score_candidate(
         
         result = await service.score_candidate(
             candidate_id=candidate_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             scenario_rankings=rankings.scenario_rankings
         )
         

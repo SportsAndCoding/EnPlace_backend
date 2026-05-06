@@ -1,7 +1,7 @@
 """
 modules/nightly_pipeline/demo_open_shift_seeder.py
 
-Seeds the Open Shift Marketplace for Demo Bistro (restaurant_id=1).
+Seeds the Open Shift Marketplace for Demo Bistro (organization_id=1).
 Ensures fresh, realistic open shifts are always available for sales demos.
 
 Runs as part of nightly pipeline to:
@@ -77,10 +77,10 @@ BONUS_TIERS = [
 ]
 
 
-def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+def _get_today_for_restaurant(supabase_client, organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase_client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -104,7 +104,7 @@ def _get_shift_template(position: str) -> Dict[str, Any]:
 
 def seed_demo_open_shifts(
     supabase_client,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
     days_ahead: int = 7,
     shifts_per_day: int = 2,
 ) -> Dict[str, int]:
@@ -113,21 +113,21 @@ def seed_demo_open_shifts(
     
     Args:
         supabase_client: Initialized Supabase client
-        restaurant_id: Target restaurant (default: Demo Bistro = 1)
+        organization_id: Target restaurant (default: Demo Bistro = 1)
         days_ahead: How many days into the future to seed
         shifts_per_day: Number of open shifts per day (default: 2)
     
     Returns:
         Dict with stats: {"deleted": N, "created": N}
     """
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     stats = {"deleted": 0, "created": 0}
     
     # Step 1: Delete stale open shifts (past dates or old unclaimed)
     # Delete all past-date shifts
     delete_past = supabase_client.table("open_shifts") \
         .delete() \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .lt("date", today.isoformat()) \
         .execute()
     stats["deleted"] += len(delete_past.data) if delete_past.data else 0
@@ -135,7 +135,7 @@ def seed_demo_open_shifts(
     # Delete existing future shifts for Demo Bistro to reset fresh
     delete_future = supabase_client.table("open_shifts") \
         .delete() \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "open") \
         .gte("date", today.isoformat()) \
         .execute()
@@ -154,7 +154,7 @@ def seed_demo_open_shifts(
             template = _get_shift_template(position)
             
             shift_record = {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "position": position,
                 "date": shift_date.isoformat(),
                 "start_time": template["start"].strftime("%H:%M:%S"),
@@ -177,7 +177,7 @@ def seed_demo_open_shifts(
 
 def ensure_minimum_open_shifts(
     supabase_client,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
     minimum: int = 5,
 ) -> Dict[str, int]:
     """
@@ -187,12 +187,12 @@ def ensure_minimum_open_shifts(
     Returns:
         Dict with stats: {"existing": N, "created": N}
     """
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     
     # Check current count
     existing = supabase_client.table("open_shifts") \
         .select("id", count="exact") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "open") \
         .gte("date", today.isoformat()) \
         .execute()
@@ -213,7 +213,7 @@ def ensure_minimum_open_shifts(
         template = _get_shift_template(position)
         
         shifts_to_create.append({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "position": position,
             "date": shift_date.isoformat(),
             "start_time": template["start"].strftime("%H:%M:%S"),
@@ -255,9 +255,9 @@ def run():
     print("=" * 50)
     print("OPEN SHIFT MARKETPLACE SEEDER")
     print("=" * 50)
-    print("Seeding Demo Bistro (restaurant_id=1)...")
+    print("Seeding Demo Bistro (organization_id=1)...")
     
-    stats = seed_demo_open_shifts(client, restaurant_id=1)
+    stats = seed_demo_open_shifts(client, organization_id=1)
     
     print(f"Deleted: {stats['deleted']} stale shifts")
     print(f"Created: {stats['created']} fresh open shifts")

@@ -24,12 +24,12 @@ class EscalationsService:
             if raw_role and escalation_data.get("source_type", "mood") == "mood":
                 anonymity = validate_escalation_role(
                     self.supabase,
-                    escalation_data["restaurant_id"],
+                    escalation_data["organization_id"],
                     raw_role
                 )
 
             payload = {
-                "restaurant_id": escalation_data["restaurant_id"],
+                "organization_id": escalation_data["organization_id"],
                 "event_type": escalation_data["event_type"],
                 "severity": escalation_data.get("severity", "moderate"),
                 "severity_score": escalation_data.get("severity_score"),
@@ -75,14 +75,14 @@ class EscalationsService:
     async def get_escalation_by_id(
         self, 
         escalation_id: str, 
-        restaurant_id: int
+        organization_id: int
     ) -> Optional[Dict[str, Any]]:
         """Get a specific escalation with staff details"""
         try:
             result = self.supabase.table("sse_escalation_events") \
                 .select("*, primary_staff:primary_staff_id(full_name, position, email)") \
                 .eq("id", escalation_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -96,7 +96,7 @@ class EscalationsService:
     async def complete_action(
         self,
         escalation_id: str,
-        restaurant_id: int,
+        organization_id: int,
         action_taken: str,
         actor_staff_id: str,
         monitoring_days: int = 7
@@ -109,7 +109,7 @@ class EscalationsService:
         
         try:
             # Get current event
-            event = await self.get_escalation_by_id(escalation_id, restaurant_id)
+            event = await self.get_escalation_by_id(escalation_id, organization_id)
             if not event:
                 return None
             
@@ -135,7 +135,7 @@ class EscalationsService:
             self.supabase.table("sse_escalation_events") \
                 .update(update_payload) \
                 .eq("id", escalation_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             # Add history entry
@@ -146,7 +146,7 @@ class EscalationsService:
                 actor_staff_id=actor_staff_id
             )
             
-            return await self.get_escalation_with_history(escalation_id, restaurant_id)
+            return await self.get_escalation_with_history(escalation_id, organization_id)
         
         except Exception as e:
             logger.error(f"Complete action error: {e}")
@@ -155,12 +155,12 @@ class EscalationsService:
     async def get_escalation_with_history(
         self, 
         escalation_id: str, 
-        restaurant_id: int
+        organization_id: int
     ) -> Optional[Dict[str, Any]]:
         """Get escalation with full history"""
         try:
             # Get the event
-            event = await self.get_escalation_by_id(escalation_id, restaurant_id)
+            event = await self.get_escalation_by_id(escalation_id, organization_id)
             if not event:
                 return None
             
@@ -181,7 +181,7 @@ class EscalationsService:
     
     async def get_escalations_by_restaurant(
         self,
-        restaurant_id: int,
+        organization_id: int,
         status: Optional[str] = None,
         event_type: Optional[str] = None,
         severity: Optional[str] = None
@@ -190,7 +190,7 @@ class EscalationsService:
         try:
             query = self.supabase.table("sse_escalation_events") \
                 .select("*, primary_staff:primary_staff_id(full_name, position)") \
-                .eq("restaurant_id", restaurant_id)
+                .eq("organization_id", organization_id)
             
             if status:
                 if status == "active_all":
@@ -216,7 +216,7 @@ class EscalationsService:
     async def update_escalation(
         self, 
         escalation_id: str, 
-        restaurant_id: int,
+        organization_id: int,
         update_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Update an escalation event"""
@@ -233,12 +233,12 @@ class EscalationsService:
             payload["updated_at"] = datetime.utcnow().isoformat()
             
             if not payload:
-                return await self.get_escalation_by_id(escalation_id, restaurant_id)
+                return await self.get_escalation_by_id(escalation_id, organization_id)
             
             result = self.supabase.table("sse_escalation_events") \
                 .update(payload) \
                 .eq("id", escalation_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             if result.data and len(result.data) > 0:
@@ -282,14 +282,14 @@ class EscalationsService:
     async def advance_step(
         self,
         escalation_id: str,
-        restaurant_id: int,
+        organization_id: int,
         action_taken: str,
         actor_staff_id: str
     ) -> Optional[Dict[str, Any]]:
         """Advance escalation to next step with history entry"""
         try:
             # Get current event
-            event = await self.get_escalation_by_id(escalation_id, restaurant_id)
+            event = await self.get_escalation_by_id(escalation_id, organization_id)
             if not event:
                 return None
             
@@ -307,7 +307,7 @@ class EscalationsService:
             # Update the event
             await self.update_escalation(
                 escalation_id=escalation_id,
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 update_data={
                     "current_step": new_step,
                     "status": new_status
@@ -322,18 +322,18 @@ class EscalationsService:
                 actor_staff_id=actor_staff_id
             )
             
-            return await self.get_escalation_with_history(escalation_id, restaurant_id)
+            return await self.get_escalation_with_history(escalation_id, organization_id)
             
         except Exception as e:
             logger.error(f"Advance step error: {e}")
             raise e
     
-    async def get_active_count(self, restaurant_id: int) -> int:
+    async def get_active_count(self, organization_id: int) -> int:
         """Get count of active escalations"""
         try:
             result = self.supabase.table("sse_escalation_events") \
                 .select("id", count="exact") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("status", "actionable") \
                 .execute()
             

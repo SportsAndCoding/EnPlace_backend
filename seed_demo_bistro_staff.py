@@ -2,7 +2,7 @@
 """
 Demo Bistro Nightly Seeder
 --------------------------
-Heroku Scheduler job that runs nightly to ensure Demo Bistro (restaurant_id=1)
+Heroku Scheduler job that runs nightly to ensure Demo Bistro (organization_id=1)
 always has fresh shifts and pending swap requests for sales demos.
 
 Run manually: heroku run "python seed_demo_bistro.py" --app enplace-api-v3
@@ -103,7 +103,7 @@ def cleanup_old_swaps(supabase: Client) -> int:
         # Get all pending swaps for Demo Bistro
         result = supabase.table("shift_swaps") \
             .select("id, shift_id, created_at") \
-            .eq("restaurant_id", DEMO_RESTAURANT_ID) \
+            .eq("organization_id", DEMO_RESTAURANT_ID) \
             .eq("status", "pending") \
             .execute()
         
@@ -152,7 +152,7 @@ def cleanup_past_shifts(supabase: Client) -> int:
         
         result = supabase.table("sse_shifts") \
             .delete() \
-            .eq("restaurant_id", DEMO_RESTAURANT_ID) \
+            .eq("organization_id", DEMO_RESTAURANT_ID) \
             .lt("shift_date", cutoff) \
             .execute()
         
@@ -172,7 +172,7 @@ def get_existing_shifts(supabase: Client, start_date: date, end_date: date) -> s
     try:
         result = supabase.table("sse_shifts") \
             .select("staff_id, shift_date") \
-            .eq("restaurant_id", DEMO_RESTAURANT_ID) \
+            .eq("organization_id", DEMO_RESTAURANT_ID) \
             .gte("shift_date", start_date.isoformat()) \
             .lte("shift_date", end_date.isoformat()) \
             .execute()
@@ -243,7 +243,7 @@ def seed_shifts(supabase: Client) -> int:
                 )
                 
                 shifts_to_create.append({
-                    "restaurant_id": DEMO_RESTAURANT_ID,
+                    "organization_id": DEMO_RESTAURANT_ID,
                     "staff_id": staff_id,
                     "shift_date": shift_date.isoformat(),
                     "scheduled_start": scheduled_start.isoformat(),
@@ -275,7 +275,7 @@ def seed_swap_requests(supabase: Client) -> int:
         # First, clear existing pending swaps for Demo Bistro (fresh slate each night)
         supabase.table("shift_swaps") \
             .delete() \
-            .eq("restaurant_id", DEMO_RESTAURANT_ID) \
+            .eq("organization_id", DEMO_RESTAURANT_ID) \
             .eq("status", "pending") \
             .execute()
         
@@ -285,7 +285,7 @@ def seed_swap_requests(supabase: Client) -> int:
         
         result = supabase.table("sse_shifts") \
             .select("id, staff_id, shift_date, shift_type, scheduled_start") \
-            .eq("restaurant_id", DEMO_RESTAURANT_ID) \
+            .eq("organization_id", DEMO_RESTAURANT_ID) \
             .eq("status", "assigned") \
             .gte("shift_date", tomorrow) \
             .lte("shift_date", week_out) \
@@ -341,7 +341,7 @@ def seed_swap_requests(supabase: Client) -> int:
             created_at = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
             
             swaps_to_create.append({
-                "restaurant_id": DEMO_RESTAURANT_ID,
+                "organization_id": DEMO_RESTAURANT_ID,
                 "shift_id": shift['id'],
                 "requesting_staff_id": requesting_staff,
                 "target_staff_id": target_staff_id,

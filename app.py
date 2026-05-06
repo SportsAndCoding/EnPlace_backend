@@ -114,7 +114,7 @@ def create_jwt_token(staff_data: Dict[str, Any]) -> str:
         "full_name": staff_data["full_name"],
         "position": staff_data["position"],
         "portal_access": staff_data["portal_access"],
-        "restaurant_id": staff_data["restaurant_id"],
+        "organization_id": staff_data["organization_id"],
         "can_edit_staff": staff_data.get("can_edit_staff", False),
         "exp": datetime.utcnow() + timedelta(hours=24),
         "iat": datetime.utcnow()
@@ -275,7 +275,7 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     try:
-        result = supabase.table('restaurants').select('id').limit(1).execute()
+        result = supabase.table('organizations').select('id').limit(1).execute()
         db_status = "connected" if result.data is not None else "disconnected"
         
         return {
@@ -400,7 +400,7 @@ async def platform_login(request: Request, login_data: PlatformLoginRequest):
             "email": user_data["email"],
             "full_name": user_data["full_name"],
             "role": user_data["role"],
-            "restaurant_id": user_data["restaurant_id"],
+            "organization_id": user_data["organization_id"],
             "token_type": "platform",
             "exp": datetime.utcnow() + timedelta(hours=24),
             "iat": datetime.utcnow()

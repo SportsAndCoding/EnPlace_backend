@@ -5,7 +5,7 @@ from database.supabase_client import get_supabase
 
 async def test():
     s = get_supabase()
-    staff = s.table("staff").select("staff_id").eq("restaurant_id", 1).eq("portal_access", "manager").limit(1).execute()
+    staff = s.table("staff").select("staff_id").eq("organization_id", 1).eq("portal_access", "manager").limit(1).execute()
     if not staff.data:
         print("FAIL - No manager found at Demo Bistro")
         return
@@ -15,7 +15,7 @@ async def test():
     svc = EscalationsService()
     result = await svc.create_escalation(
         escalation_data={
-            "restaurant_id": 1,
+            "organization_id": 1,
             "event_type": "mood_drop",
             "severity": "moderate",
             "affected_role": "Sous Chef",

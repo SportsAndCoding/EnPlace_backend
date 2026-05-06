@@ -11,12 +11,12 @@ class StaffMetricsService:
     def __init__(self):
         self.supabase = get_supabase()
     
-    async def get_staff_metrics(self, restaurant_id: int) -> Dict[str, Any]:
+    async def get_staff_metrics(self, organization_id: int) -> Dict[str, Any]:
         """
         Calculate key staff metrics for a restaurant.
         
         Args:
-            restaurant_id: The restaurant to calculate metrics for
+            organization_id: The restaurant to calculate metrics for
             
         Returns:
             Dictionary containing:
@@ -29,7 +29,7 @@ class StaffMetricsService:
             # Fetch all staff for this restaurant
             response = self.supabase.table('staff') \
                 .select('staff_id, status, hourly_rate, hire_date') \
-                .eq('restaurant_id', restaurant_id) \
+                .eq('organization_id', organization_id) \
                 .execute()
             
             if not response.data:

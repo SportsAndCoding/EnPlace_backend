@@ -26,11 +26,11 @@ def require_feature(feature_key: str):
         ):
     """
     async def check_feature(current_user: dict = Depends(verify_jwt_token)) -> dict:
-        restaurant_id = current_user.get("restaurant_id")
-        if not restaurant_id:
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No restaurant_id in token"
+                detail="No organization_id in token"
             )
         
         column_name = FEATURE_COLUMNS.get(feature_key)
@@ -39,9 +39,9 @@ def require_feature(feature_key: str):
             return current_user
         
         # Check feature flag
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select(column_name, "subscription_status") \
-            .eq("id", restaurant_id) \
+            .eq("id", organization_id) \
             .single() \
             .execute()
         

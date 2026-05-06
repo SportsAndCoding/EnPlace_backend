@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 class ShiftCreate(BaseModel):
     """Request model for creating a shift"""
-    restaurant_id: int
+    organization_id: int
     staff_id: Optional[str] = None  # Can be unassigned (open shift)
     shift_date: date
     scheduled_start: datetime
@@ -27,7 +27,7 @@ class ShiftUpdate(BaseModel):
 class ShiftResponse(BaseModel):
     """Response model for a shift"""
     id: int
-    restaurant_id: int
+    organization_id: int
     staff_id: Optional[str]
     shift_date: date
     scheduled_start: datetime

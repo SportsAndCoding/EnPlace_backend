@@ -62,13 +62,13 @@ REJECTED_CANDIDATES = [
 ]
 
 
-def reset_stable_hire_demo(client, restaurant_id: int = 1) -> Dict[str, Any]:
+def reset_stable_hire_demo(client, organization_id: int = 1) -> Dict[str, Any]:
     """
     Reset Stable Hire candidates to demo-ready state.
     
     Args:
         client: Supabase client
-        restaurant_id: Restaurant to reset (default: Demo Bistro = 1)
+        organization_id: Restaurant to reset (default: Demo Bistro = 1)
     
     Returns:
         Dict with counts of actions taken
@@ -88,7 +88,7 @@ def reset_stable_hire_demo(client, restaurant_id: int = 1) -> Dict[str, Any]:
         # Get all candidate codes for this restaurant
         result = client.table("hiring_candidates") \
             .select("id, candidate_code, name") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
         
         candidates_to_delete = [
@@ -124,7 +124,7 @@ def reset_stable_hire_demo(client, restaurant_id: int = 1) -> Dict[str, Any]:
                     "updated_at": now.isoformat(),
                 }) \
                 .eq("candidate_code", code) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             stats['reset_to_open'] += 1
@@ -147,7 +147,7 @@ def reset_stable_hire_demo(client, restaurant_id: int = 1) -> Dict[str, Any]:
                     "updated_at": now.isoformat(),
                 }) \
                 .eq("candidate_code", code) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             stats['set_hired'] += 1
@@ -169,7 +169,7 @@ def reset_stable_hire_demo(client, restaurant_id: int = 1) -> Dict[str, Any]:
                     "updated_at": now.isoformat(),
                 }) \
                 .eq("candidate_code", code) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
             
             stats['set_rejected'] += 1

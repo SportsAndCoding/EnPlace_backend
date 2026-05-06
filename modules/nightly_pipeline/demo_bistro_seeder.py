@@ -19,10 +19,10 @@ from dataclasses import dataclass
 import pytz
 
 
-def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+def _get_today_for_restaurant(supabase_client, organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase_client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -173,7 +173,7 @@ def _calculate_weeks_active(pattern: StaffPattern, check_date: date) -> int:
 def generate_daily_checkin(
     pattern: StaffPattern,
     check_date: date,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
 ) -> Dict[str, Any]:
     """
     Generate a single day's check-in for a staff member based on their pattern.
@@ -200,7 +200,7 @@ def generate_daily_checkin(
     
     return {
         "staff_id": pattern.staff_id,
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "checkin_date": date_str,
         "mood_emoji": mood_emoji,
         "felt_safe": felt_safe,
@@ -213,7 +213,7 @@ def generate_daily_checkin(
 
 def generate_demo_bistro_checkins(
     check_date: date,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
     patterns: List[StaffPattern] = None,
 ) -> List[Dict[str, Any]]:
     """
@@ -221,7 +221,7 @@ def generate_demo_bistro_checkins(
     
     Args:
         check_date: Date to generate check-ins for
-        restaurant_id: Demo Bistro restaurant ID (default 1)
+        organization_id: Demo Bistro restaurant ID (default 1)
         patterns: List of staff patterns (default DEMO_BISTRO_PATTERNS)
         
     Returns:
@@ -234,7 +234,7 @@ def generate_demo_bistro_checkins(
     for pattern in patterns:
         # 85% chance of checking in each day (realistic)
         if _deterministic_random(pattern.staff_id, check_date.isoformat(), "checkin") < 0.85:
-            checkin = generate_daily_checkin(pattern, check_date, restaurant_id)
+            checkin = generate_daily_checkin(pattern, check_date, organization_id)
             checkins.append(checkin)
     
     return checkins
@@ -243,7 +243,7 @@ def generate_demo_bistro_checkins(
 def seed_demo_bistro_history(
     supabase_client,
     days_back: int = 30,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
 ) -> int:
     """
     Seed historical check-ins for Demo Bistro.
@@ -253,19 +253,19 @@ def seed_demo_bistro_history(
     Args:
         supabase_client: Initialized Supabase client
         days_back: How many days of history to generate
-        restaurant_id: Demo Bistro restaurant ID
+        organization_id: Demo Bistro restaurant ID
         
     Returns:
         Number of check-ins inserted
     """
     from datetime import date, timedelta
     
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     all_checkins = []
     
     for days_ago in range(days_back, 0, -1):
         check_date = today - timedelta(days=days_ago)
-        daily_checkins = generate_demo_bistro_checkins(check_date, restaurant_id)
+        daily_checkins = generate_demo_bistro_checkins(check_date, organization_id)
         all_checkins.extend(daily_checkins)
     
     if not all_checkins:
@@ -277,7 +277,7 @@ def seed_demo_bistro_history(
     
     supabase_client.table("sse_daily_checkins") \
         .delete() \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("checkin_date", start_date) \
         .lt("checkin_date", end_date) \
         .execute()
@@ -293,7 +293,7 @@ def seed_demo_bistro_history(
 
 def seed_today(
     supabase_client,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
 ) -> int:
     """
     Seed today's check-ins for Demo Bistro.
@@ -303,17 +303,17 @@ def seed_today(
     Returns:
         Number of check-ins inserted
     """
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     
     # Delete any existing check-ins for today
     supabase_client.table("sse_daily_checkins") \
         .delete() \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("checkin_date", today.isoformat()) \
         .execute()
     
     # Generate and insert today's check-ins
-    checkins = generate_demo_bistro_checkins(today, restaurant_id)
+    checkins = generate_demo_bistro_checkins(today, organization_id)
     
     if checkins:
         supabase_client.table("sse_daily_checkins").insert(checkins).execute()

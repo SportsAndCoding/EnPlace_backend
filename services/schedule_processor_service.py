@@ -83,10 +83,10 @@ async def process_pending_schedules(dry_run: bool = False) -> Dict[str, Any]:
     
     for upload in pending:
         upload_id = upload["id"]
-        restaurant_id = upload["restaurant_id"]
+        organization_id = upload["organization_id"]
         week_of = upload["week_of"]
         
-        logger.info(f"\n--- Processing upload {upload_id}: restaurant={restaurant_id}, week={week_of} ---")
+        logger.info(f"\n--- Processing upload {upload_id}: restaurant={organization_id}, week={week_of} ---")
         
         # Mark as processing
         if not dry_run:
@@ -97,7 +97,7 @@ async def process_pending_schedules(dry_run: bool = False) -> Dict[str, Any]:
             logger.info("Step 1: Parsing schedule with GPT...")
             parse_result = await parse_schedule(
                 raw_schedule=upload["raw_schedule"],
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 week_of=week_of
             )
             
@@ -116,7 +116,7 @@ async def process_pending_schedules(dry_run: bool = False) -> Dict[str, Any]:
             logger.info("Step 2: Running analysis...")
             analysis_result = await analyze_schedule(
                 shifts=shifts,
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 week_of=week_of,
                 manager_notes=upload.get("manager_notes", "")
             )
@@ -134,7 +134,7 @@ async def process_pending_schedules(dry_run: bool = False) -> Dict[str, Any]:
             action_items = 0
             if not dry_run:
                 action_items = create_action_board_items(
-                    restaurant_id=restaurant_id,
+                    organization_id=organization_id,
                     upload_id=upload_id,
                     week_of=week_of,
                     priority_fixes=priority_fixes,
@@ -156,7 +156,7 @@ async def process_pending_schedules(dry_run: bool = False) -> Dict[str, Any]:
             results["action_items_created"] += action_items
             results["details"].append({
                 "upload_id": upload_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "week_of": week_of,
                 "status": "success",
                 "stability_score": stability_score,
@@ -175,7 +175,7 @@ async def process_pending_schedules(dry_run: bool = False) -> Dict[str, Any]:
             results["failed"] += 1
             results["details"].append({
                 "upload_id": upload_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "week_of": week_of,
                 "status": "failed",
                 "error": str(e)
@@ -269,7 +269,7 @@ def mark_failed(upload_id: int, error_message: str):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def create_action_board_items(
-    restaurant_id: int,
+    organization_id: int,
     upload_id: int,
     week_of: str,
     priority_fixes: List[Dict],
@@ -291,7 +291,7 @@ def create_action_board_items(
             # Check if similar notification already exists (prevent duplicates)
             existing = supabase.table("notifications") \
                 .select("id") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("type", "schedule_issue") \
                 .ilike("title", f"%{fix.get('title', '')[:50]}%") \
                 .execute()
@@ -301,7 +301,7 @@ def create_action_board_items(
             
             # Create notification - matches actual schema
             notification_data = {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "recipient_id": None,  # Restaurant-wide notification
                 "type": "schedule_issue",
                 "title": fix.get("title", "Schedule Issue")[:255],
@@ -327,7 +327,7 @@ def create_action_board_items(
             
             # Create event - matches actual schema
             event_data = {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "event_type": map_sse_event_type(event.get("type")),
                 "severity": event.get("severity", "medium"),
                 "severity_score": severity_to_score(event.get("severity", "medium")),

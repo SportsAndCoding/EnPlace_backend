@@ -1,7 +1,7 @@
 """
 modules/nightly_pipeline/demo_swap_seeder.py
 
-Seeds the Shift Swap feature for Demo Bistro (restaurant_id=1).
+Seeds the Shift Swap feature for Demo Bistro (organization_id=1).
 Ensures fresh, realistic swap requests are always available for sales demos.
 
 Demo user: SRV001 (server@demobistro.com)
@@ -50,10 +50,10 @@ REQUESTING_STAFF = [
 DEMO_USER_STAFF_ID = "SRV001"
 
 
-def _get_today_for_restaurant(supabase_client, restaurant_id: int):
+def _get_today_for_restaurant(supabase_client, organization_id: int):
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase_client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -63,7 +63,7 @@ def _get_today_for_restaurant(supabase_client, restaurant_id: int):
 
 def seed_demo_swap_requests(
     supabase_client,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
     num_posted: int = 3,
     num_accepted: int = 3,
 ) -> Dict[str, int]:
@@ -76,26 +76,26 @@ def seed_demo_swap_requests(
     
     Args:
         supabase_client: Initialized Supabase client
-        restaurant_id: Target restaurant (default: Demo Bistro = 1)
+        organization_id: Target restaurant (default: Demo Bistro = 1)
         num_broadcast: Number of broadcast swap requests
         num_direct: Number of direct requests to demo user
     
     Returns:
         Dict with stats: {"deleted": N, "created": N}
     """
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     stats = {"deleted": 0, "created": 0}
     
     # Step 1: Delete old demo swap requests (posted + accepted)
     # Keep approved/rejected for history, but clear demo statuses to refresh
     delete_posted = supabase_client.table("shift_swaps") \
         .delete() \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "posted") \
         .execute()
     delete_accepted = supabase_client.table("shift_swaps") \
         .delete() \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "accepted") \
         .execute()
     stats["deleted"] = (len(delete_posted.data) if delete_posted.data else 0) + \
@@ -105,7 +105,7 @@ def seed_demo_swap_requests(
     # Need shifts that belong to staff OTHER than SRV001
     shifts_result = supabase_client.table("sse_shifts") \
         .select("id, staff_id, shift_date, scheduled_start") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("shift_date", today.isoformat()) \
         .lte("shift_date", (today + timedelta(days=7)).isoformat()) \
         .neq("staff_id", DEMO_USER_STAFF_ID) \
@@ -158,7 +158,7 @@ def seed_demo_swap_requests(
         hours_ago = random.randint(1, 12)
         
         swaps_to_create.append({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "shift_id": shift["id"],
             "requesting_staff_id": requester["staff_id"],
             "target_staff_id": None,  # Broadcast - anyone can grab
@@ -185,7 +185,7 @@ def seed_demo_swap_requests(
         hours_ago = random.randint(2, 8)
         
         swaps_to_create.append({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "shift_id": shift["id"],
             "requesting_staff_id": requester["staff_id"],
             "target_staff_id": DEMO_USER_STAFF_ID,  # SRV001 accepted this swap
@@ -205,7 +205,7 @@ def seed_demo_swap_requests(
 
 def ensure_minimum_demo_swaps(
     supabase_client,
-    restaurant_id: int = 1,
+    organization_id: int = 1,
     minimum_posted: int = 2,
     minimum_accepted: int = 2,
 ) -> Dict[str, int]:
@@ -218,12 +218,12 @@ def ensure_minimum_demo_swaps(
     # Check current counts
     posted = supabase_client.table("shift_swaps") \
         .select("id", count="exact") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "posted") \
         .execute()
     accepted = supabase_client.table("shift_swaps") \
         .select("id", count="exact") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "accepted") \
         .execute()
     
@@ -236,7 +236,7 @@ def ensure_minimum_demo_swaps(
     # Need to create more - run full seed
     stats = seed_demo_swap_requests(
         supabase_client,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         num_posted=3,
         num_accepted=3,
     )
@@ -269,10 +269,10 @@ def run():
     print("=" * 50)
     print("SHIFT SWAP SEEDER")
     print("=" * 50)
-    print("Seeding Demo Bistro (restaurant_id=1)...")
+    print("Seeding Demo Bistro (organization_id=1)...")
     print(f"Demo user: {DEMO_USER_STAFF_ID}")
     
-    stats = seed_demo_swap_requests(client, restaurant_id=1)
+    stats = seed_demo_swap_requests(client, organization_id=1)
     
     print(f"Deleted: {stats['deleted']} old demo swaps")
     print(f"Created: {stats['created']} fresh swap requests (posted + accepted)")

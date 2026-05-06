@@ -94,9 +94,9 @@ MANAGER_PERSONAS = {
 }
 
 
-def assign_manager_persona(restaurant_id: int) -> ManagerPersona:
+def assign_manager_persona(organization_id: int) -> ManagerPersona:
     """
-    Assign a manager persona to a restaurant based on restaurant_id.
+    Assign a manager persona to a restaurant based on organization_id.
     Distribution:
     - 30% aligned (good managers)
     - 20% optimistic
@@ -105,7 +105,7 @@ def assign_manager_persona(restaurant_id: int) -> ManagerPersona:
     - 10% micromanager
     - 7% burned_out
     """
-    seed = int(hashlib.sha256(f"manager:{restaurant_id}".encode()).hexdigest(), 16)
+    seed = int(hashlib.sha256(f"manager:{organization_id}".encode()).hexdigest(), 16)
     roll = (seed % 100) / 100
     
     if roll < 0.30:
@@ -122,30 +122,30 @@ def assign_manager_persona(restaurant_id: int) -> ManagerPersona:
         return MANAGER_PERSONAS["burned_out"]
 
 
-def _deterministic_random(restaurant_id: int, day_index: int, salt: str = "") -> float:
+def _deterministic_random(organization_id: int, day_index: int, salt: str = "") -> float:
     """Generate deterministic random [0,1) based on inputs."""
-    seed_str = f"{restaurant_id}:{day_index}:{salt}"
+    seed_str = f"{organization_id}:{day_index}:{salt}"
     hash_val = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
     return (hash_val % 1_000_000) / 1_000_000
 
 
-def _deterministic_normal(restaurant_id: int, day_index: int, salt: str = "") -> float:
+def _deterministic_normal(organization_id: int, day_index: int, salt: str = "") -> float:
     """Generate deterministic value approximating normal distribution (-2 to +2 range)."""
     # Use Box-Muller-like approximation with deterministic randoms
-    u1 = max(0.001, _deterministic_random(restaurant_id, day_index, salt + "_u1"))
-    u2 = _deterministic_random(restaurant_id, day_index, salt + "_u2")
+    u1 = max(0.001, _deterministic_random(organization_id, day_index, salt + "_u1"))
+    u2 = _deterministic_random(organization_id, day_index, salt + "_u2")
     
     # Approximate normal using sum of uniforms (central limit theorem)
     # Sum of 4 uniforms, centered and scaled
-    u3 = _deterministic_random(restaurant_id, day_index, salt + "_u3")
-    u4 = _deterministic_random(restaurant_id, day_index, salt + "_u4")
+    u3 = _deterministic_random(organization_id, day_index, salt + "_u3")
+    u4 = _deterministic_random(organization_id, day_index, salt + "_u4")
     
     normal_approx = (u1 + u2 + u3 + u4 - 2) * 1.5  # Range roughly -3 to +3
     return max(-2.5, min(2.5, normal_approx))
 
 
 def generate_manager_log(
-    restaurant_id: int,
+    organization_id: int,
     day_index: int,
     staff_emotions: List[Dict[str, Any]],
     staff_behaviors: List[Dict[str, Any]],
@@ -156,7 +156,7 @@ def generate_manager_log(
     """
     
     # Check if manager logs today
-    if _deterministic_random(restaurant_id, day_index, "log") >= persona.log_rate:
+    if _deterministic_random(organization_id, day_index, "log") >= persona.log_rate:
         return None
     
     # ═══════════════════════════════════════════════════════════════
@@ -194,7 +194,7 @@ def generate_manager_log(
     aligned_rating = staff_avg_mood + persona.rating_bias
     
     # Random baseline (unaligned portion) - uses normal distribution
-    random_component = 3.0 + _deterministic_normal(restaurant_id, day_index, "baseline") * 1.0
+    random_component = 3.0 + _deterministic_normal(organization_id, day_index, "baseline") * 1.0
     
     # Blend aligned vs random based on alignment factor
     blended_rating = (
@@ -203,7 +203,7 @@ def generate_manager_log(
     )
     
     # Add daily variance (noise)
-    noise = _deterministic_normal(restaurant_id, day_index, "noise") * persona.rating_variance
+    noise = _deterministic_normal(organization_id, day_index, "noise") * persona.rating_variance
     raw_rating = blended_rating + noise
     
     # Problem modifier: callouts, ncns, low mood drag rating down
@@ -237,15 +237,15 @@ def generate_manager_log(
     )
     # Smooth perception depends on alignment
     if smooth_reality:
-        felt_smooth = _deterministic_random(restaurant_id, day_index, "smooth") < (0.5 + persona.alignment * 0.4)
+        felt_smooth = _deterministic_random(organization_id, day_index, "smooth") < (0.5 + persona.alignment * 0.4)
     else:
-        felt_smooth = _deterministic_random(restaurant_id, day_index, "smooth") < 0.1
+        felt_smooth = _deterministic_random(organization_id, day_index, "smooth") < 0.1
     
     # felt_understaffed: callouts, ncns
     understaffed_reality = callouts >= 2 or ncns >= 1 or (callouts >= 1 and total_staff < 8)
     felt_understaffed = (
         understaffed_reality and 
-        _deterministic_random(restaurant_id, day_index, "understaffed") < persona.staffing_awareness
+        _deterministic_random(organization_id, day_index, "understaffed") < persona.staffing_awareness
     )
     
     # felt_chaotic: ncns, low mood, lots of issues
@@ -258,11 +258,11 @@ def generate_manager_log(
     )
     felt_chaotic = (
         chaos_reality and
-        _deterministic_random(restaurant_id, day_index, "chaos") < persona.chaos_sensitivity
+        _deterministic_random(organization_id, day_index, "chaos") < persona.chaos_sensitivity
     )
     
     # felt_overstaffed: rare
-    felt_overstaffed = _deterministic_random(restaurant_id, day_index, "overstaffed") < 0.03
+    felt_overstaffed = _deterministic_random(organization_id, day_index, "overstaffed") < 0.03
     
     # Consistency checks
     if felt_smooth and felt_chaotic:
@@ -278,8 +278,8 @@ def generate_manager_log(
         felt_chaotic = False
     
     return {
-        "restaurant_id": restaurant_id,
-        "manager_id": f"MGR_{restaurant_id}",
+        "organization_id": organization_id,
+        "manager_id": f"MGR_{organization_id}",
         "day_index": day_index,
         "overall_rating": overall_rating,
         "felt_smooth": felt_smooth,
@@ -290,7 +290,7 @@ def generate_manager_log(
 
 
 def generate_restaurant_manager_logs(
-    restaurant_id: int,
+    organization_id: int,
     daily_emotions: List[Dict[str, Any]],
     daily_behaviors: List[Dict[str, Any]],
     total_days: int = 365,
@@ -299,7 +299,7 @@ def generate_restaurant_manager_logs(
     Generate all manager logs for a restaurant's simulation.
     """
     
-    persona = assign_manager_persona(restaurant_id)
+    persona = assign_manager_persona(organization_id)
     
     # Index emotions and behaviors by day
     emotions_by_day = {}
@@ -323,7 +323,7 @@ def generate_restaurant_manager_logs(
         day_behaviors = behaviors_by_day.get(day_index, [])
         
         log = generate_manager_log(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             day_index=day_index,
             staff_emotions=day_emotions,
             staff_behaviors=day_behaviors,

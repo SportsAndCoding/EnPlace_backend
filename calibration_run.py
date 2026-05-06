@@ -52,7 +52,7 @@ def make_ep(modifier, life_events=True):
 def run(modifier, rid=RID, weights=WEIGHTS, life_events=True):
     profile = get_profile("fast_casual")
     results = simulate_restaurant(
-        restaurant_id=rid, number_of_staff=HC, simulation_days=DAYS,
+        organization_id=rid, number_of_staff=HC, simulation_days=DAYS,
         persona_weights=weights, restaurant_profile=profile,
         enable_contagion=False,
         en_place_config=make_ep(modifier, life_events),

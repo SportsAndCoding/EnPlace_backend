@@ -51,10 +51,10 @@ GRAPH_SNAPSHOT_INTERVAL = 7
 SUPABASE_BATCH_SIZE = 500
 
 
-def _deterministic_staff_count(restaurant_id, profile_key):
+def _deterministic_staff_count(organization_id, profile_key):
     import hashlib
     low, high = _STAFF_COUNTS.get(profile_key, (40, 60))
-    seed = int(hashlib.sha256(f"{restaurant_id}:staff_count".encode()).hexdigest()[:8], 16)
+    seed = int(hashlib.sha256(f"{organization_id}:staff_count".encode()).hexdigest()[:8], 16)
     return low + (seed % (high - low + 1))
 
 
@@ -64,7 +64,7 @@ def build_restaurant_configs():
         rid = 101 + i
         pkey = _PROFILE_ROTATION[i % len(_PROFILE_ROTATION)]
         configs.append({
-            "restaurant_id": rid,
+            "organization_id": rid,
             "profile_key": pkey,
             "num_staff": _deterministic_staff_count(rid, pkey),
             "num_days": SIM_DAYS,
@@ -203,12 +203,12 @@ def truncate_table(table_name):
             pass
 
 
-def flatten_graph_snapshots(snapshots, restaurant_id):
+def flatten_graph_snapshots(snapshots, organization_id):
     rows = []
     for snap in snapshots:
         meta = snap.get("metadata", {})
         rows.append({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "day_index": meta.get("day_index", 0),
             "active_staff": meta.get("active_staff_count", 0),
             "edge_count": meta.get("edge_count", 0),
@@ -220,12 +220,12 @@ def flatten_graph_snapshots(snapshots, restaurant_id):
     return rows
 
 
-def flatten_exit_cascades(cascades, restaurant_id):
+def flatten_exit_cascades(cascades, organization_id):
     rows = []
     for cas in cascades:
         rows.append({
             "staff_id": cas["staff_id"],
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "day_index": cas["day_index"],
             "exit_reason": cas.get("exit_reason"),
             "cascade_severity": cas.get("cascade_severity"),
@@ -271,7 +271,7 @@ def run_full_simulation(write_csv_flag=True, upload_supabase=False):
     print("-" * 95)
 
     for idx, config in enumerate(RESTAURANTS_TO_SIMULATE):
-        rid = config["restaurant_id"]
+        rid = config["organization_id"]
         pkey = config["profile_key"]
         num_staff = config["num_staff"]
         adoption_day = config["adoption_day"]
@@ -282,7 +282,7 @@ def run_full_simulation(write_csv_flag=True, upload_supabase=False):
         ep_config = get_en_place_config(rid, pkey, adoption_day)
 
         results = simulate_restaurant(
-            restaurant_id=rid,
+            organization_id=rid,
             number_of_staff=num_staff,
             simulation_days=SIM_DAYS,
             persona_weights=DEFAULT_PERSONA_WEIGHTS,
@@ -304,7 +304,7 @@ def run_full_simulation(write_csv_flag=True, upload_supabase=False):
               f"{analysis['l2_post_eligible']:>4} {r_elapsed:>4.1f}s")
 
         meta = {
-            "restaurant_id": rid,
+            "organization_id": rid,
             "profile_key": pkey,
             "num_staff": num_staff,
             "adoption_day": adoption_day,
@@ -350,7 +350,7 @@ def run_full_simulation(write_csv_flag=True, upload_supabase=False):
 
         if upload_supabase:
             batch_insert("synthetic_restaurants", [{
-                "restaurant_id": rid, "profile_key": pkey,
+                "organization_id": rid, "profile_key": pkey,
                 "num_staff": num_staff, "num_days": SIM_DAYS, "sma_score": None,
             }])
             batch_insert("synthetic_staff_master", results["staff_master"])

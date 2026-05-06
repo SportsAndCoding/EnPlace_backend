@@ -11,7 +11,7 @@ from modules.sse.aggregation.restaurant_pipeline import run_restaurant_pipeline
 logger = logging.getLogger(__name__)
 
 
-def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
+def run_restaurant_job(organization_id: int, target_date: date) -> Dict[str, Any]:
     """Fetch all required data for one restaurant and run the full per-staff pipeline."""
     supabase = get_supabase()
 
@@ -20,16 +20,16 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         staff_response = (
             supabase.table("staff")
             .select("*")
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
             .eq("status", "Active")
             .execute()
         )
         staff_rows = staff_response.data or []
 
         if not staff_rows:
-            logger.info("No active staff found for restaurant %s on %s", restaurant_id, target_date)
+            logger.info("No active staff found for restaurant %s on %s", organization_id, target_date)
             return {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_count": 0,
                 "status": "skipped_no_staff",
             }
@@ -45,7 +45,7 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         checkins_resp = (
             supabase.table("sse_daily_checkins")
             .select("*")
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
             .eq("checkin_date", str(target_date))
             .in_("staff_id", staff_ids)
             .execute()
@@ -55,7 +55,7 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         shifts_resp = (
             supabase.table("sse_shifts")
             .select("*")
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
             .gte("shift_date", str(week_start))
             .lte("shift_date", str(week_end))
             .in_("staff_id", staff_ids)
@@ -66,7 +66,7 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
         stable_hire_resp = (
             supabase.table("hiring_candidates")
             .select("*")
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
             .in_("hired_staff_id", staff_ids)
             .execute()
         )
@@ -110,7 +110,7 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
 
         # Run the full per-staff pipeline
         result = run_restaurant_pipeline(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             target_date=target_date,
             staff_rows=staff_rows,
             checkins_by_staff=checkins_by_staff,
@@ -126,13 +126,13 @@ def run_restaurant_job(restaurant_id: int, target_date: date) -> Dict[str, Any]:
     except Exception as e:
         logger.error(
             "Failed to process restaurant %s on %s: %s",
-            restaurant_id,
+            organization_id,
             target_date,
             str(e),
             exc_info=True,
         )
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "staff_count": len(staff_rows) if "staff_rows" in locals() else 0,
             "status": "error",
             "error": str(e),
@@ -151,7 +151,7 @@ def run_full_nightly_job(target_date: date | None = None) -> Dict[str, Any]:
 
     try:
         # Fetch all restaurants
-        restaurants_resp = supabase.table("restaurants").select("id").execute()
+        restaurants_resp = supabase.table("organizations").select("id").execute()
         restaurant_rows = restaurants_resp.data or []
         restaurant_ids = [row["id"] for row in restaurant_rows]
 
@@ -159,21 +159,21 @@ def run_full_nightly_job(target_date: date | None = None) -> Dict[str, Any]:
 
         results = []
 
-        for restaurant_id in restaurant_ids:
-            logger.info("Processing restaurant %s for date %s", restaurant_id, target_date)
+        for organization_id in restaurant_ids:
+            logger.info("Processing restaurant %s for date %s", organization_id, target_date)
             try:
-                restaurant_result = run_restaurant_job(restaurant_id, target_date)
+                restaurant_result = run_restaurant_job(organization_id, target_date)
                 results.append(restaurant_result)
             except Exception as e:
                 logger.error(
                     "Unexpected error in restaurant job for %s on %s: %s",
-                    restaurant_id,
+                    organization_id,
                     target_date,
                     str(e),
                     exc_info=True,
                 )
                 results.append({
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "status": "error",
                     "error": str(e),
                 })

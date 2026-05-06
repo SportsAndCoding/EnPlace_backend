@@ -33,8 +33,8 @@ from modules.synthetic.persona_evolution import evolve_persona
 from modules.synthetic.personas import PERSONA_DEFINITIONS
 
 
-def _deterministic_staff_id(restaurant_id: int, index: int) -> str:
-    key = f"{restaurant_id}:{index}"
+def _deterministic_staff_id(organization_id: int, index: int) -> str:
+    key = f"{organization_id}:{index}"
     return hashlib.sha1(key.encode()).hexdigest()
 
 
@@ -47,14 +47,14 @@ def _deterministic_random(staff_id: str, day_index: int, salt: str) -> float:
 
 def _choose_persona_deterministically(
     weights: Dict[str, float],
-    restaurant_id: int,
+    organization_id: int,
     staff_index: int,
 ) -> str:
     total = sum(weights.values())
     if abs(total - 1.0) > 0.01:
         raise ValueError(f"persona_weights must sum to ~1.0, got {total:.6f}")
 
-    seed_key = f"{restaurant_id}:{staff_index}:persona_seed"
+    seed_key = f"{organization_id}:{staff_index}:persona_seed"
     seed_hash = hashlib.sha1(seed_key.encode()).hexdigest()
     seed_int = int(seed_hash, 16)
     offset = (seed_int % 1_000_000_000) / 1_000_000_000.0
@@ -134,7 +134,7 @@ _LIFE_EVENT_REASONS = [
 
 
 def simulate_restaurant(
-    restaurant_id: int,
+    organization_id: int,
     number_of_staff: int,
     simulation_days: int,
     persona_weights: Dict[str, float],
@@ -181,7 +181,7 @@ def simulate_restaurant(
             accumulate_shock_modifiers,
             decay_shock_modifiers,
         )
-        graph = StaffGraph(restaurant_id=restaurant_id)
+        graph = StaffGraph(organization_id=organization_id)
         mood_buffer = {}
 
     # ------------------------------------------------------------------
@@ -192,10 +192,10 @@ def simulate_restaurant(
     next_staff_index: int = number_of_staff
 
     for i in range(number_of_staff):
-        staff_id = _deterministic_staff_id(restaurant_id, i)
+        staff_id = _deterministic_staff_id(organization_id, i)
         start_persona = _choose_persona_deterministically(
             weights=persona_weights,
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             staff_index=i,
         )
         state = _create_staff_state(staff_id, i, start_persona, hire_day=0)
@@ -279,7 +279,7 @@ def simulate_restaurant(
                 active_staff_ids=active_staff_ids,
                 daily_behaviors=todays_behaviors,
                 daily_emotions=todays_emotions,
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 restaurant_profile=restaurant_profile,
             )
             graph.update_daily(day_index, pairwise_events)
@@ -332,7 +332,7 @@ def simulate_restaurant(
             # --- Record outputs ---
             base = {
                 "staff_id": sid,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "day_index": day_index,
                 "tenure_days": state["tenure_days"],
             }
@@ -419,7 +419,7 @@ def simulate_restaurant(
                 new_index = next_staff_index
                 next_staff_index += 1
 
-                new_id = _deterministic_staff_id(restaurant_id, new_index)
+                new_id = _deterministic_staff_id(organization_id, new_index)
 
                 use_stable_hire = (
                     ep_active_today
@@ -429,7 +429,7 @@ def simulate_restaurant(
 
                 new_persona = _choose_persona_deterministically(
                     weights=hire_weights,
-                    restaurant_id=restaurant_id,
+                    organization_id=organization_id,
                     staff_index=new_index,
                 )
 
@@ -469,7 +469,7 @@ def simulate_restaurant(
     for sid, state in staff_state.items():
         staff_master.append({
             "staff_id": sid,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "start_persona": state["start_persona"],
             "final_persona": state["final_persona"],
             "total_days": state["tenure_days"],

@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 async def log_staff_change(
     staff_id: str,
-    restaurant_id: int,
+    organization_id: int,
     changed_by: str,
     action: str,
     changed_fields: Optional[Dict[str, Any]] = None,
@@ -19,7 +19,7 @@ async def log_staff_change(
         
         audit_entry = {
             "staff_id": staff_id,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "changed_by": changed_by,
             "action": action,
             "changed_fields": changed_fields,

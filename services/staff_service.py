@@ -8,18 +8,18 @@ from services.cascade_trigger import trigger_exit_cascade
 
 logger = logging.getLogger(__name__)
 
-async def get_staff_list(restaurant_id: int) -> List[Dict[str, Any]]:
+async def get_staff_list(organization_id: int) -> List[Dict[str, Any]]:
     supabase = get_supabase()  # Fresh client
     result = supabase.table('staff').select(
         'staff_id, email, full_name, position, hourly_rate, hire_date, status, '
         'portal_access, can_edit_staff, skills, notes, is_owner, strategic_alerts_only'
-    ).eq('restaurant_id', restaurant_id).execute()
+    ).eq('organization_id', organization_id).execute()
     return result.data
 
 async def create_staff_member(
     staff_data: StaffCreate,
     created_by: str,
-    restaurant_id: int,
+    organization_id: int,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -46,7 +46,7 @@ async def create_staff_member(
         "portal_access": staff_data.portal_access,
         "can_edit_staff": staff_data.can_edit_staff,
         "status": "Active",
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "password_hash": password_hash  # ADD THIS LINE
     }
 
@@ -59,7 +59,7 @@ async def create_staff_member(
     # Log the change
     await log_staff_change(
         staff_id=staff_id,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         changed_by=created_by,
         action="CREATE",
         changed_fields={"created": new_staff},
@@ -73,7 +73,7 @@ async def update_staff_member(
     staff_id: str,
     staff_data: StaffUpdate,
     changed_by: str,
-    restaurant_id: int,
+    organization_id: int,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -81,7 +81,7 @@ async def update_staff_member(
     supabase = get_supabase()
     
     # Get current data for audit trail
-    current = supabase.table('staff').select('*').eq('staff_id', staff_id).eq('restaurant_id', restaurant_id).single().execute()
+    current = supabase.table('staff').select('*').eq('staff_id', staff_id).eq('organization_id', organization_id).single().execute()
     
     if not current.data:
         raise ValueError(f"Staff member {staff_id} not found")
@@ -115,12 +115,12 @@ async def update_staff_member(
         if old_value != new_value:
             changed_fields[key] = {"old": old_value, "new": new_value}
     
-    result = supabase.table('staff').update(update_data).eq('staff_id', staff_id).eq('restaurant_id', restaurant_id).execute()
+    result = supabase.table('staff').update(update_data).eq('staff_id', staff_id).eq('organization_id', organization_id).execute()
     
     # Log the changes
     await log_staff_change(
         staff_id=staff_id,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         changed_by=changed_by,
         action="UPDATE",
         changed_fields=changed_fields,
@@ -136,7 +136,7 @@ async def deactivate_staff_member(
     last_work_date: str,
     notes: Optional[str],
     changed_by: str,
-    restaurant_id: int,
+    organization_id: int,
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -150,12 +150,12 @@ async def deactivate_staff_member(
         "removal_notes": notes
     }
     
-    result = supabase.table('staff').update(update_data).eq('staff_id', staff_id).eq('restaurant_id', restaurant_id).execute()
+    result = supabase.table('staff').update(update_data).eq('staff_id', staff_id).eq('organization_id', organization_id).execute()
     
     # Log the deactivation
     await log_staff_change(
         staff_id=staff_id,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         changed_by=changed_by,
         action="DEACTIVATE",
         changed_fields={"reason": reason, "last_work_date": last_work_date, "notes": notes},
@@ -168,7 +168,7 @@ async def deactivate_staff_member(
     try:
         cascade_result = trigger_exit_cascade(
             departed_staff_id=staff_id,
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             departed_name=departed_name,
         )
         if cascade_result.get("escalations_created"):

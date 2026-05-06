@@ -1,7 +1,7 @@
 """
 modules/nightly_pipeline/baseline_grill_nudge_cleaner.py
 
-Clears nudges for Baseline Grill (restaurant_id=11) nightly.
+Clears nudges for Baseline Grill (organization_id=11) nightly.
 This ensures the paywall demo always starts fresh - staff can nudge manager,
 manager can see nudge in action board, rinse and repeat for each demo.
 """
@@ -21,7 +21,7 @@ def clear_baseline_grill_nudges(supabase_client) -> Dict[str, int]:
     """
     result = supabase_client.table("nudges") \
         .delete() \
-        .eq("restaurant_id", BASELINE_GRILL_ID) \
+        .eq("organization_id", BASELINE_GRILL_ID) \
         .execute()
     
     deleted_count = len(result.data) if result.data else 0
@@ -54,7 +54,7 @@ def run():
     print("=" * 50)
     print("BASELINE GRILL NUDGE CLEANER")
     print("=" * 50)
-    print(f"Clearing nudges for Baseline Grill (restaurant_id={BASELINE_GRILL_ID})...")
+    print(f"Clearing nudges for Baseline Grill (organization_id={BASELINE_GRILL_ID})...")
     
     stats = clear_baseline_grill_nudges(client)
     

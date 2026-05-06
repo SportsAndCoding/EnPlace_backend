@@ -12,10 +12,10 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 DEMO_RESTAURANT_ID = 1
 
 
-def _get_today_for_restaurant(supabase_client, restaurant_id: int):
+def _get_today_for_restaurant(supabase_client, organization_id: int):
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase_client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -39,7 +39,7 @@ def run():
     end_time = datetime.combine(today, time(22, 0))    # 10 PM
     
     result = supabase.table("sse_shifts").insert({
-        "restaurant_id": DEMO_RESTAURANT_ID,
+        "organization_id": DEMO_RESTAURANT_ID,
         "staff_id": None,
         "shift_date": today.isoformat(),
         "scheduled_start": start_time.isoformat(),
@@ -55,7 +55,7 @@ def run():
     if result.data:
         shift_id = result.data[0]['id']
         supabase.table("sse_open_shifts").insert({
-            "restaurant_id": DEMO_RESTAURANT_ID,
+            "organization_id": DEMO_RESTAURANT_ID,
             "original_shift_id": shift_id,
             "shift_date": today.isoformat(),
             "scheduled_start": start_time.isoformat(),

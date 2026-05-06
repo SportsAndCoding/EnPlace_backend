@@ -30,7 +30,7 @@ def convert_row(row: dict, is_emotion: bool = True) -> dict:
     converted = {}
     
     for key, value in row.items():
-        if key in ('restaurant_id', 'day_index', 'mood_emoji'):
+        if key in ('organization_id', 'day_index', 'mood_emoji'):
             converted[key] = int(value) if value else None
         elif key in ('felt_safe', 'felt_fair', 'felt_respected', 'late', 'callout', 'ncns'):
             converted[key] = value.lower() == 'true' if value else False
@@ -75,14 +75,14 @@ def main():
     emotions_by_restaurant = defaultdict(list)
     for row in emotions_raw:
         converted = convert_row(row, is_emotion=True)
-        rid = converted.get('restaurant_id')
+        rid = converted.get('organization_id')
         if rid:
             emotions_by_restaurant[rid].append(converted)
     
     behaviors_by_restaurant = defaultdict(list)
     for row in behaviors_raw:
         converted = convert_row(row, is_emotion=False)
-        rid = converted.get('restaurant_id')
+        rid = converted.get('organization_id')
         if rid:
             behaviors_by_restaurant[rid].append(converted)
     
@@ -101,7 +101,7 @@ def main():
         max_day = max(e.get('day_index', 0) for e in emotions)
         
         logs = generate_restaurant_manager_logs(
-            restaurant_id=rid,
+            organization_id=rid,
             daily_emotions=emotions,
             daily_behaviors=behaviors,
             total_days=max_day,
@@ -121,7 +121,7 @@ def main():
     print(f"\nWriting to {output_path}...")
     
     fieldnames = [
-        'restaurant_id',
+        'organization_id',
         'manager_id', 
         'day_index',
         'overall_rating',

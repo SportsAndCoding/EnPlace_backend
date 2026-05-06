@@ -21,10 +21,10 @@ from datetime import date, datetime, timedelta
 import pytz
 
 
-def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+def _get_today_for_restaurant(supabase_client, organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase_client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -392,7 +392,7 @@ def _extract_group_signature(
 
 def score_staff_flight_risk(
     supabase_client,
-    restaurant_id: int,
+    organization_id: int,
     signatures: Dict[str, QuitterSignature],
     lookback_days: int = 14,
 ) -> List[FlightRiskScore]:
@@ -404,7 +404,7 @@ def score_staff_flight_risk(
     
     Args:
         supabase_client: Initialized Supabase client
-        restaurant_id: Restaurant to analyze
+        organization_id: Restaurant to analyze
         signatures: Pre-extracted quitter signatures from synthetic network
         lookback_days: Days of check-in history to consider
         
@@ -415,14 +415,14 @@ def score_staff_flight_risk(
     # Get active staff and their tenure
     staff_response = supabase_client.table("staff") \
         .select("staff_id, full_name, hire_date") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "Active") \
         .execute()
     
     if not staff_response.data:
         return []
     
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     
     scores = []
     
@@ -701,7 +701,7 @@ def _heuristic_score(
 
 def calculate_network_percentile(
     supabase_client,
-    restaurant_id: int,
+    organization_id: int,
     metric: str = "mood",
 ) -> Dict[str, Any]:
     """
@@ -709,7 +709,7 @@ def calculate_network_percentile(
     
     Args:
         supabase_client: Initialized Supabase client
-        restaurant_id: Restaurant to benchmark
+        organization_id: Restaurant to benchmark
         metric: "mood", "safety", "fairness", or "respect"
         
     Returns:
@@ -717,12 +717,12 @@ def calculate_network_percentile(
     """
     
     # Get restaurant's recent metrics (last 30 days)
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     cutoff = today - timedelta(days=30)
     
     restaurant_response = supabase_client.table("sse_daily_checkins") \
         .select("mood_emoji, felt_safe, felt_fair, felt_respected") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("checkin_date", cutoff.isoformat()) \
         .execute()
     
@@ -748,7 +748,7 @@ def calculate_network_percentile(
     
     # Get network averages per restaurant
     network_response = supabase_client.table("synthetic_daily_emotions") \
-        .select("restaurant_id, mood_emoji, felt_safe, felt_fair, felt_respected") \
+        .select("organization_id, mood_emoji, felt_safe, felt_fair, felt_respected") \
         .execute()
     
     # Group by restaurant
@@ -756,7 +756,7 @@ def calculate_network_percentile(
     restaurant_metrics = defaultdict(list)
     
     for row in network_response.data:
-        rid = row["restaurant_id"]
+        rid = row["organization_id"]
         if metric == "mood":
             restaurant_metrics[rid].append(row["mood_emoji"])
         elif metric == "safety":

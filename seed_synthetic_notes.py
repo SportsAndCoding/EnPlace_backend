@@ -445,7 +445,7 @@ def generate_note(
 
 def seed_danger_patterns(
     supabase: Client,
-    restaurant_id: int,
+    organization_id: int,
     staff_records: List[Dict]
 ) -> List[Tuple[int, str]]:
     """
@@ -463,7 +463,7 @@ def seed_danger_patterns(
     # Get emotion records for this restaurant
     result = supabase.table("synthetic_daily_emotions") \
         .select("id, staff_id, day_index, mood_emoji, felt_safe, felt_respected") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .lte("mood_emoji", 2) \
         .limit(100) \
         .execute()
@@ -604,10 +604,10 @@ def seed_notes(supabase: Client, dry_run: bool = False):
     
     # Get all restaurants
     print("\nLoading restaurants...")
-    restaurants = supabase.table("synthetic_restaurants") \
-        .select("restaurant_id") \
+    restaurants = supabase.table("synthetic_organizations") \
+        .select("organization_id") \
         .execute()
-    restaurant_ids = [r["restaurant_id"] for r in (restaurants.data or [])]
+    restaurant_ids = [r["organization_id"] for r in (restaurants.data or [])]
     print(f"  Found {len(restaurant_ids)} restaurants")
     
     # Count total emotions
@@ -673,12 +673,12 @@ def seed_notes(supabase: Client, dry_run: bool = False):
     total_failed = 0
     danger_patterns_seeded = 0
     
-    for i, restaurant_id in enumerate(restaurant_ids):
-        print(f"\nProcessing restaurant {restaurant_id} ({i+1}/{len(restaurant_ids)})...")
+    for i, organization_id in enumerate(restaurant_ids):
+        print(f"\nProcessing restaurant {organization_id} ({i+1}/{len(restaurant_ids)})...")
         
         # Seed danger patterns for first 3 restaurants (demo purposes)
         if i < 3:
-            danger_updates = seed_danger_patterns(supabase, restaurant_id, [])
+            danger_updates = seed_danger_patterns(supabase, organization_id, [])
             if danger_updates:
                 print(f"  Seeding {len(danger_updates)} danger patterns...")
                 for emotion_id, note in danger_updates:
@@ -693,7 +693,7 @@ def seed_notes(supabase: Client, dry_run: bool = False):
             try:
                 result = supabase.table("synthetic_daily_emotions") \
                     .select("id, staff_id, mood_emoji, felt_safe, felt_fair, felt_respected") \
-                    .eq("restaurant_id", restaurant_id) \
+                    .eq("organization_id", organization_id) \
                     .is_("notes", "null") \
                     .range(offset, offset + BATCH_SIZE - 1) \
                     .execute()

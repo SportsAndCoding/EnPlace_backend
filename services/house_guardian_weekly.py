@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def _get_today_for_restaurant(restaurant_id: int) -> date:
+def _get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -34,13 +34,13 @@ def _get_today_for_restaurant(restaurant_id: int) -> date:
 DANGER_CATEGORIES = ["harassment", "theft", "drugs", "threats", "bullying"]
 
 
-def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
+def generate_weekly_report(organization_id: int) -> Dict[str, Any]:
     """
     Generate weekly House Guardian report for a restaurant.
     
     Returns the report data that was saved.
     """
-    today = _get_today_for_restaurant(restaurant_id)
+    today = _get_today_for_restaurant(organization_id)
     week_start = today - timedelta(days=7)
     week_end = today - timedelta(days=1)
     
@@ -50,7 +50,7 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
     
     checkins_result = supabase.table("sse_daily_checkins") \
         .select("id, notes, mood_emoji, staff_id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("checkin_date", week_start.isoformat()) \
         .lte("checkin_date", week_end.isoformat()) \
         .execute()
@@ -67,7 +67,7 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
     
     signals_result = supabase.table("house_guardian_signals") \
         .select("category, severity") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("created_at", week_start.isoformat()) \
         .execute()
     
@@ -83,7 +83,7 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
     
     alerts_result = supabase.table("house_guardian_alerts") \
         .select("category, signal_strength, status") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("created_at", week_start.isoformat()) \
         .in_("status", ["active", "investigating"]) \
         .execute()
@@ -141,7 +141,7 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
     # ═══════════════════════════════════════════════════════════════════
     
     report_data = {
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
         "notes_scanned": notes_scanned,
@@ -154,7 +154,7 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
     # Check if report exists for this week
     existing = supabase.table("house_guardian_weekly_reports") \
         .select("id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("week_start", week_start.isoformat()) \
         .execute()
     
@@ -164,14 +164,14 @@ def generate_weekly_report(restaurant_id: int) -> Dict[str, Any]:
             .update(report_data) \
             .eq("id", existing.data[0]["id"]) \
             .execute()
-        logger.info(f"Restaurant {restaurant_id}: Updated weekly report")
+        logger.info(f"Restaurant {organization_id}: Updated weekly report")
     else:
         # Insert new
         report_data["id"] = str(uuid4())
         supabase.table("house_guardian_weekly_reports") \
             .insert(report_data) \
             .execute()
-        logger.info(f"Restaurant {restaurant_id}: Created weekly report")
+        logger.info(f"Restaurant {organization_id}: Created weekly report")
     
     return report_data
 

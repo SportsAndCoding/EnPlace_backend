@@ -33,9 +33,9 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 # HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _get_today_for_restaurant(client, restaurant_id: int) -> date:
+def _get_today_for_restaurant(client, organization_id: int) -> date:
     try:
-        result = client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except Exception:
         tz_name = "America/New_York"
@@ -84,7 +84,7 @@ def _compute_sma(checkins_7d: list, checkins_28d: list) -> float:
 # MAIN COMPUTE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
+def compute_snapshot(client, organization_id: int, today: date) -> Optional[dict]:
     """
     Compute all metrics for one restaurant for today.
     Returns None if restaurant has no active staff (skip).
@@ -94,7 +94,7 @@ def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
 
     # Active staff count
     staff_result = client.table("staff").select("staff_id").eq(
-        "restaurant_id", restaurant_id
+        "organization_id", organization_id
     ).eq("status", "active").execute()
     active_staff = staff_result.data or []
     active_count = len(active_staff)
@@ -104,7 +104,7 @@ def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
 
     # Check-ins 7d
     checkins_7d_result = client.table("sse_daily_checkins").select("*").eq(
-        "restaurant_id", restaurant_id
+        "organization_id", organization_id
     ).gte("checkin_date", week_ago.isoformat()).lte(
         "checkin_date", today.isoformat()
     ).execute()
@@ -112,7 +112,7 @@ def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
 
     # Check-ins 28d
     checkins_28d_result = client.table("sse_daily_checkins").select("*").eq(
-        "restaurant_id", restaurant_id
+        "organization_id", organization_id
     ).gte("checkin_date", four_weeks_ago.isoformat()).lte(
         "checkin_date", today.isoformat()
     ).execute()
@@ -139,7 +139,7 @@ def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
     # Flight risk (most recent score per staff)
     risk_result = client.table("staff_flight_risk").select(
         "staff_id, risk_level, calculated_date"
-    ).eq("restaurant_id", restaurant_id).gte(
+    ).eq("organization_id", organization_id).gte(
         "calculated_date", week_ago.isoformat()
     ).execute()
 
@@ -159,13 +159,13 @@ def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
 
     # Active escalations
     esc_result = client.table("sse_escalation_events").select("id").eq(
-        "restaurant_id", restaurant_id
+        "organization_id", organization_id
     ).eq("status", "active").execute()
     active_escalations = len(esc_result.data or [])
 
     # Resolved escalations last 7d
     resolved_result = client.table("sse_escalation_events").select("id").eq(
-        "restaurant_id", restaurant_id
+        "organization_id", organization_id
     ).eq("status", "resolved").gte(
         "resolved_at", week_ago.isoformat()
     ).execute()
@@ -175,7 +175,7 @@ def compute_snapshot(client, restaurant_id: int, today: date) -> Optional[dict]:
     sma = _compute_sma(checkins_7d, checkins_28d)
 
     return {
-        "restaurant_id":           restaurant_id,
+        "organization_id":           organization_id,
         "snapshot_date":           today.isoformat(),
         "checkin_count_7d":        len(checkins_7d),
         "active_staff_count":      active_count,
@@ -209,7 +209,7 @@ def run_snapshot_pipeline():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     # Get all active restaurants
-    restaurants = client.table("restaurants").select(
+    restaurants = client.table("organizations").select(
         "id, name, timezone"
     ).eq("status", "active").execute()
 
@@ -236,7 +236,7 @@ def run_snapshot_pipeline():
             # Upsert — if already ran today, update it
             client.table("restaurant_daily_snapshot").upsert(
                 snapshot,
-                on_conflict="restaurant_id,snapshot_date"
+                on_conflict="organization_id,snapshot_date"
             ).execute()
 
             print(f"[snapshot] ✓ {name} (id={rid}) | SMA={snapshot['sma_score']} | "

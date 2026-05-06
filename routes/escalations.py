@@ -36,7 +36,7 @@ async def create_escalation(
         )
     
     # Verify restaurant access
-    if current_user['restaurant_id'] != escalation.restaurant_id:
+    if current_user['organization_id'] != escalation.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -66,7 +66,7 @@ async def create_escalation(
 
 @router.get("")
 async def get_escalations(
-    restaurant_id: int,
+    organization_id: int,
     status: Optional[str] = Query(default=None),
     event_type: Optional[str] = Query(default=None),
     severity: Optional[str] = Query(default=None),
@@ -81,7 +81,7 @@ async def get_escalations(
     - severity: 'mild', 'moderate', 'serious', 'critical'
     """
     # Verify restaurant access
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -91,7 +91,7 @@ async def get_escalations(
     
     try:
         escalations = await service.get_escalations_by_restaurant(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             status=status,
             event_type=event_type,
             severity=severity
@@ -125,7 +125,7 @@ async def get_escalation(
     try:
         escalation = await service.get_escalation_with_history(
             escalation_id=escalation_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not escalation:
@@ -171,7 +171,7 @@ async def update_escalation(
         # Verify escalation exists
         existing = await service.get_escalation_by_id(
             escalation_id=escalation_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -182,7 +182,7 @@ async def update_escalation(
         
         result = await service.update_escalation(
             escalation_id=escalation_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             update_data=escalation.dict()
         )
         
@@ -224,7 +224,7 @@ async def add_history_entry(
         # Verify escalation exists
         existing = await service.get_escalation_by_id(
             escalation_id=escalation_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -283,7 +283,7 @@ async def advance_escalation_step(
     try:
         result = await service.advance_step(
             escalation_id=escalation_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             action_taken=action_taken,
             actor_staff_id=current_user['staff_id']
         )
@@ -489,7 +489,7 @@ async def complete_escalation_action(
     try:
         result = await service.complete_action(
             escalation_id=escalation_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             action_taken=action_taken,
             actor_staff_id=current_user['staff_id']
         )

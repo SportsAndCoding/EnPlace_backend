@@ -4,7 +4,7 @@ from datetime import date
 
 class ManagerLogCreate(BaseModel):
     """Request model for creating a manager daily log"""
-    restaurant_id: int
+    organization_id: int
     log_date: Optional[date] = None  # Defaults to today if not provided
     overall_rating: int = Field(..., ge=1, le=5, description="Overall day rating 1-5")
     felt_smooth: Optional[bool] = None
@@ -16,7 +16,7 @@ class ManagerLogCreate(BaseModel):
 class ManagerLogResponse(BaseModel):
     """Response model for a manager log"""
     id: str
-    restaurant_id: int
+    organization_id: int
     manager_staff_id: str
     log_date: date
     overall_rating: int

@@ -22,7 +22,7 @@ week_out = today + timedelta(days=7)
 
 shifts = supabase.table('sse_shifts') \
     .select('shift_date, staff_id, shift_type') \
-    .eq('restaurant_id', 1) \
+    .eq('organization_id', 1) \
     .gte('shift_date', today.isoformat()) \
     .lte('shift_date', week_out.isoformat()) \
     .order('shift_date') \
@@ -49,7 +49,7 @@ print("=" * 60)
 tomorrow = today + timedelta(days=1)
 critical = supabase.table('sse_shifts') \
     .select('shift_date, shift_type, scheduled_start') \
-    .eq('restaurant_id', 1) \
+    .eq('organization_id', 1) \
     .is_('staff_id', 'null') \
     .gte('shift_date', today.isoformat()) \
     .lte('shift_date', tomorrow.isoformat()) \

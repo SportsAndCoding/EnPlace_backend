@@ -92,7 +92,7 @@ def compute_synthetic_burnout_direct() -> List[float]:
     
     # Get aggregated emotions per restaurant for recent period
     result = supabase.table("synthetic_daily_emotions") \
-        .select("restaurant_id, mood_emoji, felt_safe, felt_fair, felt_respected") \
+        .select("organization_id, mood_emoji, felt_safe, felt_fair, felt_respected") \
         .gte("day_index", recent_start) \
         .execute()
     
@@ -102,7 +102,7 @@ def compute_synthetic_burnout_direct() -> List[float]:
     # Aggregate by restaurant
     restaurant_data = {}
     for row in result.data:
-        rid = row["restaurant_id"]
+        rid = row["organization_id"]
         if rid not in restaurant_data:
             restaurant_data[rid] = {
                 "moods": [],
@@ -246,7 +246,7 @@ def get_synthetic_sma_scores() -> List[float]:
     
     while True:
         emotions_result = supabase.table("synthetic_daily_emotions") \
-            .select("restaurant_id, day_index, mood_emoji") \
+            .select("organization_id, day_index, mood_emoji") \
             .gte("day_index", recent_start) \
             .range(offset, offset + batch_size - 1) \
             .execute()
@@ -266,7 +266,7 @@ def get_synthetic_sma_scores() -> List[float]:
     
     # Get manager logs (under 1000, no pagination needed)
     manager_result = supabase.table("synthetic_manager_logs") \
-        .select("restaurant_id, day_index, overall_rating") \
+        .select("organization_id, day_index, overall_rating") \
         .gte("day_index", recent_start) \
         .execute()
     
@@ -276,7 +276,7 @@ def get_synthetic_sma_scores() -> List[float]:
     # Aggregate staff mood by restaurant+day
     staff_by_day = {}
     for row in all_emotions:
-        rid = row["restaurant_id"]
+        rid = row["organization_id"]
         day = row["day_index"]
         key = (rid, day)
         
@@ -289,7 +289,7 @@ def get_synthetic_sma_scores() -> List[float]:
     # Index manager ratings by restaurant+day
     manager_by_day = {}
     for row in manager_result.data:
-        rid = row["restaurant_id"]
+        rid = row["organization_id"]
         day = row["day_index"]
         key = (rid, day)
         manager_by_day[key] = row.get("overall_rating")
@@ -442,7 +442,7 @@ def get_synthetic_fairness_scores() -> List[float]:
     
     while True:
         result = supabase.table("synthetic_daily_emotions") \
-            .select("restaurant_id, felt_fair") \
+            .select("organization_id, felt_fair") \
             .gte("day_index", recent_start) \
             .range(offset, offset + batch_size - 1) \
             .execute()
@@ -463,7 +463,7 @@ def get_synthetic_fairness_scores() -> List[float]:
     # Aggregate by restaurant
     restaurant_data = {}
     for row in all_records:
-        rid = row["restaurant_id"]
+        rid = row["organization_id"]
         if rid not in restaurant_data:
             restaurant_data[rid] = {"fair_count": 0, "total": 0}
         
@@ -565,7 +565,7 @@ def get_synthetic_coverage_scores() -> List[float]:
     
     while True:
         result = supabase.table("synthetic_shifts") \
-            .select("restaurant_id, is_covered") \
+            .select("organization_id, is_covered") \
             .gte("day_index", recent_start) \
             .range(offset, offset + batch_size - 1) \
             .execute()
@@ -586,7 +586,7 @@ def get_synthetic_coverage_scores() -> List[float]:
     # Aggregate by restaurant
     restaurant_data = {}
     for row in all_records:
-        rid = row["restaurant_id"]
+        rid = row["organization_id"]
         if rid not in restaurant_data:
             restaurant_data[rid] = {"covered": 0, "total": 0}
         

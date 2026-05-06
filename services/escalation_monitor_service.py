@@ -95,7 +95,7 @@ class EscalationMonitorService:
         4. Handle pending verification events
         """
         escalation_id = escalation["id"]
-        restaurant_id = escalation["restaurant_id"]
+        organization_id = escalation["organization_id"]
         affected_role = escalation["affected_role"]
         primary_staff_id = escalation.get("primary_staff_id")
         source_type = escalation.get("source_type", "mood")
@@ -103,7 +103,7 @@ class EscalationMonitorService:
         # Calculate baseline if not set
         if escalation.get("baseline_mood") is None:
             baseline = await self._calculate_baseline_mood(
-                restaurant_id, 
+                organization_id, 
                 affected_role, 
                 primary_staff_id,
                 escalation["triggered_at"]
@@ -113,7 +113,7 @@ class EscalationMonitorService:
         
         # Calculate current mood (last 7 days)
         current_mood = await self._calculate_current_mood(
-            restaurant_id,
+            organization_id,
             affected_role,
             primary_staff_id
         )
@@ -210,7 +210,7 @@ class EscalationMonitorService:
         # Check for improvement-based resolution
         if trend == "improving":
             days_improving = await self._count_improvement_days(
-                restaurant_id, affected_role, primary_staff_id, baseline
+                organization_id, affected_role, primary_staff_id, baseline
             )
             
             if days_improving >= self.IMPROVEMENT_THRESHOLD_DAYS:
@@ -236,7 +236,7 @@ class EscalationMonitorService:
         return action_result
     async def _calculate_baseline_mood(
         self,
-        restaurant_id: int,
+        organization_id: int,
         affected_role: str,
         primary_staff_id: Optional[str],
         triggered_at: str
@@ -250,12 +250,12 @@ class EscalationMonitorService:
         end_date = (trigger_date - timedelta(days=7)).date()
         
         return await self._get_average_mood(
-            restaurant_id, affected_role, primary_staff_id, start_date, end_date
+            organization_id, affected_role, primary_staff_id, start_date, end_date
         )
     
     async def _calculate_current_mood(
         self,
-        restaurant_id: int,
+        organization_id: int,
         affected_role: str,
         primary_staff_id: Optional[str]
     ) -> float:
@@ -264,12 +264,12 @@ class EscalationMonitorService:
         start_date = end_date - timedelta(days=7)
         
         return await self._get_average_mood(
-            restaurant_id, affected_role, primary_staff_id, start_date, end_date
+            organization_id, affected_role, primary_staff_id, start_date, end_date
         )
     
     async def _get_average_mood(
         self,
-        restaurant_id: int,
+        organization_id: int,
         affected_role: str,
         primary_staff_id: Optional[str],
         start_date,
@@ -280,7 +280,7 @@ class EscalationMonitorService:
             # Build query
             query = self.supabase.table("sse_daily_checkins") \
                 .select("mood_emoji, staff:staff_id(position)") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("checkin_date", start_date.isoformat()) \
                 .lte("checkin_date", end_date.isoformat())
             result = query.execute()
@@ -293,7 +293,7 @@ class EscalationMonitorService:
                 # Anonymity guard: use the display_role from the escalation record
                 # which has already been through check_anonymity() at creation time.
                 # Resolve the role to a list of positions to include.
-                safe_positions = get_positions_for_display_role(affected_role)
+                safe_positions = get_positions_for_display_role(self.supabase, organization_id, affected_role)
                 if safe_positions:
                     checkins = [
                         c for c in checkins
@@ -316,7 +316,7 @@ class EscalationMonitorService:
     
     async def _count_improvement_days(
         self,
-        restaurant_id: int,
+        organization_id: int,
         affected_role: str,
         primary_staff_id: Optional[str],
         baseline: float
@@ -328,7 +328,7 @@ class EscalationMonitorService:
             
             query = self.supabase.table("sse_daily_checkins") \
                 .select("checkin_date, mood_emoji, staff:staff_id(position)") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("checkin_date", start_date.isoformat()) \
                 .lte("checkin_date", end_date.isoformat()) \
                 .order("checkin_date", desc=True)
@@ -338,7 +338,7 @@ class EscalationMonitorService:
             
             # Filter by role
             if affected_role:
-                safe_positions = get_positions_for_display_role(affected_role)
+                safe_positions = get_positions_for_display_role(self.supabase, organization_id, affected_role)
                 if safe_positions:
                     checkins = [
                         c for c in checkins

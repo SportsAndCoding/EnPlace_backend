@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 def trigger_exit_cascade(
     departed_staff_id: str,
-    restaurant_id: int,
+    organization_id: int,
     departed_name: str = "A team member",
 ) -> Dict[str, Any]:
     """
@@ -45,7 +45,7 @@ def trigger_exit_cascade(
     ----------
     departed_staff_id : str
         The staff_id of the person who left.
-    restaurant_id : int
+    organization_id : int
         Restaurant ID.
     departed_name : str
         Display name for the escalation messages.
@@ -62,7 +62,7 @@ def trigger_exit_cascade(
 
     try:
         # Step 1: Get cascade analysis for the departed staff
-        cascade = _get_cascade_analysis(restaurant_id, departed_staff_id)
+        cascade = _get_cascade_analysis(organization_id, departed_staff_id)
 
         if not cascade:
             result["skipped"] = "no_cascade_data"
@@ -81,7 +81,7 @@ def trigger_exit_cascade(
 
         # Step 2: Get names for at-risk staff
         at_risk_ids = [a["staff_id"] for a in at_risk_staff if a.get("staff_id")]
-        names = _get_staff_names(restaurant_id, at_risk_ids)
+        names = _get_staff_names(organization_id, at_risk_ids)
 
         # Step 3: Create escalations for each at-risk person
         now = datetime.utcnow()
@@ -119,12 +119,12 @@ def trigger_exit_cascade(
             )
 
             # Check for existing active cascade escalation for this person
-            existing = _check_existing_escalation(restaurant_id, sid)
+            existing = _check_existing_escalation(organization_id, sid)
             if existing:
                 continue
 
             created = _create_escalation(
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 primary_staff_id=sid,
                 event_type="cascade_risk",
                 severity=esc_severity,
@@ -153,7 +153,7 @@ def trigger_exit_cascade(
             modifier = min(modifier, 3.0)  # Cap at 3x
 
             applied = _apply_shock_modifier(
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 staff_id=sid,
                 source_staff_id=departed_staff_id,
                 modifier=modifier,
@@ -186,7 +186,7 @@ def trigger_exit_cascade(
 # ------------------------------------------------------------------
 
 def _get_cascade_analysis(
-    restaurant_id: int,
+    organization_id: int,
     staff_id: str,
 ) -> Optional[Dict[str, Any]]:
     """Get the most recent cascade analysis for a staff member."""
@@ -194,7 +194,7 @@ def _get_cascade_analysis(
         result = supabase.table("staff_cascade_analysis") \
             .select("cascade_severity, expected_additional_exits, "
                     "worst_case_exits, at_risk_staff, risk_narrative") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("target_staff_id", staff_id) \
             .order("analysis_date", desc=True) \
             .limit(1) \
@@ -207,7 +207,7 @@ def _get_cascade_analysis(
 
 
 def _get_staff_names(
-    restaurant_id: int,
+    organization_id: int,
     staff_ids: List[str],
 ) -> Dict[str, str]:
     """Get staff_id -> full_name mapping."""
@@ -217,7 +217,7 @@ def _get_staff_names(
     try:
         result = supabase.table("staff") \
             .select("staff_id, full_name") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .in_("staff_id", staff_ids) \
             .execute()
 
@@ -231,14 +231,14 @@ def _get_staff_names(
 
 
 def _check_existing_escalation(
-    restaurant_id: int,
+    organization_id: int,
     staff_id: str,
 ) -> bool:
     """Check if there's already an active cascade_risk escalation for this person."""
     try:
         result = supabase.table("sse_escalation_events") \
             .select("id") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("primary_staff_id", staff_id) \
             .eq("event_type", "cascade_risk") \
             .in_("status", ["actionable", "monitoring"]) \
@@ -251,7 +251,7 @@ def _check_existing_escalation(
 
 
 def _create_escalation(
-    restaurant_id: int,
+    organization_id: int,
     primary_staff_id: str,
     event_type: str,
     severity: str,
@@ -265,7 +265,7 @@ def _create_escalation(
         now = datetime.utcnow().isoformat()
 
         payload = {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "event_type": event_type,
             "severity": severity,
             "severity_score": severity_score,
@@ -291,7 +291,7 @@ def _create_escalation(
 
 
 def _apply_shock_modifier(
-    restaurant_id: int,
+    organization_id: int,
     staff_id: str,
     source_staff_id: str,
     modifier: float,
@@ -302,7 +302,7 @@ def _apply_shock_modifier(
 
         supabase.table("staff_shock_modifiers") \
             .upsert({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "source_staff_id": source_staff_id,
                 "modifier": round(modifier, 3),

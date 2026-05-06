@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def run_restaurant_pipeline(
     *,
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
     staff_rows: List[Dict[str, Any]],
     checkins_by_staff: Dict[str, Dict[str, Any]],
@@ -28,7 +28,7 @@ def run_restaurant_pipeline(
     """
     logger.info(
         "Starting SSE staff pipeline for restaurant %s on %s (%d staff)",
-        restaurant_id,
+        organization_id,
         target_date,
         len(staff_rows),
     )
@@ -52,7 +52,7 @@ def run_restaurant_pipeline(
                 swap_stats=swap_stats_by_staff.get(staff_id),
                 attendance_row=attendance_by_staff.get(staff_id),
                 stable_hire_profile=stable_hire_by_staff.get(staff_id),
-                restaurant_id=restaurant_id,
+                organization_id=organization_id,
                 target_date=target_date,
             )
             staff_results.append(result)
@@ -61,14 +61,14 @@ def run_restaurant_pipeline(
             logger.error(
                 "Unexpected error processing staff %s in restaurant %s on %s: %s",
                 staff_id,
-                restaurant_id,
+                organization_id,
                 target_date,
                 str(e),
                 exc_info=True,
             )
             staff_results.append(
                 {
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "staff_id": staff_id,
                     "target_date": target_date.isoformat(),
                     "status": "error",
@@ -78,12 +78,12 @@ def run_restaurant_pipeline(
 
     logger.info(
         "Completed SSE staff pipeline for restaurant %s on %s",
-        restaurant_id,
+        organization_id,
         target_date,
     )
 
     return {
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "target_date": target_date.isoformat(),
         "staff_count": len(staff_rows),
         "results": staff_results,

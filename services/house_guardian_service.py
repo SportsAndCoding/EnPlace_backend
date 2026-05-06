@@ -41,10 +41,10 @@ logger = logging.getLogger(__name__)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def _get_today_for_restaurant(restaurant_id: int) -> date:
+def _get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -187,7 +187,7 @@ async def classify_notes_batch(notes: List[Dict], batch_size: int = 10) -> List[
         for note, classification in zip(batch, batch_results):
             classification["checkin_id"] = note.get("id")
             classification["staff_id"] = note.get("staff_id")
-            classification["restaurant_id"] = note.get("restaurant_id")
+            classification["organization_id"] = note.get("organization_id")
             classification["checkin_date"] = note.get("checkin_date")
             results.append(classification)
         
@@ -204,7 +204,7 @@ async def classify_notes_batch(notes: List[Dict], batch_size: int = 10) -> List[
 
 def get_enabled_restaurants() -> List[int]:
     """Get restaurant IDs with House Guardian enabled."""
-    result = supabase.table("restaurants") \
+    result = supabase.table("organizations") \
         .select("id") \
         .eq("has_house_guardian", True) \
         .execute()
@@ -212,11 +212,11 @@ def get_enabled_restaurants() -> List[int]:
     return [r["id"] for r in (result.data or [])]
 
 
-def get_last_scan_time(restaurant_id: int) -> datetime:
+def get_last_scan_time(organization_id: int) -> datetime:
     """Get the last time we scanned this restaurant's notes."""
     result = supabase.table("house_guardian_scan_log") \
         .select("scanned_at") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .order("scanned_at", desc=True) \
         .limit(1) \
         .execute()
@@ -228,11 +228,11 @@ def get_last_scan_time(restaurant_id: int) -> datetime:
     return datetime.utcnow() - timedelta(hours=24)
 
 
-def get_new_notes(restaurant_id: int, since: datetime) -> List[Dict]:
+def get_new_notes(organization_id: int, since: datetime) -> List[Dict]:
     """Get check-in notes created since last scan."""
     result = supabase.table("sse_daily_checkins") \
-        .select("id, staff_id, restaurant_id, checkin_date, notes, created_at") \
-        .eq("restaurant_id", restaurant_id) \
+        .select("id, staff_id, organization_id, checkin_date, notes, created_at") \
+        .eq("organization_id", organization_id) \
         .not_.is_("notes", "null") \
         .neq("notes", "") \
         .gt("created_at", since.isoformat()) \
@@ -254,12 +254,12 @@ def get_staff_context(staff_ids: List[str]) -> Dict[str, Dict]:
     return {s["staff_id"]: s for s in (result.data or [])}
 
 
-def get_staff_events(staff_ids: List[str], restaurant_id: int, days_back: int = 14) -> Dict[str, List[Dict]]:
+def get_staff_events(staff_ids: List[str], organization_id: int, days_back: int = 14) -> Dict[str, List[Dict]]:
     """Get recent events (PTO denied, write-ups, etc.) for credibility timing."""
     if not staff_ids:
         return {}
     
-    cutoff = (_get_today_for_restaurant(restaurant_id) - timedelta(days=days_back)).isoformat()
+    cutoff = (_get_today_for_restaurant(organization_id) - timedelta(days=days_back)).isoformat()
     
     result = supabase.table("staff_events") \
         .select("*") \
@@ -287,7 +287,7 @@ def save_signals(signals: List[Dict]) -> int:
     for s in signals:
         rows.append({
             "id": str(uuid4()),
-            "restaurant_id": s["restaurant_id"],
+            "organization_id": s["organization_id"],
             "checkin_id": str(s["checkin_id"]),
             "staff_id": s["staff_id"],
             "category": s["category"],
@@ -305,13 +305,13 @@ def save_signals(signals: List[Dict]) -> int:
     return len(result.data) if result.data else 0
 
 
-def get_signals_for_corroboration(restaurant_id: int, days_back: int = 30) -> List[Dict]:
+def get_signals_for_corroboration(organization_id: int, days_back: int = 30) -> List[Dict]:
     """Get recent signals for corroboration analysis."""
     cutoff = (datetime.utcnow() - timedelta(days=days_back)).isoformat()
     
     result = supabase.table("house_guardian_signals") \
         .select("*") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("processed", False) \
         .gte("created_at", cutoff) \
         .execute()
@@ -319,11 +319,11 @@ def get_signals_for_corroboration(restaurant_id: int, days_back: int = 30) -> Li
     return result.data or []
 
 
-def get_existing_alert(restaurant_id: int, category: str, location_context: str) -> Optional[Dict]:
+def get_existing_alert(organization_id: int, category: str, location_context: str) -> Optional[Dict]:
     """Check if there's already an active alert for this pattern."""
     result = supabase.table("house_guardian_alerts") \
         .select("*") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("category", category) \
         .eq("location_context", location_context) \
         .in_("status", ["active", "investigating"]) \
@@ -336,7 +336,7 @@ def get_existing_alert(restaurant_id: int, category: str, location_context: str)
 def create_or_update_alert(alert_data: Dict) -> str:
     """Create new alert or update existing one."""
     existing = get_existing_alert(
-        alert_data["restaurant_id"],
+        alert_data["organization_id"],
         alert_data["category"],
         alert_data["location_context"]
     )
@@ -410,7 +410,7 @@ def create_sse_event_for_alert(alert_data: Dict) -> str:
     trigger += f" ({source_count} source{'s' if source_count > 1 else ''})"
 
     event_data = {
-        "restaurant_id": alert_data["restaurant_id"],
+        "organization_id": alert_data["organization_id"],
         "event_type": f"house_guardian_{category}",
         "severity": severity,
         "severity_score": severity_scores.get(severity, 50),
@@ -443,10 +443,10 @@ def mark_signals_processed(signal_ids: List[str]):
         .execute()
 
 
-def log_scan(restaurant_id: int, notes_scanned: int, signals_found: int, alerts_created: int):
+def log_scan(organization_id: int, notes_scanned: int, signals_found: int, alerts_created: int):
     """Log scan completion for tracking."""
     supabase.table("house_guardian_scan_log").insert({
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "scanned_at": datetime.utcnow().isoformat(),
         "notes_scanned": notes_scanned,
         "signals_found": signals_found,
@@ -586,7 +586,7 @@ def calculate_signal_strength(source_count: int, factors: Dict) -> str:
     return "LOW"
 
 
-def generate_alerts(restaurant_id: int, signals: List[Dict], staff_events: Dict) -> int:
+def generate_alerts(organization_id: int, signals: List[Dict], staff_events: Dict) -> int:
     """
     Group signals and generate alerts.
     Returns count of alerts created/updated.
@@ -637,13 +637,13 @@ def generate_alerts(restaurant_id: int, signals: List[Dict], staff_events: Dict)
         
         # Get date range
         dates = [s.get("checkin_date") for s in group_signals if s.get("checkin_date")]
-        today_str = _get_today_for_restaurant(restaurant_id).isoformat()
+        today_str = _get_today_for_restaurant(organization_id).isoformat()
         timeframe_start = min(dates) if dates else today_str
         timeframe_end = max(dates) if dates else today_str
         
         # Create alert
         alert_data = {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "category": category,
             "location_context": location_context,
             "timeframe_start": timeframe_start,
@@ -667,7 +667,7 @@ def generate_alerts(restaurant_id: int, signals: List[Dict], staff_events: Dict)
 # MAIN SCAN FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════
 
-async def scan_restaurant(restaurant_id: int) -> Dict[str, int]:
+async def scan_restaurant(organization_id: int) -> Dict[str, int]:
     """
     Scan a single restaurant's notes and generate alerts.
     
@@ -680,15 +680,15 @@ async def scan_restaurant(restaurant_id: int) -> Dict[str, int]:
     }
     
     # Get notes since last scan
-    last_scan = get_last_scan_time(restaurant_id)
-    notes = get_new_notes(restaurant_id, last_scan)
+    last_scan = get_last_scan_time(organization_id)
+    notes = get_new_notes(organization_id, last_scan)
     
     if not notes:
-        log_scan(restaurant_id, 0, 0, 0)
+        log_scan(organization_id, 0, 0, 0)
         return stats
     
     stats["notes_scanned"] = len(notes)
-    logger.info(f"Restaurant {restaurant_id}: scanning {len(notes)} notes")
+    logger.info(f"Restaurant {organization_id}: scanning {len(notes)} notes")
     
     # Get staff context for position info
     staff_ids = list(set(n["staff_id"] for n in notes))
@@ -717,24 +717,24 @@ async def scan_restaurant(restaurant_id: int) -> Dict[str, int]:
         save_signals(signals)
         
         # Get all unprocessed signals for corroboration
-        all_signals = get_signals_for_corroboration(restaurant_id)
+        all_signals = get_signals_for_corroboration(organization_id)
         
         # Get staff events for timing analysis
         all_staff_ids = list(set(s["staff_id"] for s in all_signals))
-        staff_events = get_staff_events(all_staff_ids, restaurant_id)
+        staff_events = get_staff_events(all_staff_ids, organization_id)
         
         # Generate alerts
-        stats["alerts_created"] = generate_alerts(restaurant_id, all_signals, staff_events)
+        stats["alerts_created"] = generate_alerts(organization_id, all_signals, staff_events)
     
     # Log scan completion
-    log_scan(restaurant_id, stats["notes_scanned"], stats["signals_found"], stats["alerts_created"])
+    log_scan(organization_id, stats["notes_scanned"], stats["signals_found"], stats["alerts_created"])
     
     # Generate weekly report
     try:
         from services.house_guardian_weekly import generate_weekly_report
-        generate_weekly_report(restaurant_id)
+        generate_weekly_report(organization_id)
     except Exception as e:
-        logger.error(f"Failed to generate weekly report for restaurant {restaurant_id}: {e}")
+        logger.error(f"Failed to generate weekly report for restaurant {organization_id}: {e}")
     
     return stats
 
@@ -763,16 +763,16 @@ async def run_nightly_scan():
         "alerts_created": 0
     }
     
-    for restaurant_id in restaurant_ids:
+    for organization_id in restaurant_ids:
         try:
-            stats = await scan_restaurant(restaurant_id)
+            stats = await scan_restaurant(organization_id)
             total_stats["restaurants_scanned"] += 1
             total_stats["notes_scanned"] += stats["notes_scanned"]
             total_stats["signals_found"] += stats["signals_found"]
             total_stats["alerts_created"] += stats["alerts_created"]
             
         except Exception as e:
-            logger.error(f"Error scanning restaurant {restaurant_id}: {e}")
+            logger.error(f"Error scanning restaurant {organization_id}: {e}")
             continue
     
     # Summary

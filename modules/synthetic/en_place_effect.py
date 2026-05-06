@@ -163,21 +163,21 @@ STABLE_HIRE_PERSONA_WEIGHTS: Dict[str, float] = {
 # PER-RESTAURANT VOLATILITY
 # =====================================================================
 
-def _deterministic_variance(restaurant_id: int, salt: str, low: float, high: float) -> float:
-    seed = hashlib.sha256(f"{restaurant_id}:{salt}".encode()).hexdigest()
+def _deterministic_variance(organization_id: int, salt: str, low: float, high: float) -> float:
+    seed = hashlib.sha256(f"{organization_id}:{salt}".encode()).hexdigest()
     normalized = (int(seed[:12], 16) % 10000) / 10000.0
     return low + normalized * (high - low)
 
 
-def _compute_restaurant_effectiveness(restaurant_id: int) -> float:
-    mgmt = _deterministic_variance(restaurant_id, "mgmt_quality", 0.65, 1.35)
-    adopt = _deterministic_variance(restaurant_id, "staff_adoption", 0.70, 1.30)
-    culture = _deterministic_variance(restaurant_id, "culture_baseline", 0.80, 1.20)
+def _compute_restaurant_effectiveness(organization_id: int) -> float:
+    mgmt = _deterministic_variance(organization_id, "mgmt_quality", 0.65, 1.35)
+    adopt = _deterministic_variance(organization_id, "staff_adoption", 0.70, 1.30)
+    culture = _deterministic_variance(organization_id, "culture_baseline", 0.80, 1.20)
     return max(0.60, min(1.50, mgmt * adopt * culture))
 
 
-def _compute_industry_variance(restaurant_id: int) -> float:
-    return _deterministic_variance(restaurant_id, "industry_variance", 0.80, 1.20)
+def _compute_industry_variance(organization_id: int) -> float:
+    return _deterministic_variance(organization_id, "industry_variance", 0.80, 1.20)
 
 
 # =====================================================================
@@ -204,7 +204,7 @@ def _adoption_ramp(days_since_adoption: int) -> float:
 # =====================================================================
 
 def get_en_place_config(
-    restaurant_id: int,
+    organization_id: int,
     profile_key: str,
     adoption_day: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -219,8 +219,8 @@ def get_en_place_config(
             "life_event_daily_prob": LIFE_EVENT_DAILY_PROB,
         }
 
-    effectiveness = _compute_restaurant_effectiveness(restaurant_id)
-    industry_var = _compute_industry_variance(restaurant_id)
+    effectiveness = _compute_restaurant_effectiveness(organization_id)
+    industry_var = _compute_industry_variance(organization_id)
 
     without_base = _WITHOUT_EP_EXIT_MULTIPLIERS.get(profile_key, 0.18)
     with_base = _WITH_EP_EXIT_MULTIPLIERS.get(profile_key, 0.14)

@@ -40,7 +40,7 @@ class RegisterRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     success: bool
-    restaurant_id: int
+    organization_id: int
     staff_id: str
     token: str
     message: str
@@ -77,7 +77,7 @@ def create_jwt_token(staff_data: dict) -> str:
         "full_name": staff_data["full_name"],
         "position": staff_data["position"],
         "portal_access": staff_data["portal_access"],
-        "restaurant_id": staff_data["restaurant_id"],
+        "organization_id": staff_data["organization_id"],
         "can_edit_staff": staff_data.get("can_edit_staff", True),
         "exp": datetime.utcnow() + timedelta(hours=24),
         "iat": datetime.utcnow()
@@ -118,7 +118,7 @@ async def register(request: RegisterRequest):
         raise HTTPException(status_code=400, detail="Invalid checkout session")
     
     # Check if this session was already used
-    existing = supabase.table("restaurants") \
+    existing = supabase.table("organizations") \
         .select("id") \
         .eq("stripe_checkout_session_id", request.checkout_session_id) \
         .execute()
@@ -139,7 +139,7 @@ async def register(request: RegisterRequest):
     modules = session.metadata.get("modules", "sse").split(",")
     
     try:
-        restaurant_result = supabase.table("restaurants").insert({
+        restaurant_result = supabase.table("organizations").insert({
             "name": request.restaurant_name,
             "status": "onboarding",
             "stripe_customer_id": session.customer,
@@ -154,7 +154,7 @@ async def register(request: RegisterRequest):
         if not restaurant_result.data:
             raise HTTPException(status_code=500, detail="Failed to create restaurant")
         
-        restaurant_id = restaurant_result.data[0]["id"]
+        organization_id = restaurant_result.data[0]["id"]
         
     except Exception as e:
         logger.error(f"Error creating restaurant: {e}")
@@ -168,7 +168,7 @@ async def register(request: RegisterRequest):
         
         staff_result = supabase.table("staff").insert({
             "staff_id": staff_id,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "email": request.owner_email,
             "password_hash": password_hash,
             "full_name": full_name,
@@ -184,19 +184,19 @@ async def register(request: RegisterRequest):
         
         if not staff_result.data:
             # Rollback restaurant creation
-            supabase.table("restaurants").delete().eq("id", restaurant_id).execute()
+            supabase.table("organizations").delete().eq("id", organization_id).execute()
             raise HTTPException(status_code=500, detail="Failed to create owner account")
         
     except Exception as e:
         logger.error(f"Error creating owner: {e}")
         # Rollback
-        supabase.table("restaurants").delete().eq("id", restaurant_id).execute()
+        supabase.table("organizations").delete().eq("id", organization_id).execute()
         raise HTTPException(status_code=500, detail="Failed to create owner account")
     
     # Step 4: Create onboarding status
     try:
         supabase.table("restaurant_onboarding_status").insert({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "setup_step": "basics",
             "onboarding_started_at": datetime.utcnow().isoformat()
         }).execute()
@@ -206,7 +206,7 @@ async def register(request: RegisterRequest):
     # Step 5: Update pending registration if exists
     try:
         supabase.table("pending_registrations") \
-            .update({"status": "completed", "restaurant_id": restaurant_id}) \
+            .update({"status": "completed", "organization_id": organization_id}) \
             .eq("checkout_session_id", request.checkout_session_id) \
             .execute()
     except:
@@ -219,15 +219,15 @@ async def register(request: RegisterRequest):
         "full_name": full_name,
         "position": "Owner",
         "portal_access": "manager",
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "can_edit_staff": True
     })
     
-    logger.info(f"Registered new restaurant: {request.restaurant_name} (ID: {restaurant_id})")
+    logger.info(f"Registered new restaurant: {request.restaurant_name} (ID: {organization_id})")
     
     return RegisterResponse(
         success=True,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         staff_id=staff_id,
         token=token,
         message="Registration successful! Redirecting to setup..."
@@ -254,7 +254,7 @@ async def validate_session(session_id: str):
         
         # Check if already registered
         supabase = get_supabase()
-        existing = supabase.table("restaurants") \
+        existing = supabase.table("organizations") \
             .select("id, name") \
             .eq("stripe_checkout_session_id", session_id) \
             .execute()
@@ -313,7 +313,7 @@ async def register_demo(request: DemoRegisterRequest = DemoRegisterRequest()):
     
     # Step 1: Create restaurant (no Stripe IDs)
     try:
-        restaurant_result = supabase.table("restaurants").insert({
+        restaurant_result = supabase.table("organizations").insert({
             "name": demo_restaurant_name,
             "status": "onboarding",
             "stripe_customer_id": None,
@@ -328,7 +328,7 @@ async def register_demo(request: DemoRegisterRequest = DemoRegisterRequest()):
         if not restaurant_result.data:
             raise HTTPException(status_code=500, detail="Failed to create demo restaurant")
 
-        restaurant_id = restaurant_result.data[0]["id"]
+        organization_id = restaurant_result.data[0]["id"]
 
     except Exception as e:
         logger.error(f"Error creating demo restaurant: {e}")
@@ -342,7 +342,7 @@ async def register_demo(request: DemoRegisterRequest = DemoRegisterRequest()):
 
         staff_result = supabase.table("staff").insert({
             "staff_id": staff_id,
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "email": demo_email,
             "password_hash": password_hash,
             "full_name": full_name,
@@ -357,18 +357,18 @@ async def register_demo(request: DemoRegisterRequest = DemoRegisterRequest()):
         }).execute()
 
         if not staff_result.data:
-            supabase.table("restaurants").delete().eq("id", restaurant_id).execute()
+            supabase.table("organizations").delete().eq("id", organization_id).execute()
             raise HTTPException(status_code=500, detail="Failed to create demo owner")
 
     except Exception as e:
         logger.error(f"Error creating demo owner: {e}")
-        supabase.table("restaurants").delete().eq("id", restaurant_id).execute()
+        supabase.table("organizations").delete().eq("id", organization_id).execute()
         raise HTTPException(status_code=500, detail="Failed to create demo owner")
 
     # Step 3: Create onboarding status
     try:
         supabase.table("restaurant_onboarding_status").insert({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "setup_step": "basics",
             "onboarding_started_at": datetime.utcnow().isoformat()
         }).execute()
@@ -382,15 +382,15 @@ async def register_demo(request: DemoRegisterRequest = DemoRegisterRequest()):
         "full_name": full_name,
         "position": "Owner",
         "portal_access": "manager",
-        "restaurant_id": restaurant_id,
+        "organization_id": organization_id,
         "can_edit_staff": True
     })
 
-    logger.info(f"Created demo restaurant: {demo_restaurant_name} (ID: {restaurant_id})")
+    logger.info(f"Created demo restaurant: {demo_restaurant_name} (ID: {organization_id})")
 
     return RegisterResponse(
         success=True,
-        restaurant_id=restaurant_id,
+        organization_id=organization_id,
         staff_id=staff_id,
         token=token,
         message="Demo restaurant created! Use this token for onboarding."

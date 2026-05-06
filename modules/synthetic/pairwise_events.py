@@ -43,14 +43,14 @@ from typing import Dict, List, Any
 # Deterministic randomness helpers (same pattern as persona_evolution.py)
 # ---------------------------------------------------------------------------
 
-def _det_float(restaurant_id: int, day_index: int, salt: str) -> float:
-    """Deterministic float in [0, 1) from restaurant_id + day + salt."""
-    seed_str = f"{restaurant_id}:{day_index}:{salt}"
+def _det_float(organization_id: int, day_index: int, salt: str) -> float:
+    """Deterministic float in [0, 1) from organization_id + day + salt."""
+    seed_str = f"{organization_id}:{day_index}:{salt}"
     hash_val = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
     return (hash_val % 1_000_000) / 1_000_000
 
 
-def _det_shuffle(items: list, restaurant_id: int, day_index: int, salt: str) -> list:
+def _det_shuffle(items: list, organization_id: int, day_index: int, salt: str) -> list:
     """
     Deterministic Fisher-Yates shuffle.
     Returns a new list; original is not mutated.
@@ -58,7 +58,7 @@ def _det_shuffle(items: list, restaurant_id: int, day_index: int, salt: str) -> 
     result = list(items)
     n = len(result)
     for i in range(n - 1, 0, -1):
-        seed_str = f"{restaurant_id}:{day_index}:{salt}:shuffle:{i}"
+        seed_str = f"{organization_id}:{day_index}:{salt}:shuffle:{i}"
         hash_val = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
         j = hash_val % (i + 1)
         result[i], result[j] = result[j], result[i]
@@ -68,7 +68,7 @@ def _det_shuffle(items: list, restaurant_id: int, day_index: int, salt: str) -> 
 def _det_weighted_choice(
     candidates: list,
     weights: list,
-    restaurant_id: int,
+    organization_id: int,
     day_index: int,
     salt: str,
 ) -> Any:
@@ -79,7 +79,7 @@ def _det_weighted_choice(
     total = sum(weights)
     if total <= 0 or not candidates:
         return None
-    threshold = _det_float(restaurant_id, day_index, salt) * total
+    threshold = _det_float(organization_id, day_index, salt) * total
     cumulative = 0.0
     for candidate, weight in zip(candidates, weights):
         cumulative += weight
@@ -119,7 +119,7 @@ def _get_present_staff(
 def _assign_shift_groups(
     present_staff: List[str],
     restaurant_profile: Dict[str, Any],
-    restaurant_id: int,
+    organization_id: int,
     day_index: int,
 ) -> Dict[str, List[str]]:
     """
@@ -160,7 +160,7 @@ def _assign_shift_groups(
         am_count = max(2, round(n_present * (am_weight / total_weight)))
         am_count = min(am_count, n_present - 2)  # ensure PM gets at least 2
 
-        shuffled = _det_shuffle(present_staff, restaurant_id, day_index, "shift_assign")
+        shuffled = _det_shuffle(present_staff, organization_id, day_index, "shift_assign")
         am_staff = shuffled[:am_count]
         pm_staff = shuffled[am_count:]
 
@@ -187,7 +187,7 @@ def _assign_shift_groups(
         counts = [max(2, round(n_present * (w / total_w))) for w in weights]
 
         # Adjust to not exceed n_present (allowing some overlap for doubles)
-        shuffled = _det_shuffle(present_staff, restaurant_id, day_index, "shift_assign_3")
+        shuffled = _det_shuffle(present_staff, organization_id, day_index, "shift_assign_3")
 
         morning = shuffled[: counts[0]]
         mid_start = counts[0] - 1  # 1 person overlaps morning/mid
@@ -244,7 +244,7 @@ def _generate_swap_events(
     daily_behaviors: Dict[str, Dict],
     daily_emotions: Dict[str, Dict],
     present_staff: List[str],
-    restaurant_id: int,
+    organization_id: int,
 ) -> List[Dict[str, Any]]:
     """
     When staff A has swap_approved == 1, assign a counterparty B.
@@ -302,7 +302,7 @@ def _generate_swap_events(
 
         picker = _det_weighted_choice(
             candidates, weights,
-            restaurant_id, day_index,
+            organization_id, day_index,
             salt=f"swap_assign:{requester_id}:{req_idx}",
         )
 
@@ -325,7 +325,7 @@ def _generate_osm_events(
     daily_behaviors: Dict[str, Dict],
     present_staff: List[str],
     shift_groups: Dict[str, List[str]],
-    restaurant_id: int,
+    organization_id: int,
 ) -> List[Dict[str, Any]]:
     """
     When staff B accepts an OSM offer, they're working an extra shift.
@@ -364,7 +364,7 @@ def _generate_osm_events(
         if other_dayparts:
             # Deterministically pick which extra daypart they worked
             dp_idx_hash = _det_float(
-                restaurant_id, day_index,
+                organization_id, day_index,
                 f"osm_daypart:{acceptor_id}:{acc_idx}"
             )
             target_dp = other_dayparts[int(dp_idx_hash * len(other_dayparts))]
@@ -395,7 +395,7 @@ def _generate_mood_sync_events(
     day_index: int,
     present_staff: List[str],
     daily_emotions: Dict[str, Dict],
-    restaurant_id: int,
+    organization_id: int,
     sync_threshold: float = 0.8,
 ) -> List[Dict[str, Any]]:
     """
@@ -490,7 +490,7 @@ def generate_pairwise_events(
     active_staff_ids: List[str],
     daily_behaviors: Dict[str, Dict],
     daily_emotions: Dict[str, Dict],
-    restaurant_id: int,
+    organization_id: int,
     restaurant_profile: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     """
@@ -507,7 +507,7 @@ def generate_pairwise_events(
         {staff_id: behavior_dict} from daily_behavior.simulate_daily_behavior().
     daily_emotions : dict[str, dict]
         {staff_id: emotion_output_dict} from daily_emotion_simulator output.
-    restaurant_id : int
+    organization_id : int
         Restaurant identifier for deterministic randomness.
     restaurant_profile : dict
         Restaurant configuration (needs rush_curve, crew_cohesion, swap_culture).
@@ -541,7 +541,7 @@ def generate_pairwise_events(
 
     # Step 2: Assign present staff to shift daypart groups
     shift_groups = _assign_shift_groups(
-        present_staff, restaurant_profile, restaurant_id, day_index,
+        present_staff, restaurant_profile, organization_id, day_index,
     )
 
     # Step 3: Generate all event types
@@ -556,7 +556,7 @@ def generate_pairwise_events(
     events.extend(
         _generate_swap_events(
             day_index, active_staff_ids, daily_behaviors,
-            daily_emotions, present_staff, restaurant_id,
+            daily_emotions, present_staff, organization_id,
         )
     )
 
@@ -564,14 +564,14 @@ def generate_pairwise_events(
     events.extend(
         _generate_osm_events(
             day_index, daily_behaviors, present_staff,
-            shift_groups, restaurant_id,
+            shift_groups, organization_id,
         )
     )
 
     # 3d. Mood sync (emotional proximity between present staff)
     events.extend(
         _generate_mood_sync_events(
-            day_index, present_staff, daily_emotions, restaurant_id,
+            day_index, present_staff, daily_emotions, organization_id,
         )
     )
 

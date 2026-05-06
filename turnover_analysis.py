@@ -222,9 +222,9 @@ def _det_int(seed_str: str, low: int, high: int) -> int:
     return low + (h % (high - low + 1))
 
 
-def _restaurant_variance(restaurant_id: int) -> float:
+def _restaurant_variance(organization_id: int) -> float:
     """Per-restaurant multiplier on quit rates. Range [0.88, 1.12]."""
-    return 0.88 + _det_float(f"{restaurant_id}:variance") * 0.24
+    return 0.88 + _det_float(f"{organization_id}:variance") * 0.24
 
 
 # =====================================================================
@@ -232,7 +232,7 @@ def _restaurant_variance(restaurant_id: int) -> float:
 # =====================================================================
 
 def simulate_restaurant(
-    restaurant_id: int,
+    organization_id: int,
     headcount: int,
     type_config: Dict,
     adoption_day: int = ADOPTION_DAY,
@@ -275,7 +275,7 @@ def simulate_restaurant(
             tenure = day - hire_day[slot]
             prob = c_prob if tenure < 90 else e_prob
 
-            uid_seed = f"{restaurant_id}:{slot}:{gen[slot]}:{day}"
+            uid_seed = f"{organization_id}:{slot}:{gen[slot]}:{day}"
             roll = _det_float(uid_seed)
 
             if roll < prob:
@@ -401,7 +401,7 @@ def build_configs() -> List[Dict]:
         type_cfg = RESTAURANT_TYPES[pkey]
         hc = _det_int(f"{rid}:headcount", *type_cfg["headcount_range"])
         configs.append({
-            "restaurant_id": rid,
+            "organization_id": rid,
             "profile_key": pkey,
             "headcount": hc,
         })
@@ -431,7 +431,7 @@ if __name__ == "__main__":
     print("-" * 88)
 
     for idx, cfg in enumerate(configs):
-        rid = cfg["restaurant_id"]
+        rid = cfg["organization_id"]
         pkey = cfg["profile_key"]
         hc = cfg["headcount"]
         type_cfg = RESTAURANT_TYPES[pkey]
@@ -466,7 +466,7 @@ if __name__ == "__main__":
         for day, pct in rolling:
             if CHART_START <= day <= CHART_END:
                 all_timeseries.append({
-                    "restaurant_id": rid,
+                    "organization_id": rid,
                     "profile_key": pkey,
                     "label": type_cfg["label"],
                     "national_avg": type_cfg["national_avg"],
@@ -478,7 +478,7 @@ if __name__ == "__main__":
 
         # Store meta
         meta = {
-            "restaurant_id": rid,
+            "organization_id": rid,
             "profile_key": pkey,
             "label": type_cfg["label"],
             "headcount": hc,

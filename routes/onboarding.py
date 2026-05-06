@@ -69,12 +69,12 @@ def generate_join_code(length: int = 6) -> str:
     return ''.join(secrets.choice(chars) for _ in range(length))
 
 
-def generate_staff_id(position: str, restaurant_id: int) -> str:
+def generate_staff_id(position: str, organization_id: int) -> str:
     """Generate a unique staff ID"""
     prefix = position[:3].upper() if position else "STF"
     timestamp = datetime.now().strftime("%H%M%S")
     random_suffix = ''.join(secrets.choice(string.digits) for _ in range(3))
-    return f"{prefix}{restaurant_id}{timestamp}{random_suffix}"
+    return f"{prefix}{organization_id}{timestamp}{random_suffix}"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -85,14 +85,14 @@ def generate_staff_id(position: str, restaurant_id: int) -> str:
 async def get_onboarding_status(current_user: dict = Depends(get_current_user)):
     """Get current onboarding progress for restaurant"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
         # Get restaurant status
-        restaurant = supabase.table('restaurants') \
+        restaurant = supabase.table('organizations') \
             .select('id, name, address, timezone, status, operating_hours, pay_frequency, next_pay_date, allow_overtime') \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .single() \
             .execute()
         
@@ -102,26 +102,26 @@ async def get_onboarding_status(current_user: dict = Depends(get_current_user)):
         # Get onboarding progress
         progress = supabase.table('restaurant_onboarding_status') \
             .select('*') \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .single() \
             .execute()
         
         # If no progress record, create one
         if not progress.data:
             supabase.table('restaurant_onboarding_status') \
-                .insert({'restaurant_id': restaurant_id, 'setup_step': 'basics'}) \
+                .insert({'organization_id': organization_id, 'setup_step': 'basics'}) \
                 .execute()
             
             progress = supabase.table('restaurant_onboarding_status') \
                 .select('*') \
-                .eq('restaurant_id', restaurant_id) \
+                .eq('organization_id', organization_id) \
                 .single() \
                 .execute()
         
         # Get staff count
         staff_count = supabase.table('staff') \
             .select('staff_id', count='exact') \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {
@@ -144,18 +144,18 @@ async def update_basics(
 ):
     """Step 1: Update restaurant basics (name, address, timezone)"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
         # Update restaurant
-        supabase.table('restaurants') \
+        supabase.table('organizations') \
             .update({
                 'name': data.name,
                 'address': data.address,
                 'timezone': data.timezone
             }) \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .execute()
         
         # Update progress
@@ -165,7 +165,7 @@ async def update_basics(
                 'setup_step': 'hours',
                 'current_step_started_at': datetime.utcnow().isoformat()
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {"success": True, "next_step": "hours"}
@@ -181,14 +181,14 @@ async def update_hours(
 ):
     """Step 2: Update operating hours"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
         # Update restaurant
-        supabase.table('restaurants') \
+        supabase.table('organizations') \
             .update({'operating_hours': data.operating_hours}) \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .execute()
         
         # Update progress
@@ -198,7 +198,7 @@ async def update_hours(
                 'setup_step': 'payroll',
                 'current_step_started_at': datetime.utcnow().isoformat()
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {"success": True, "next_step": "payroll"}
@@ -214,7 +214,7 @@ async def update_payroll(
 ):
     """Step 3: Update payroll settings"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     # Validate pay_frequency
@@ -232,9 +232,9 @@ async def update_payroll(
             update_data['next_pay_date'] = data.next_pay_date.isoformat()
         
         # Update restaurant
-        supabase.table('restaurants') \
+        supabase.table('organizations') \
             .update(update_data) \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .execute()
         
         # Update progress
@@ -244,7 +244,7 @@ async def update_payroll(
                 'setup_step': 'roster',
                 'current_step_started_at': datetime.utcnow().isoformat()
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {"success": True, "next_step": "roster"}
@@ -262,16 +262,16 @@ async def add_staff_member(
 ):
     """Step 4: Add a single staff member"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
-        staff_id = generate_staff_id(data.position, restaurant_id)
+        staff_id = generate_staff_id(data.position, organization_id)
         full_name = f"{data.first_name} {data.last_name}"
         
         staff_data = {
                     'staff_id': staff_id,
-                    'restaurant_id': restaurant_id,
+                    'organization_id': organization_id,
                     'full_name': full_name,
                     'email': member.email,
                     'phone': member.phone,
@@ -289,12 +289,12 @@ async def add_staff_member(
         # Update staff count in onboarding status
         staff_count = supabase.table('staff') \
             .select('staff_id', count='exact') \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         supabase.table('restaurant_onboarding_status') \
             .update({'staff_count': staff_count.count or 0}) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {
@@ -314,7 +314,7 @@ async def add_staff_bulk(
 ):
     """Step 4: Bulk add staff members"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
@@ -323,12 +323,12 @@ async def add_staff_bulk(
         
         for member in data.staff:
             try:
-                staff_id = generate_staff_id(member.position, restaurant_id)
+                staff_id = generate_staff_id(member.position, organization_id)
                 full_name = f"{member.first_name} {member.last_name}"
                 
                 staff_data = {
                     'staff_id': staff_id,
-                    'restaurant_id': restaurant_id,
+                    'organization_id': organization_id,
                     'full_name': full_name,
                     'email': member.email,
                     'phone': member.phone,
@@ -348,7 +348,7 @@ async def add_staff_bulk(
         # Update staff count
         staff_count = supabase.table('staff') \
             .select('staff_id', count='exact') \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         supabase.table('restaurant_onboarding_status') \
@@ -356,7 +356,7 @@ async def add_staff_bulk(
                 'staff_count': staff_count.count or 0,
                 'staff_upload_completed': True
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {
@@ -377,7 +377,7 @@ async def update_permissions(
 ):
     """Step 5: Set owner, managers, and billing admin"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
@@ -388,7 +388,7 @@ async def update_permissions(
                 'can_edit_staff': True
             }) \
             .eq('staff_id', data.owner_staff_id) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         # Set managers
@@ -397,14 +397,14 @@ async def update_permissions(
                 supabase.table('staff') \
                     .update({'portal_access': 'manager'}) \
                     .eq('staff_id', staff_id) \
-                    .eq('restaurant_id', restaurant_id) \
+                    .eq('organization_id', organization_id) \
                     .execute()
         
         # Set billing admin on restaurant
         if data.billing_admin_staff_id:
-            supabase.table('restaurants') \
+            supabase.table('organizations') \
                 .update({'billing_admin_staff_id': data.billing_admin_staff_id}) \
-                .eq('id', restaurant_id) \
+                .eq('id', organization_id) \
                 .execute()
         
         # Update progress
@@ -414,7 +414,7 @@ async def update_permissions(
                 'setup_step': 'qr',
                 'current_step_started_at': datetime.utcnow().isoformat()
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {"success": True, "next_step": "qr"}
@@ -427,14 +427,14 @@ async def update_permissions(
 async def generate_join_code_endpoint(current_user: dict = Depends(get_current_user)):
     """Step 6: Generate staff join code and URL"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
         # Check if code already exists
         existing = supabase.table('restaurant_onboarding_status') \
             .select('join_code, join_url') \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .single() \
             .execute()
         
@@ -454,7 +454,7 @@ async def generate_join_code_endpoint(current_user: dict = Depends(get_current_u
         for _ in range(max_attempts):
             candidate = generate_join_code(6)
             check = supabase.table('restaurant_onboarding_status') \
-                .select('restaurant_id') \
+                .select('organization_id') \
                 .eq('join_code', candidate) \
                 .execute()
             
@@ -477,7 +477,7 @@ async def generate_join_code_endpoint(current_user: dict = Depends(get_current_u
                 'setup_step': 'review',
                 'current_step_started_at': datetime.utcnow().isoformat()
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {
@@ -497,14 +497,14 @@ async def generate_join_code_endpoint(current_user: dict = Depends(get_current_u
 async def complete_onboarding(current_user: dict = Depends(get_current_user)):
     """Step 7: Complete onboarding and activate restaurant"""
     
-    restaurant_id = current_user['restaurant_id']
+    organization_id = current_user['organization_id']
     supabase = get_supabase()
     
     try:
         # Verify all steps completed
         progress = supabase.table('restaurant_onboarding_status') \
             .select('*') \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .single() \
             .execute()
         
@@ -534,9 +534,9 @@ async def complete_onboarding(current_user: dict = Depends(get_current_user)):
             )
         
         # Activate restaurant
-        supabase.table('restaurants') \
+        supabase.table('organizations') \
             .update({'status': 'active'}) \
-            .eq('id', restaurant_id) \
+            .eq('id', organization_id) \
             .execute()
         
         # Mark onboarding complete
@@ -545,7 +545,7 @@ async def complete_onboarding(current_user: dict = Depends(get_current_user)):
                 'setup_step': 'complete',
                 'onboarding_completed_at': datetime.utcnow().isoformat()
             }) \
-            .eq('restaurant_id', restaurant_id) \
+            .eq('organization_id', organization_id) \
             .execute()
         
         return {

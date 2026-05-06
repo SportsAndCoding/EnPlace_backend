@@ -29,7 +29,7 @@ async def create_notification(
         )
     
     # Verify restaurant access
-    if current_user['restaurant_id'] != notification.restaurant_id:
+    if current_user['organization_id'] != notification.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -75,14 +75,14 @@ async def get_notifications(
     try:
         notifications = await service.get_notifications_for_user(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             unread_only=unread_only,
             limit=limit
         )
         
         unread_count = await service.get_unread_count(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         return {
@@ -110,7 +110,7 @@ async def mark_notification_read(
     try:
         result = await service.mark_as_read(
             notification_id=notification_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not result:
@@ -144,7 +144,7 @@ async def mark_all_notifications_read(
     try:
         count = await service.mark_all_as_read(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         return {
@@ -172,7 +172,7 @@ async def delete_notification(
         # Verify notification exists
         existing = await service.get_notification_by_id(
             notification_id=notification_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -183,7 +183,7 @@ async def delete_notification(
         
         await service.delete_notification(
             notification_id=notification_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
     except HTTPException:

@@ -15,10 +15,10 @@ import hashlib
 import pytz
 
 
-def _get_today_for_restaurant(supabase_client, restaurant_id: int) -> date:
+def _get_today_for_restaurant(supabase_client, organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     try:
-        result = supabase_client.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase_client.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -32,14 +32,14 @@ def _deterministic_random(seed_str: str) -> float:
     return (hash_val % 1_000_000) / 1_000_000
 
 
-def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
+def seed_demo_shifts(supabase_client, organization_id: int = 1) -> Dict[str, int]:
     """
     Ensure Demo Bistro has shifts for the next 7 days with intentional gaps.
     
     Returns stats about what was created/modified.
     """
     
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     stats = {"created": 0, "gaps_created": 0}
     
     # Define shift templates for each day
@@ -62,7 +62,7 @@ def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
     # Get existing staff for assignment
     staff_result = supabase_client.table("staff") \
         .select("staff_id, position") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "Active") \
         .execute()
     
@@ -93,7 +93,7 @@ def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
         # Check if shifts already exist for this date
         existing = supabase_client.table("sse_shifts") \
             .select("id") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("shift_date", shift_date.isoformat()) \
             .execute()
         
@@ -102,7 +102,7 @@ def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
             # Find shifts that should be gaps and clear their staff_id
             all_shifts = supabase_client.table("sse_shifts") \
                 .select("id, staff_id") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("shift_date", shift_date.isoformat()) \
                 .order("scheduled_start") \
                 .execute()
@@ -159,7 +159,7 @@ def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
                     staff_id = available[staff_idx % len(available)]
             
             shifts_to_insert.append({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "shift_date": shift_date.isoformat(),
                 "scheduled_start": scheduled_start.isoformat(),
@@ -181,14 +181,14 @@ def seed_demo_shifts(supabase_client, restaurant_id: int = 1) -> Dict[str, int]:
     return stats
 
 
-def ensure_critical_gaps(supabase_client, restaurant_id: int = 1) -> int:
+def ensure_critical_gaps(supabase_client, organization_id: int = 1) -> int:
     """
     Quick function to ensure at least 1 critical gap exists for today/tomorrow.
     Call this if you just need to maintain the gap without full shift seeding.
     
     Returns number of gaps created.
     """
-    today = _get_today_for_restaurant(supabase_client, restaurant_id)
+    today = _get_today_for_restaurant(supabase_client, organization_id)
     tomorrow = today + timedelta(days=1)
     gaps_created = 0
     
@@ -196,7 +196,7 @@ def ensure_critical_gaps(supabase_client, restaurant_id: int = 1) -> int:
         # Check if any open shifts exist
         open_shifts = supabase_client.table("sse_shifts") \
             .select("id", count="exact") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("shift_date", check_date.isoformat()) \
             .is_("staff_id", "null") \
             .execute()
@@ -205,7 +205,7 @@ def ensure_critical_gaps(supabase_client, restaurant_id: int = 1) -> int:
             # No open shifts - create one by clearing a staff assignment
             assigned_shifts = supabase_client.table("sse_shifts") \
                 .select("id") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("shift_date", check_date.isoformat()) \
                 .not_.is_("staff_id", "null") \
                 .limit(1) \

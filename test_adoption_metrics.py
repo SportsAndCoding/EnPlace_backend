@@ -6,7 +6,7 @@ s = get_supabase()
 
 # Find a restaurant with check-in data
 print("=== Step 1: Find restaurant with data ===")
-checkins = s.table("sse_daily_checkins").select("restaurant_id", count="exact").eq("restaurant_id", 1).execute()
+checkins = s.table("sse_daily_checkins").select("organization_id", count="exact").eq("organization_id", 1).execute()
 count = checkins.count or 0
 print(f"  Restaurant 1 (Demo Bistro): {count} check-ins")
 

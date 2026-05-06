@@ -64,7 +64,7 @@ def main():
     print(f"\nSignatures saved to quitter_signatures.json")
     
     # =========================================================================
-    # STEP 2: Test flight risk scoring on Demo Bistro (restaurant_id=1)
+    # STEP 2: Test flight risk scoring on Demo Bistro (organization_id=1)
     # =========================================================================
     print("\n" + "=" * 70)
     print("STEP 2: SCORING DEMO BISTRO STAFF")
@@ -73,7 +73,7 @@ def main():
     try:
         flight_scores = score_staff_flight_risk(
             client,
-            restaurant_id=1,  # Demo Bistro
+            organization_id=1,  # Demo Bistro
             signatures=signatures,
             lookback_days=14,
         )
@@ -100,7 +100,7 @@ def main():
     
     try:
         for metric in ["mood", "safety", "fairness", "respect"]:
-            result = calculate_network_percentile(client, restaurant_id=1, metric=metric)
+            result = calculate_network_percentile(client, organization_id=1, metric=metric)
             
             if result.get("error"):
                 print(f"\n  {metric.upper()}: {result['error']}")

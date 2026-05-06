@@ -163,14 +163,14 @@ async def add_modules_to_subscription(
     Charges prorated amount immediately.
     """
     supabase = get_supabase()
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=401, detail="No restaurant associated with this account")
     
-    result = supabase.table("restaurants") \
+    result = supabase.table("organizations") \
         .select("stripe_subscription_id, modules_enabled") \
-        .eq("id", restaurant_id) \
+        .eq("id", organization_id) \
         .single() \
         .execute()
     
@@ -202,7 +202,7 @@ async def add_modules_to_subscription(
         )
         
         new_modules = current_modules + modules_to_add
-        supabase.table("restaurants").update({
+        supabase.table("organizations").update({
             "modules_enabled": new_modules,
             "has_stable_hire": "stable_hire" in new_modules,
             "has_schedule_optimizer": "stable_schedule" in new_modules,
@@ -210,9 +210,9 @@ async def add_modules_to_subscription(
             "has_open_shift_marketplace": "open_shift" in new_modules,
             "has_shift_swap": "shift_swap" in new_modules,
             "updated_at": datetime.utcnow().isoformat()
-        }).eq("id", restaurant_id).execute()
+        }).eq("id", organization_id).execute()
         
-        logger.info(f"Restaurant {restaurant_id} added modules: {modules_to_add}")
+        logger.info(f"Restaurant {organization_id} added modules: {modules_to_add}")
         
         return {
             "success": True,
@@ -323,14 +323,14 @@ async def handle_subscription_updated(subscription):
     supabase = get_supabase()
 
     try:
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select("id, modules_pending_cancel") \
             .eq("stripe_subscription_id", subscription.id) \
             .single() \
             .execute()
 
         if result.data:
-            restaurant_id = result.data["id"]
+            organization_id = result.data["id"]
             pending = result.data.get("modules_pending_cancel") or {}
             
             # Check for any pending cancellations that should now be processed
@@ -380,13 +380,13 @@ async def handle_subscription_updated(subscription):
                 except Exception as e:
                     logger.error(f"Error removing items from Stripe: {e}")
                 
-                supabase.table("restaurants").update(update_data).eq("id", restaurant_id).execute()
-                logger.info(f"Processed pending cancellations for restaurant {restaurant_id}: {processed}")
+                supabase.table("organizations").update(update_data).eq("id", organization_id).execute()
+                logger.info(f"Processed pending cancellations for restaurant {organization_id}: {processed}")
             
             # Also sync subscription status
-            supabase.table("restaurants").update({
+            supabase.table("organizations").update({
                 "subscription_status": subscription.status
-            }).eq("id", restaurant_id).execute()
+            }).eq("id", organization_id).execute()
 
     except Exception as e:
         logger.error(f"Error handling subscription update: {e}")
@@ -396,14 +396,14 @@ async def handle_subscription_deleted(subscription):
     supabase = get_supabase()
     
     try:
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select("id") \
             .eq("stripe_subscription_id", subscription.id) \
             .single() \
             .execute()
         
         if result.data:
-            supabase.table("restaurants").update({
+            supabase.table("organizations").update({
                 "subscription_status": "cancelled",
                 "status": "churned",
                 "updated_at": datetime.utcnow().isoformat()
@@ -425,7 +425,7 @@ async def handle_payment_failed(invoice):
     try:
         subscription_id = invoice.subscription
         
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select("id, name") \
             .eq("stripe_subscription_id", subscription_id) \
             .single() \
@@ -433,7 +433,7 @@ async def handle_payment_failed(invoice):
         
         if result.data:
             # Update status
-            supabase.table("restaurants").update({
+            supabase.table("organizations").update({
                 "subscription_status": "past_due",
                 "updated_at": datetime.utcnow().isoformat()
             }).eq("id", result.data["id"]).execute()
@@ -450,22 +450,22 @@ async def handle_invoice_paid(invoice):
     
     try:
         subscription_id = invoice.subscription
-        restaurant_id = None
+        organization_id = None
         
         # Find the restaurant
         if subscription_id:
-            result = supabase.table("restaurants") \
+            result = supabase.table("organizations") \
                 .select("id") \
                 .eq("stripe_subscription_id", subscription_id) \
                 .single() \
                 .execute()
             
             if result.data:
-                restaurant_id = result.data["id"]
+                organization_id = result.data["id"]
         
         # Insert invoice record
         invoice_result = supabase.table("invoices").insert({
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "stripe_invoice_id": invoice.id,
             "amount_cents": invoice.amount_paid,
             "currency": invoice.currency,
@@ -476,17 +476,17 @@ async def handle_invoice_paid(invoice):
             "paid_at": datetime.utcnow().isoformat()
         }).execute()
         
-        logger.info(f"Recorded invoice {invoice.id} for restaurant {restaurant_id}: ${invoice.amount_paid / 100:.2f}")
+        logger.info(f"Recorded invoice {invoice.id} for restaurant {organization_id}: ${invoice.amount_paid / 100:.2f}")
         
         # === COMMISSION CREATION ===
-        if restaurant_id:
-            await create_commission_for_invoice(supabase, restaurant_id, invoice)
+        if organization_id:
+            await create_commission_for_invoice(supabase, organization_id, invoice)
     
     except Exception as e:
         logger.error(f"Error recording invoice: {e}")
 
 
-async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
+async def create_commission_for_invoice(supabase, organization_id: int, invoice):
     """
     Create commission record for the sales rep who closed this deal.
     
@@ -497,15 +497,15 @@ async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
         # Find the deal for this restaurant
         deal_result = supabase.table("sales_deals") \
             .select("id, rep_id, monthly_value") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "active") \
             .single() \
             .execute()
         
         if not deal_result.data:
-            logger.info(f"No active sales deal found for restaurant {restaurant_id} - no rep commission created")
+            logger.info(f"No active sales deal found for restaurant {organization_id} - no rep commission created")
             # Still check for partner referral even without a sales deal
-            await _check_partner_referral_invoice(supabase, restaurant_id, invoice)
+            await _check_partner_referral_invoice(supabase, organization_id, invoice)
             return
         
         deal = deal_result.data
@@ -553,10 +553,10 @@ async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
         logger.info(f"Commission created: ${commission_amount:.2f} ({commission_type}) for rep {rep_id}, releases {release_at.date()}")
 
         # Partner commission (separate from rep commission)
-        await _check_partner_referral_invoice(supabase, restaurant_id, invoice)
+        await _check_partner_referral_invoice(supabase, organization_id, invoice)
     
     except Exception as e:
-        logger.error(f"Error creating commission for restaurant {restaurant_id}: {e}")
+        logger.error(f"Error creating commission for restaurant {organization_id}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -567,15 +567,15 @@ async def create_commission_for_invoice(supabase, restaurant_id: int, invoice):
 async def get_subscription_status(current_staff: dict = Depends(verify_jwt_token)):
     """Get current subscription status for a restaurant"""
     supabase = get_supabase()
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=401, detail="No restaurant associated with this account")
 
     try:
-        result = supabase.table("restaurants") \
+        result = supabase.table("organizations") \
             .select("stripe_subscription_id, subscription_status, modules_enabled, modules_pending_cancel, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
-            .eq("id", restaurant_id) \
+            .eq("id", organization_id) \
             .single() \
             .execute()
         
@@ -636,9 +636,9 @@ async def update_subscription_modules(
 ):
     """Update subscription modules - handles both additions and removals."""
     supabase = get_supabase()
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=401, detail="No restaurant associated with this account")
     
     # SSE is always required
@@ -651,9 +651,9 @@ async def update_subscription_modules(
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid modules: {invalid}")
     
-    result = supabase.table("restaurants") \
+    result = supabase.table("organizations") \
         .select("stripe_subscription_id, modules_enabled, modules_pending_cancel, has_stable_hire, has_schedule_optimizer, has_house_guardian, has_open_shift_marketplace, has_shift_swap") \
-        .eq("id", restaurant_id) \
+        .eq("id", organization_id) \
         .single() \
         .execute()
     
@@ -742,9 +742,9 @@ async def update_subscription_modules(
         update_data["modules_pending_cancel"] = pending_cancel
     
     # Update database
-    supabase.table("restaurants").update(update_data).eq("id", restaurant_id).execute()
+    supabase.table("organizations").update(update_data).eq("id", organization_id).execute()
     
-    logger.info(f"Restaurant {restaurant_id} - Added: {modules_to_add}, Scheduled removal: {modules_to_remove}")
+    logger.info(f"Restaurant {organization_id} - Added: {modules_to_add}, Scheduled removal: {modules_to_remove}")
     
     return {
         "success": True,
@@ -761,15 +761,15 @@ async def cancel_subscription(
     ):
         """Cancel subscription at end of billing period."""
         supabase = get_supabase()
-        restaurant_id = current_staff.get("restaurant_id")
+        organization_id = current_staff.get("organization_id")
         
-        if not restaurant_id:
+        if not organization_id:
             raise HTTPException(status_code=401, detail="No restaurant associated with this account")
         
-        supabase.table("restaurants").update({
+        supabase.table("organizations").update({
             "subscription_status": "canceling",
             "updated_at": datetime.utcnow().isoformat()
-        }).eq("id", restaurant_id).execute()
+        }).eq("id", organization_id).execute()
         
         return {
             "success": True,
@@ -780,7 +780,7 @@ async def cancel_subscription(
 # PARTNER REFERRAL BRIDGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _check_partner_referral_invoice(supabase, restaurant_id: int, invoice):
+async def _check_partner_referral_invoice(supabase, organization_id: int, invoice):
     """
     Called when an En Place invoice is paid.
     If the restaurant was referred by a partner:
@@ -790,7 +790,7 @@ async def _check_partner_referral_invoice(supabase, restaurant_id: int, invoice)
     try:
         referral = supabase.table("proof_partner_referrals") \
             .select("id, partner_id, status, commission_rate, is_first_close") \
-            .eq("en_place_restaurant_id", restaurant_id) \
+            .eq("en_place_restaurant_id", organization_id) \
             .not_.in_("status", ["rejected", "churned"]) \
             .execute()
 
@@ -815,7 +815,7 @@ async def _check_partner_referral_invoice(supabase, restaurant_id: int, invoice)
                 .eq("id", ref["id"]) \
                 .execute()
 
-            logger.info(f"Partner referral {ref['id']} activated for restaurant {restaurant_id}")
+            logger.info(f"Partner referral {ref['id']} activated for restaurant {organization_id}")
 
             # Update partner aggregates + state machine (certified->active, first close bonus)
             await _update_partner_from_webhook(partner_id, ref["id"], supabase)
@@ -868,10 +868,10 @@ async def _check_partner_referral_invoice(supabase, restaurant_id: int, invoice)
         logger.info(f"Partner commission ${commission_amount:.2f} created for referral {ref['id']}")
 
     except Exception as e:
-        logger.error(f"Partner referral invoice check failed for restaurant {restaurant_id}: {e}")
+        logger.error(f"Partner referral invoice check failed for restaurant {organization_id}: {e}")
 
 
-async def _check_partner_referral_churn(restaurant_id: int, supabase):
+async def _check_partner_referral_churn(organization_id: int, supabase):
     """
     Called when an En Place subscription is deleted.
     If the restaurant was referred by a partner, mark the referral as churned
@@ -880,7 +880,7 @@ async def _check_partner_referral_churn(restaurant_id: int, supabase):
     try:
         referral = supabase.table("proof_partner_referrals") \
             .select("id, partner_id") \
-            .eq("en_place_restaurant_id", restaurant_id) \
+            .eq("en_place_restaurant_id", organization_id) \
             .eq("status", "active") \
             .execute()
 
@@ -899,7 +899,7 @@ async def _check_partner_referral_churn(restaurant_id: int, supabase):
             .eq("id", ref["id"]) \
             .execute()
 
-        logger.info(f"Partner referral {ref['id']} churned for restaurant {restaurant_id}")
+        logger.info(f"Partner referral {ref['id']} churned for restaurant {organization_id}")
 
         # Recalculate active referral count
         active_count = supabase.table("proof_partner_referrals") \
@@ -927,7 +927,7 @@ async def _check_partner_referral_churn(restaurant_id: int, supabase):
             .execute()
 
     except Exception as e:
-        logger.error(f"Partner referral churn check failed for restaurant {restaurant_id}: {e}")
+        logger.error(f"Partner referral churn check failed for restaurant {organization_id}: {e}")
 
 
 async def _update_partner_from_webhook(partner_id: str, referral_id: str, supabase):

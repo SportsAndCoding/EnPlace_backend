@@ -19,20 +19,20 @@ from database.supabase_client import supabase
 from services.anonymity_guard import ANONYMITY_THRESHOLD, get_role_category
 import pytz
 
-def get_today_for_restaurant(restaurant_id: int) -> date:
+def get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in the restaurant's timezone."""
-    result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+    result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
     tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     tz = pytz.timezone(tz_name)
     return datetime.now(tz).date()
 
-def get_dashboard_data(restaurant_id: int, staff_id: str = None) -> dict:
+def get_dashboard_data(organization_id: int, staff_id: str = None) -> dict:
     """
     Aggregate all dashboard data for a restaurant.
     Returns everything manager-home.html needs in one response.
     """
     # Date ranges - use restaurant timezone
-    today = get_today_for_restaurant(restaurant_id)
+    today = get_today_for_restaurant(organization_id)
     week_ago = today - timedelta(days=7)
     two_weeks_ago = today - timedelta(days=14)
     four_weeks_ago = today - timedelta(days=28)
@@ -43,29 +43,29 @@ def get_dashboard_data(restaurant_id: int, staff_id: str = None) -> dict:
     week_end = week_start + timedelta(days=6)
     
     # Fetch all needed data in parallel-ish (Supabase doesn't do true parallel, but grouped)
-    restaurant = get_restaurant_info(restaurant_id)
-    checkins_7d = get_checkins(restaurant_id, week_ago, today)
-    checkins_14d = get_checkins(restaurant_id, two_weeks_ago, today)
-    checkins_28d = get_checkins(restaurant_id, four_weeks_ago, today)
-    manager_logs = get_manager_logs(restaurant_id, week_ago, today)
-    shifts_today = get_shifts_for_date(restaurant_id, today)
-    shifts_week = get_shifts_range(restaurant_id, week_start, week_end)
-    staff_list = get_staff(restaurant_id)
-    candidates = get_candidates(restaurant_id)
-    escalations = get_escalations(restaurant_id)
-    notifications = get_notifications(restaurant_id)
-    house_guardian_alerts = get_house_guardian_alerts(restaurant_id)
+    restaurant = get_restaurant_info(organization_id)
+    checkins_7d = get_checkins(organization_id, week_ago, today)
+    checkins_14d = get_checkins(organization_id, two_weeks_ago, today)
+    checkins_28d = get_checkins(organization_id, four_weeks_ago, today)
+    manager_logs = get_manager_logs(organization_id, week_ago, today)
+    shifts_today = get_shifts_for_date(organization_id, today)
+    shifts_week = get_shifts_range(organization_id, week_start, week_end)
+    staff_list = get_staff(organization_id)
+    candidates = get_candidates(organization_id)
+    escalations = get_escalations(organization_id)
+    notifications = get_notifications(organization_id)
+    house_guardian_alerts = get_house_guardian_alerts(organization_id)
     has_house_guardian = restaurant.get("has_house_guardian", False)
-    house_guardian_report = get_house_guardian_weekly_report(restaurant_id, has_house_guardian)
-    pending_swaps = get_pending_swaps(restaurant_id)
-    latest_schedule = get_latest_schedule_analysis(restaurant_id)
-    pending_nudges = get_pending_nudges(restaurant_id)
-    dismissed_nudges = get_dismissed_nudges(restaurant_id)
+    house_guardian_report = get_house_guardian_weekly_report(organization_id, has_house_guardian)
+    pending_swaps = get_pending_swaps(organization_id)
+    latest_schedule = get_latest_schedule_analysis(organization_id)
+    pending_nudges = get_pending_nudges(organization_id)
+    dismissed_nudges = get_dismissed_nudges(organization_id)
     
     # Compute each section
     smm = compute_smm(checkins_7d, checkins_28d, manager_logs, dismissed_nudges)
     fairness = compute_fairness(checkins_7d, checkins_28d, shifts_week, staff_list)
-    burnout = compute_burnout(checkins_7d, checkins_28d, shifts_week, staff_list)
+    burnout = compute_burnout(checkins_7d, checkins_28d, shifts_week, staff_list, organization_id)
     stable_schedule = compute_stable_schedule(shifts_week, shifts_today, today)
     stable_hire = compute_stable_hire(candidates)
     house_guardian = compute_house_guardian(smm, fairness, burnout, stable_schedule, escalations)
@@ -110,13 +110,13 @@ def get_dashboard_data(restaurant_id: int, staff_id: str = None) -> dict:
 # DATA FETCHERS
 # ═══════════════════════════════════════════════════════════════════
 
-def get_restaurant_info(restaurant_id: int) -> dict:
+def get_restaurant_info(organization_id: int) -> dict:
     """Get restaurant basic info including feature flags."""
-    result = supabase.table("restaurants").select("*").eq("id", restaurant_id).single().execute()
+    result = supabase.table("organizations").select("*").eq("id", organization_id).single().execute()
     if result.data:
         r = result.data
         # Get staff count
-        staff_result = supabase.table("staff").select("staff_id", count="exact").eq("restaurant_id", restaurant_id).eq("status", "Active").execute()
+        staff_result = supabase.table("staff").select("staff_id", count="exact").eq("organization_id", organization_id).eq("status", "Active").execute()
         staff_count = staff_result.count or 0
 
         return {
@@ -146,66 +146,66 @@ def get_restaurant_info(restaurant_id: int) -> dict:
     }
 
 
-def get_checkins(restaurant_id: int, start_date: date, end_date: date) -> list:
+def get_checkins(organization_id: int, start_date: date, end_date: date) -> list:
     """Get check-ins for date range."""
-    result = supabase.table("sse_daily_checkins").select("*").eq("restaurant_id", restaurant_id).gte("checkin_date", start_date.isoformat()).lte("checkin_date", end_date.isoformat()).execute()
+    result = supabase.table("sse_daily_checkins").select("*").eq("organization_id", organization_id).gte("checkin_date", start_date.isoformat()).lte("checkin_date", end_date.isoformat()).execute()
     return result.data or []
 
 
-def get_manager_logs(restaurant_id: int, start_date: date, end_date: date) -> list:
+def get_manager_logs(organization_id: int, start_date: date, end_date: date) -> list:
     """Get manager logs for date range."""
-    result = supabase.table("manager_daily_logs").select("*").eq("restaurant_id", restaurant_id).gte("log_date", start_date.isoformat()).lte("log_date", end_date.isoformat()).execute()
+    result = supabase.table("manager_daily_logs").select("*").eq("organization_id", organization_id).gte("log_date", start_date.isoformat()).lte("log_date", end_date.isoformat()).execute()
     return result.data or []
 
 
-def get_shifts_for_date(restaurant_id: int, shift_date: date) -> list:
+def get_shifts_for_date(organization_id: int, shift_date: date) -> list:
     """Get shifts for a specific date."""
-    result = supabase.table("sse_shifts").select("*").eq("restaurant_id", restaurant_id).eq("shift_date", shift_date.isoformat()).execute()
+    result = supabase.table("sse_shifts").select("*").eq("organization_id", organization_id).eq("shift_date", shift_date.isoformat()).execute()
     return result.data or []
 
 
-def get_shifts_range(restaurant_id: int, start_date: date, end_date: date) -> list:
+def get_shifts_range(organization_id: int, start_date: date, end_date: date) -> list:
     """Get shifts for date range."""
-    result = supabase.table("sse_shifts").select("*").eq("restaurant_id", restaurant_id).gte("shift_date", start_date.isoformat()).lte("shift_date", end_date.isoformat()).execute()
+    result = supabase.table("sse_shifts").select("*").eq("organization_id", organization_id).gte("shift_date", start_date.isoformat()).lte("shift_date", end_date.isoformat()).execute()
     return result.data or []
 
 
-def get_staff(restaurant_id: int) -> list:
+def get_staff(organization_id: int) -> list:
     """Get all active staff."""
-    result = supabase.table("staff").select("*").eq("restaurant_id", restaurant_id).eq("status", "Active").execute()
+    result = supabase.table("staff").select("*").eq("organization_id", organization_id).eq("status", "Active").execute()
     return result.data or []
 
 
-def get_candidates(restaurant_id: int) -> list:
+def get_candidates(organization_id: int) -> list:
     """Get all candidates."""
-    result = supabase.table("hiring_candidates").select("*").eq("restaurant_id", restaurant_id).execute()
+    result = supabase.table("hiring_candidates").select("*").eq("organization_id", organization_id).execute()
     return result.data or []
 
 
-def get_escalations(restaurant_id: int) -> list:
+def get_escalations(organization_id: int) -> list:
     """Get active escalations with staff info."""
     result = supabase.table("sse_escalation_events") \
         .select("*, primary_staff:primary_staff_id(full_name, position)") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .in_("status", ["actionable", "monitoring"]) \
         .execute()
     return result.data or []
 
 
-def get_notifications(restaurant_id: int) -> list:
+def get_notifications(organization_id: int) -> list:
     """Get recent unread notifications."""
-    result = supabase.table("notifications").select("*").eq("restaurant_id", restaurant_id).eq("is_read", False).order("created_at", desc=True).limit(10).execute()
+    result = supabase.table("notifications").select("*").eq("organization_id", organization_id).eq("is_read", False).order("created_at", desc=True).limit(10).execute()
     return result.data or []
 
-def get_house_guardian_alerts(restaurant_id: int) -> list:
+def get_house_guardian_alerts(organization_id: int) -> list:
     """Get active House Guardian alerts."""
     try:
-        result = supabase.table("house_guardian_alerts").select("*").eq("restaurant_id", restaurant_id).eq("status", "active").execute()
+        result = supabase.table("house_guardian_alerts").select("*").eq("organization_id", organization_id).eq("status", "active").execute()
         return result.data or []
     except Exception as e:
         return []
 
-def get_house_guardian_weekly_report(restaurant_id: int, has_subscription: bool = False) -> dict:
+def get_house_guardian_weekly_report(organization_id: int, has_subscription: bool = False) -> dict:
     """
     Get House Guardian weekly report.
     Subscribers get their actual report.
@@ -213,7 +213,7 @@ def get_house_guardian_weekly_report(restaurant_id: int, has_subscription: bool 
     """
     if has_subscription:
         try:
-            result = supabase.table("house_guardian_weekly_reports").select("*").eq("restaurant_id", restaurant_id).order("generated_at", desc=True).limit(1).execute()
+            result = supabase.table("house_guardian_weekly_reports").select("*").eq("organization_id", organization_id).order("generated_at", desc=True).limit(1).execute()
             if result.data:
                 report = result.data[0]
                 report["is_network_report"] = False
@@ -223,10 +223,10 @@ def get_house_guardian_weekly_report(restaurant_id: int, has_subscription: bool 
             return None
     else:
         # Non-subscriber: return network social proof report
-        return _generate_network_report(restaurant_id)
+        return _generate_network_report(organization_id)
 
 
-def _generate_network_report(restaurant_id: int) -> dict:
+def _generate_network_report(organization_id: int) -> dict:
     """
     Generate network-wide social proof report for non-subscribers.
     Shows aggregated wins + one rotating cautionary tale.
@@ -234,7 +234,7 @@ def _generate_network_report(restaurant_id: int) -> dict:
     """
     from datetime import datetime, timedelta
     
-    today = get_today_for_restaurant(restaurant_id)
+    today = get_today_for_restaurant(organization_id)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=6)
     
@@ -565,12 +565,12 @@ def _generate_network_report(restaurant_id: int) -> dict:
     # Select one cautionary tale - unique rotation per restaurant
     # Each restaurant cycles through all tales before repeating
     week_number = today.isocalendar()[1]
-    tale_index = (week_number + restaurant_id) % len(cautionary_tales)
+    tale_index = (week_number + organization_id) % len(cautionary_tales)
     selected_tale = cautionary_tales[tale_index]
     
     return {
         "id": "network_report",
-        "restaurant_id": None,
+        "organization_id": None,
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
         "is_network_report": True,
@@ -613,17 +613,17 @@ def _generate_network_report(restaurant_id: int) -> dict:
             "cautionary_tale": selected_tale
         }
     }  
-def get_pending_swaps(restaurant_id: int) -> list:
+def get_pending_swaps(organization_id: int) -> list:
     """Get pending shift swap requests with staff names (future shifts only)."""
     try:
         result = supabase.table("shift_swaps") \
             .select("*, sse_shifts(shift_date, scheduled_start, position, shift_type), requester:requesting_staff_id(full_name), target:target_staff_id(full_name)") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "accepted") \
             .execute()
         
         # Filter out past shifts
-        today = get_today_for_restaurant(restaurant_id).isoformat()
+        today = get_today_for_restaurant(organization_id).isoformat()
         swaps = result.data or []
         swaps = [s for s in swaps if (s.get("sse_shifts") or {}).get("shift_date", "9999") >= today]
         
@@ -632,12 +632,12 @@ def get_pending_swaps(restaurant_id: int) -> list:
         print(f"Error fetching swaps: {e}")
         return []
     
-def get_latest_schedule_analysis(restaurant_id: int) -> dict:
+def get_latest_schedule_analysis(organization_id: int) -> dict:
     """Get latest completed schedule analysis."""
     try:
         result = supabase.table("schedule_uploads") \
             .select("*") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "completed") \
             .order("processed_at", desc=True) \
             .limit(1) \
@@ -646,12 +646,12 @@ def get_latest_schedule_analysis(restaurant_id: int) -> dict:
     except Exception as e:
         return None
 
-def get_pending_nudges(restaurant_id: int) -> list:
+def get_pending_nudges(organization_id: int) -> list:
     """Get pending nudges aggregated by module and position."""
     try:
         result = supabase.table("nudges") \
             .select("*, staff:staff_id(full_name, position)") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "pending") \
             .execute()
         return result.data or []
@@ -659,7 +659,7 @@ def get_pending_nudges(restaurant_id: int) -> list:
         logger.error(f"Error fetching nudges: {e}")
         return []
     
-def get_dismissed_nudges(restaurant_id: int) -> list:
+def get_dismissed_nudges(organization_id: int) -> list:
     """Get dismissed (acknowledged) nudges from last 30 days."""
     try:
         from datetime import datetime, timedelta
@@ -667,7 +667,7 @@ def get_dismissed_nudges(restaurant_id: int) -> list:
         
         result = supabase.table("nudges") \
             .select("id, module_key, viewed_at") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "acknowledged") \
             .gte("viewed_at", thirty_days_ago) \
             .execute()
@@ -868,7 +868,7 @@ def compute_fairness(checkins_7d: list, checkins_28d: list, shifts_week: list, s
     }
 
 
-def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, staff_list: list) -> dict:
+def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, staff_list: list, organization_id: int) -> dict:
     """
     Compute burnout radar - EMOTIONAL PATTERNS ONLY.
     
@@ -928,7 +928,7 @@ def compute_burnout(checkins_7d: list, checkins_28d: list, shifts_week: list, st
 
             # Anonymity guard: don't expose position-level mood for small teams
             if staff_count < ANONYMITY_THRESHOLD:
-                display_role = get_role_category(role)
+                display_role = get_role_category(supabase, organization_id, role)
             else:
                 display_role = role
 

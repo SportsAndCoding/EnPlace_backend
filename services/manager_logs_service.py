@@ -10,10 +10,10 @@ class ManagerLogsService:
     def __init__(self):
         self.supabase = get_supabase()
     
-    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+    def _get_today_for_restaurant(self, organization_id: int) -> date:
         """Get today's date in restaurant timezone."""
         try:
-            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            result = self.supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
             tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
         except:
             tz_name = "America/New_York"
@@ -26,10 +26,10 @@ class ManagerLogsService:
         One log per restaurant per day.
         """
         try:
-            log_date = log_data.get("log_date") or self._get_today_for_restaurant(log_data["restaurant_id"]).isoformat()
+            log_date = log_data.get("log_date") or self._get_today_for_restaurant(log_data["organization_id"]).isoformat()
             
             payload = {
-                "restaurant_id": log_data["restaurant_id"],
+                "organization_id": log_data["organization_id"],
                 "manager_staff_id": manager_staff_id,
                 "log_date": log_date if isinstance(log_date, str) else log_date.isoformat(),
                 "overall_rating": log_data["overall_rating"],
@@ -59,14 +59,14 @@ class ManagerLogsService:
     
     async def get_log_by_restaurant_and_date(
         self, 
-        restaurant_id: int, 
+        organization_id: int, 
         log_date: date
     ) -> Optional[Dict[str, Any]]:
         """Get a specific log by restaurant and date"""
         try:
             result = self.supabase.table("manager_daily_logs") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("log_date", log_date.isoformat()) \
                 .execute()
             
@@ -80,7 +80,7 @@ class ManagerLogsService:
     
     async def get_logs_by_restaurant(
         self,
-        restaurant_id: int,
+        organization_id: int,
         start_date: date,
         end_date: date
     ) -> List[Dict[str, Any]]:
@@ -88,7 +88,7 @@ class ManagerLogsService:
         try:
             result = self.supabase.table("manager_daily_logs") \
                 .select("*, manager:manager_staff_id(full_name)") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("log_date", start_date.isoformat()) \
                 .lte("log_date", end_date.isoformat()) \
                 .order("log_date", desc=True) \
@@ -100,7 +100,7 @@ class ManagerLogsService:
             logger.error(f"Get manager logs error: {e}")
             raise e
     
-    async def get_today_log(self, restaurant_id: int) -> Optional[Dict[str, Any]]:
+    async def get_today_log(self, organization_id: int) -> Optional[Dict[str, Any]]:
         """Check if restaurant already has a log for today"""
-        today = self._get_today_for_restaurant(restaurant_id)
-        return await self.get_log_by_restaurant_and_date(restaurant_id, today)
+        today = self._get_today_for_restaurant(organization_id)
+        return await self.get_log_by_restaurant_and_date(organization_id, today)

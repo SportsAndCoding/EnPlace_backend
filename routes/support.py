@@ -44,7 +44,7 @@ def _hash_password(password: str) -> str:
 def _write_audit(
     supabase,
     staff_id: str,
-    restaurant_id: int,
+    organization_id: int,
     changed_by: str,
     action: str,
     changed_fields: dict,
@@ -52,12 +52,12 @@ def _write_audit(
 ):
     """
     Write a row to staff_audit_log.
-    restaurant_id = target staff member's restaurant_id (NOT the agent's).
+    organization_id = target staff member's organization_id (NOT the agent's).
     Falls back to 0 for internal/null restaurant staff.
     """
     entry = {
         "staff_id": staff_id,
-        "restaurant_id": restaurant_id if restaurant_id is not None else 0,
+        "organization_id": organization_id if organization_id is not None else 0,
         "changed_by": changed_by,
         "action": action,
         "changed_fields": changed_fields,
@@ -119,12 +119,12 @@ async def lookup_staff(
 
     if payload.email:
         result = supabase.table("staff").select(
-            "staff_id, full_name, email, phone, restaurant_id, status, "
+            "staff_id, full_name, email, phone, organization_id, status, "
             "is_portal_enabled, portal_access, last_login, created_at, position"
         ).eq("email", payload.email.strip().lower()).execute()
     else:
         result = supabase.table("staff").select(
-            "staff_id, full_name, email, phone, restaurant_id, status, "
+            "staff_id, full_name, email, phone, organization_id, status, "
             "is_portal_enabled, portal_access, last_login, created_at, position"
         ).eq("phone", payload.phone.strip()).execute()
 
@@ -134,10 +134,10 @@ async def lookup_staff(
     staff = result.data[0]
 
     # Attach restaurant context if applicable
-    if staff.get("restaurant_id"):
-        r = supabase.table("restaurants").select(
+    if staff.get("organization_id"):
+        r = supabase.table("organizations").select(
             "id, name, status, subscription_status, modules_enabled"
-        ).eq("id", staff["restaurant_id"]).execute()
+        ).eq("id", staff["organization_id"]).execute()
         staff["restaurant"] = r.data[0] if r.data else None
 
     return {"success": True, "staff": staff}
@@ -157,7 +157,7 @@ async def support_reset_password(
     supabase = get_supabase()
 
     result = supabase.table("staff").select(
-        "staff_id, full_name, phone, restaurant_id"
+        "staff_id, full_name, phone, organization_id"
     ).eq("staff_id", payload.staff_id).execute()
 
     if not result.data:
@@ -193,7 +193,7 @@ async def support_reset_password(
     _write_audit(
         supabase,
         staff_id=payload.staff_id,
-        restaurant_id=target.get("restaurant_id"),
+        organization_id=target.get("organization_id"),
         changed_by=current_staff["staff_id"],
         action="support_password_reset",
         changed_fields={"note": "Support agent triggered password reset SMS", "sms_success": sms_result.get("success", False)},
@@ -217,7 +217,7 @@ async def support_update_email(
     supabase = get_supabase()
 
     result = supabase.table("staff").select(
-        "staff_id, full_name, email, restaurant_id"
+        "staff_id, full_name, email, organization_id"
     ).eq("staff_id", payload.staff_id).execute()
 
     if not result.data:
@@ -239,7 +239,7 @@ async def support_update_email(
     _write_audit(
         supabase,
         staff_id=payload.staff_id,
-        restaurant_id=target.get("restaurant_id"),
+        organization_id=target.get("organization_id"),
         changed_by=current_staff["staff_id"],
         action="support_email_update",
         changed_fields={"before": {"email": old_email}, "after": {"email": new_email}},
@@ -259,7 +259,7 @@ async def support_update_phone(
     supabase = get_supabase()
 
     result = supabase.table("staff").select(
-        "staff_id, full_name, phone, restaurant_id"
+        "staff_id, full_name, phone, organization_id"
     ).eq("staff_id", payload.staff_id).execute()
 
     if not result.data:
@@ -275,7 +275,7 @@ async def support_update_phone(
     _write_audit(
         supabase,
         staff_id=payload.staff_id,
-        restaurant_id=target.get("restaurant_id"),
+        organization_id=target.get("organization_id"),
         changed_by=current_staff["staff_id"],
         action="support_phone_update",
         changed_fields={"before": {"phone": old_phone}, "after": {"phone": payload.new_phone.strip()}},
@@ -301,7 +301,7 @@ async def support_toggle_account(
     supabase = get_supabase()
 
     result = supabase.table("staff").select(
-        "staff_id, full_name, is_portal_enabled, status, restaurant_id"
+        "staff_id, full_name, is_portal_enabled, status, organization_id"
     ).eq("staff_id", payload.staff_id).execute()
 
     if not result.data:
@@ -319,7 +319,7 @@ async def support_toggle_account(
     _write_audit(
         supabase,
         staff_id=payload.staff_id,
-        restaurant_id=target.get("restaurant_id"),
+        organization_id=target.get("organization_id"),
         changed_by=current_staff["staff_id"],
         action=f"support_account_{payload.action}d",
         changed_fields={
@@ -336,9 +336,9 @@ async def support_toggle_account(
     }
 
 
-@router.get("/restaurant/{restaurant_id}")
+@router.get("/restaurant/{organization_id}")
 async def get_restaurant_snapshot(
-    restaurant_id: int,
+    organization_id: int,
     current_staff: dict = Depends(verify_support_agent),
 ):
     """
@@ -347,11 +347,11 @@ async def get_restaurant_snapshot(
     """
     supabase = get_supabase()
 
-    result = supabase.table("restaurants").select(
+    result = supabase.table("organizations").select(
         "id, name, address, phone, status, subscription_status, modules_enabled, "
         "has_stable_hire, has_house_guardian, has_open_shift_marketplace, "
-        "has_shift_swap, has_schedule_optimizer, restaurant_type, created_at"
-    ).eq("id", restaurant_id).execute()
+        "has_shift_swap, has_schedule_optimizer, organization_subtype, created_at"
+    ).eq("id", organization_id).execute()
 
     if not result.data:
         raise HTTPException(status_code=404, detail="Restaurant not found")
@@ -359,7 +359,7 @@ async def get_restaurant_snapshot(
     restaurant = result.data[0]
 
     staff_result = supabase.table("staff").select("staff_id, status, portal_access").eq(
-        "restaurant_id", restaurant_id
+        "organization_id", organization_id
     ).execute()
 
     all_staff = staff_result.data or []
@@ -389,7 +389,7 @@ async def resend_onboarding_sms(
     supabase = get_supabase()
 
     result = supabase.table("staff").select(
-        "staff_id, full_name, phone, restaurant_id"
+        "staff_id, full_name, phone, organization_id"
     ).eq("staff_id", payload.staff_id).execute()
 
     if not result.data:
@@ -422,7 +422,7 @@ async def resend_onboarding_sms(
     _write_audit(
         supabase,
         staff_id=payload.staff_id,
-        restaurant_id=target.get("restaurant_id"),
+        organization_id=target.get("organization_id"),
         changed_by=current_staff["staff_id"],
         action="support_resend_onboarding",
         changed_fields={

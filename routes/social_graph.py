@@ -33,11 +33,11 @@ async def graph_snapshot(current_user: dict = Depends(get_current_user)):
     The frontend renders this directly with zero business logic.
     """
     try:
-        restaurant_id = current_user.get("restaurant_id")
-        if not restaurant_id:
-            raise HTTPException(status_code=400, detail="No restaurant_id in token")
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="No organization_id in token")
 
-        data = get_graph_snapshot(restaurant_id)
+        data = get_graph_snapshot(organization_id)
         return data
 
     except HTTPException:
@@ -57,11 +57,11 @@ async def retention_ranking(current_user: dict = Depends(get_current_user)):
     This is the main SSE dashboard table.
     """
     try:
-        restaurant_id = current_user.get("restaurant_id")
-        if not restaurant_id:
-            raise HTTPException(status_code=400, detail="No restaurant_id in token")
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="No organization_id in token")
 
-        data = get_retention_ranking(restaurant_id)
+        data = get_retention_ranking(organization_id)
         return data
 
     except HTTPException:
@@ -88,11 +88,11 @@ async def cascade_analysis(
     This powers the "what happens if Billy leaves?" feature.
     """
     try:
-        restaurant_id = current_user.get("restaurant_id")
-        if not restaurant_id:
-            raise HTTPException(status_code=400, detail="No restaurant_id in token")
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="No organization_id in token")
 
-        data = get_cascade_analysis(restaurant_id, staff_id)
+        data = get_cascade_analysis(organization_id, staff_id)
         if data is None:
             raise HTTPException(
                 status_code=404,
@@ -120,11 +120,11 @@ async def graph_history(
     manager dashboard.
     """
     try:
-        restaurant_id = current_user.get("restaurant_id")
-        if not restaurant_id:
-            raise HTTPException(status_code=400, detail="No restaurant_id in token")
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="No organization_id in token")
 
-        data = get_graph_history(restaurant_id, days)
+        data = get_graph_history(organization_id, days)
         return data
 
     except HTTPException:

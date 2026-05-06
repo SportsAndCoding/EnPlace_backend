@@ -246,7 +246,7 @@ async def get_my_commissions(current_staff: dict = Depends(verify_jwt_token)):
     
     try:
         result = supabase.table("sales_commissions") \
-            .select("*, sales_deals(monthly_value, restaurant_id, closed_at)") \
+            .select("*, sales_deals(monthly_value, organization_id, closed_at)") \
             .eq("rep_id", staff_id) \
             .order("created_at", desc=True) \
             .execute()

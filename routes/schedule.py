@@ -112,10 +112,10 @@ async def upload_schedule(
     Upload a schedule - saves immediately, parsing runs in background.
     Frontend should poll /status/{upload_id} for completion.
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     staff_id = current_staff.get("staff_id")
 
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=400, detail="No restaurant associated with user")
 
     if not request.raw_schedule or len(request.raw_schedule.strip()) < 10:
@@ -124,7 +124,7 @@ async def upload_schedule(
     try:
         existing = supabase.table("schedule_uploads") \
             .select("id") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("week_of", request.week_of) \
             .eq("upload_type", "current") \
             .execute()
@@ -145,7 +145,7 @@ async def upload_schedule(
         else:
             result = supabase.table("schedule_uploads") \
                 .insert({
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "uploaded_by": staff_id,
                     "week_of": request.week_of,
                     "raw_schedule": request.raw_schedule,
@@ -163,7 +163,7 @@ async def upload_schedule(
             process_schedule_background,
             upload_id=upload_id,
             raw_schedule=request.raw_schedule,
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             week_of=request.week_of,
             staff_id=staff_id,
             auto_publish=request.auto_publish,
@@ -195,7 +195,7 @@ async def upload_schedule(
 async def process_schedule_background(
     upload_id: int,
     raw_schedule: str,
-    restaurant_id: int,
+    organization_id: int,
     week_of: str,
     staff_id: str,
     auto_publish: bool = True,
@@ -215,7 +215,7 @@ async def process_schedule_background(
 
         parse_result = await parse_schedule(
             raw_schedule=raw_schedule,
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             week_of=week_of,
             include_inactive_staff=is_historical
         )
@@ -252,7 +252,7 @@ async def process_schedule_background(
                 day_type = "weekend" if shift_dt.weekday() >= 5 else "weekday"
 
                 shift_data = {
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "staff_id": shift.get("staff_id"),
                     "shift_date": shift_date,
                     "scheduled_start": f"{shift_date}T{start_time}:00Z",
@@ -293,7 +293,7 @@ async def process_schedule_background(
 
                     # Save reconciliation record
                     supabase.table("schedule_import_unmatched").insert({
-                        "restaurant_id": restaurant_id,
+                        "organization_id": organization_id,
                         "upload_id": upload_id,
                         "raw_name": raw_name,
                         "inferred_position": inferred_position,
@@ -316,7 +316,7 @@ async def process_schedule_background(
                             u_day_type = "weekend" if u_shift_dt.weekday() >= 5 else "weekday"
 
                             supabase.table("sse_shifts").insert({
-                                "restaurant_id": restaurant_id,
+                                "organization_id": organization_id,
                                 "staff_id": None,
                                 "shift_date": u_date,
                                 "scheduled_start": f"{u_date}T{u_start}:00Z",
@@ -362,7 +362,7 @@ async def process_schedule_background(
         # ── SMS notification (current schedules only) ────────────────────
         if not is_historical and should_publish:
             try:
-                await _notify_schedule_published(restaurant_id, week_of)
+                await _notify_schedule_published(organization_id, week_of)
             except Exception as sms_err:
                 logger.error(f"Schedule published SMS failed: {sms_err}")
 
@@ -424,10 +424,10 @@ async def upload_historical_schedule(
     - Marks all shifts as is_historical=true
     - Checks for date overlap with existing schedules
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     staff_id = current_staff.get("staff_id")
 
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=400, detail="No restaurant associated with user")
 
     if not request.raw_schedule or len(request.raw_schedule.strip()) < 10:
@@ -438,7 +438,7 @@ async def upload_historical_schedule(
         overlap_warning = None
         latest_current = supabase.table("schedule_uploads") \
             .select("week_of") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("upload_type", "current") \
             .order("week_of", desc=True) \
             .limit(1) \
@@ -456,7 +456,7 @@ async def upload_historical_schedule(
         # ── Check for duplicate historical upload for same week ──────────
         existing_historical = supabase.table("schedule_uploads") \
             .select("id") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("week_of", request.week_of) \
             .eq("upload_type", "historical") \
             .execute()
@@ -489,7 +489,7 @@ async def upload_historical_schedule(
         else:
             result = supabase.table("schedule_uploads") \
                 .insert({
-                    "restaurant_id": restaurant_id,
+                    "organization_id": organization_id,
                     "uploaded_by": staff_id,
                     "week_of": request.week_of,
                     "raw_schedule": request.raw_schedule,
@@ -508,7 +508,7 @@ async def upload_historical_schedule(
             process_schedule_background,
             upload_id=upload_id,
             raw_schedule=request.raw_schedule,
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             week_of=request.week_of,
             staff_id=staff_id,
             auto_publish=False,
@@ -547,14 +547,14 @@ async def get_unmatched_names(
     Get all unmatched names from a historical upload for reconciliation.
     Manager sees each name and decides: add to roster, mark inactive, or skip.
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         # Verify upload belongs to this restaurant
         upload = supabase.table("schedule_uploads") \
             .select("id, week_of, status, upload_type") \
             .eq("id", upload_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         if not upload.data:
@@ -603,7 +603,7 @@ async def resolve_unmatched_name(
     - matched_existing: Manager says "that's actually [existing person]", reassigns shifts
     - skipped: Shifts remain unassigned, name preserved for reference
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     resolver_id = current_staff.get("staff_id")
 
     try:
@@ -611,7 +611,7 @@ async def resolve_unmatched_name(
         entry_result = supabase.table("schedule_import_unmatched") \
             .select("*") \
             .eq("id", request.unmatched_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         if not entry_result.data:
@@ -637,11 +637,11 @@ async def resolve_unmatched_name(
             prefix = position[:3].upper()
             timestamp = datetime.now().strftime("%H%M%S")
             random_suffix = ''.join(secrets.choice(string.digits) for _ in range(3))
-            new_staff_id = f"{prefix}{restaurant_id}{timestamp}{random_suffix}"
+            new_staff_id = f"{prefix}{organization_id}{timestamp}{random_suffix}"
 
             supabase.table("staff").insert({
                 "staff_id": new_staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "full_name": full_name,
                 "email": request.email,
                 "phone": request.phone,
@@ -669,7 +669,7 @@ async def resolve_unmatched_name(
             prefix = position[:3].upper()
             timestamp = datetime.now().strftime("%H%M%S")
             random_suffix = ''.join(secrets.choice(string.digits) for _ in range(3))
-            new_staff_id = f"{prefix}{restaurant_id}{timestamp}{random_suffix}"
+            new_staff_id = f"{prefix}{organization_id}{timestamp}{random_suffix}"
 
             # Find their most recent shift date from this upload for last_work_date
             latest_shift = supabase.table("sse_shifts") \
@@ -684,7 +684,7 @@ async def resolve_unmatched_name(
 
             supabase.table("staff").insert({
                 "staff_id": new_staff_id,
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "full_name": full_name,
                 "position": position,
                 "status": "inactive",
@@ -709,7 +709,7 @@ async def resolve_unmatched_name(
             existing = supabase.table("staff") \
                 .select("staff_id") \
                 .eq("staff_id", request.existing_staff_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
 
             if not existing.data:
@@ -731,7 +731,7 @@ async def resolve_unmatched_name(
                 upload_id=upload_id,
                 raw_name=raw_name,
                 new_staff_id=resolved_staff_id,
-                restaurant_id=restaurant_id
+                organization_id=organization_id
             )
 
         # ── Update the unmatched record ──────────────────────────────────
@@ -779,7 +779,7 @@ def _reassign_unmatched_shifts(
     upload_id: int,
     raw_name: str,
     new_staff_id: str,
-    restaurant_id: int
+    organization_id: int
 ):
     """
     Retroactively assign historical shifts to a newly resolved staff member.
@@ -832,14 +832,14 @@ async def finalize_historical_import(
     2. Triggers social graph edge computation for the historical period
     3. Returns a summary of what was imported
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         # Verify upload
         upload = supabase.table("schedule_uploads") \
             .select("id, week_of, status, upload_type") \
             .eq("id", upload_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         if not upload.data:
@@ -921,13 +921,13 @@ async def get_upload_status(
     current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get status of a specific schedule upload."""
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         result = supabase.table("schedule_uploads") \
             .select("*") \
             .eq("id", upload_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         if not result.data:
@@ -966,12 +966,12 @@ async def get_schedule_history(
     current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get past schedule analyses for the restaurant. Optionally filter by upload_type."""
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         query = supabase.table("schedule_uploads") \
             .select("id, week_of, status, upload_type, stability_score, issues_found, critical_issues, created_at, processed_at") \
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
 
         if upload_type:
             query = query.eq("upload_type", upload_type)
@@ -993,12 +993,12 @@ async def get_latest_analysis(
     current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get the most recent completed schedule analysis."""
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         result = supabase.table("schedule_uploads") \
             .select("*") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "completed") \
             .eq("upload_type", "current") \
             .order("week_of", desc=True) \
@@ -1042,12 +1042,12 @@ async def get_work_profiles(
     current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Get all staff work profiles for the restaurant."""
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         result = supabase.table("staff_work_profile") \
             .select("*, staff(full_name, position)") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         profiles = []
@@ -1076,7 +1076,7 @@ async def update_work_profile(
     current_staff: Dict[str, Any] = Depends(require_feature("stable_schedule"))
 ):
     """Update a staff member's work profile."""
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     update_data = {k: v for k, v in update.dict().items() if v is not None}
 
@@ -1093,18 +1093,18 @@ async def update_work_profile(
         existing = supabase.table("staff_work_profile") \
             .select("id") \
             .eq("staff_id", staff_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         if existing.data:
             result = supabase.table("staff_work_profile") \
                 .update(update_data) \
                 .eq("staff_id", staff_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .execute()
         else:
             update_data["staff_id"] = staff_id
-            update_data["restaurant_id"] = restaurant_id
+            update_data["organization_id"] = organization_id
             result = supabase.table("staff_work_profile") \
                 .insert(update_data) \
                 .execute()
@@ -1143,16 +1143,16 @@ async def log_prevented_issue(
     Log an issue that the manager will fix before publishing.
     Tracks what En Place helped prevent.
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     staff_id = current_staff.get("staff_id")
 
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=400, detail="No restaurant associated with user")
 
     try:
         result = supabase.table("schedule_prevented_issues") \
             .insert({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "schedule_upload_id": issue.schedule_upload_id,
                 "week_of": issue.week_of,
                 "issue_type": issue.issue_type,
@@ -1165,7 +1165,7 @@ async def log_prevented_issue(
             }) \
             .execute()
 
-        logger.info(f"Prevented issue logged: restaurant={restaurant_id}, type={issue.issue_type}")
+        logger.info(f"Prevented issue logged: restaurant={organization_id}, type={issue.issue_type}")
 
         return {
             "success": True,
@@ -1185,12 +1185,12 @@ async def get_prevented_stats(
     """
     Get prevented issue statistics for analytics.
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         result = supabase.table("schedule_prevented_issues") \
             .select("id, issue_type, severity, prevented_at") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
 
         issues = result.data or []
@@ -1223,12 +1223,12 @@ async def get_prevented_stats(
 # INTERNAL HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
 
-async def _notify_schedule_published(restaurant_id: int, week_of: str):
+async def _notify_schedule_published(organization_id: int, week_of: str):
     """
     Send SMS to all SMS-enabled staff when schedule is published.
     """
     # Get restaurant name
-    rest_result = supabase.table("restaurants").select("name").eq("id", restaurant_id).single().execute()
+    rest_result = supabase.table("organizations").select("name").eq("id", organization_id).single().execute()
     restaurant_name = rest_result.data.get("name", "your restaurant") if rest_result.data else "your restaurant"
 
     # Format week range for message
@@ -1242,14 +1242,14 @@ async def _notify_schedule_published(restaurant_id: int, week_of: str):
     # Get all SMS-enabled staff
     staff_result = supabase.table("staff")\
         .select("staff_id, full_name, phone")\
-        .eq("restaurant_id", restaurant_id)\
+        .eq("organization_id", organization_id)\
         .eq("status", "active")\
         .eq("sms_notifications_enabled", True)\
         .not_.is_("phone", "null")\
         .execute()
 
     if not staff_result.data:
-        logger.info(f"No SMS-enabled staff for restaurant {restaurant_id}")
+        logger.info(f"No SMS-enabled staff for restaurant {organization_id}")
         return
 
     sent_count = 0
@@ -1265,4 +1265,4 @@ async def _notify_schedule_published(restaurant_id: int, week_of: str):
         if result.get("success"):
             sent_count += 1
 
-    logger.info(f"Schedule published SMS sent to {sent_count} staff for restaurant {restaurant_id}")
+    logger.info(f"Schedule published SMS sent to {sent_count} staff for restaurant {organization_id}")

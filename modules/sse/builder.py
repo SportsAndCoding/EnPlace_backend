@@ -23,7 +23,7 @@ def build_staff_day_input(
     swap_stats: Optional[Dict[str, Any]],
     attendance_row: Optional[Dict[str, Any]],
     stable_hire_profile: Optional[Dict[str, Any]],
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
 ) -> Dict[str, Any]:
     """
@@ -43,7 +43,7 @@ def build_staff_day_input(
         swap_stats: Shift Swap module statistics, or None
         attendance_row: Attendance/clock-in data (future), or None
         stable_hire_profile: Pre-hire profile from hiring_candidates, or None
-        restaurant_id: Restaurant ID (used to ensure consistency)
+        organization_id: Restaurant ID (used to ensure consistency)
         target_date: The date being processed
 
     Returns:
@@ -55,10 +55,10 @@ def build_staff_day_input(
         staff_row = {}
 
     if isinstance(staff_row, dict):
-        staff_row = {**staff_row, "restaurant_id": restaurant_id}
+        staff_row = {**staff_row, "organization_id": organization_id}
 
     return {
-        "restaurant_id": int(restaurant_id),
+        "organization_id": int(organization_id),
         "staff_id": staff_id,
         "target_date": target_date.isoformat(),
 

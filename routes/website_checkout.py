@@ -33,7 +33,7 @@ CANCEL_URL = "https://app.en-place.ai/sales-portal/site-builder.html?payment=can
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class WebsiteCheckoutRequest(BaseModel):
-    restaurant_id: int
+    organization_id: int
     restaurant_name: str
     owner_email: Optional[str] = None
     owner_name: Optional[str] = None
@@ -49,7 +49,7 @@ async def create_checkout_session(req: WebsiteCheckoutRequest, user=Depends(veri
     Creates a Stripe Checkout session with:
     - $250 one-time setup fee
     - $50/month recurring subscription
-    Metadata tracks restaurant_id and rep staff_id for commission.
+    Metadata tracks organization_id and rep staff_id for commission.
     """
     try:
         staff_id = user.get("staff_id", "unknown")
@@ -69,7 +69,7 @@ async def create_checkout_session(req: WebsiteCheckoutRequest, user=Depends(veri
             ],
             metadata={
                 "type": "website_platform",
-                "restaurant_id": str(req.restaurant_id),
+                "organization_id": str(req.organization_id),
                 "restaurant_name": req.restaurant_name,
                 "rep_staff_id": staff_id,
                 "setup_fee": "250",
@@ -78,7 +78,7 @@ async def create_checkout_session(req: WebsiteCheckoutRequest, user=Depends(veri
             subscription_data={
                 "metadata": {
                     "type": "website_platform",
-                    "restaurant_id": str(req.restaurant_id),
+                    "organization_id": str(req.organization_id),
                     "restaurant_name": req.restaurant_name,
                     "rep_staff_id": staff_id,
                 },
@@ -133,12 +133,12 @@ async def website_stripe_webhook(request: Request):
         if metadata.get("type") != "website_platform":
             return {"status": "ignored"}
 
-        restaurant_id = metadata.get("restaurant_id")
+        organization_id = metadata.get("organization_id")
         rep_staff_id = metadata.get("rep_staff_id")
         commission_amount = metadata.get("commission_amount", "125")
 
-        if not restaurant_id:
-            logger.error("Website webhook: no restaurant_id in metadata")
+        if not organization_id:
+            logger.error("Website webhook: no organization_id in metadata")
             return {"status": "error"}
 
         supabase = get_supabase()
@@ -149,14 +149,14 @@ async def website_stripe_webhook(request: Request):
                 .update({
                     "status": "active",
                 }) \
-                .eq("restaurant_id", int(restaurant_id)) \
+                .eq("organization_id", int(organization_id)) \
                 .execute()
 
-            logger.info(f"Website activated for restaurant {restaurant_id}")
+            logger.info(f"Website activated for restaurant {organization_id}")
 
             # 2. Record commission
             supabase.table("website_commissions").insert({
-                "restaurant_id": int(restaurant_id),
+                "organization_id": int(organization_id),
                 "rep_staff_id": rep_staff_id,
                 "amount_cents": int(float(commission_amount) * 100),
                 "stripe_session_id": session.get("id"),

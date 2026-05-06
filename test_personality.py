@@ -34,7 +34,7 @@ async def run_tests():
         try:
             result = await service.save_personality_profile(
                 staff_id="STAFF001",
-                restaurant_id=1,
+                organization_id=1,
                 scenario_rankings={
                     "break_room": "alex",
                     "expo_backup": "alex",
@@ -56,9 +56,9 @@ async def run_tests():
             print(f"  ✗ ERROR: {e}")
 
     # ── Test 3: Team composition ──
-    print("\n[TEST 3] Team composition for restaurant_id=1...")
+    print("\n[TEST 3] Team composition for organization_id=1...")
     try:
-        comp = await service.get_team_composition(restaurant_id=1)
+        comp = await service.get_team_composition(organization_id=1)
         rate = comp.get("completion_rate", {})
         print(f"  ✓ Completion: {rate.get('completed')}/{rate.get('total_active')} ({rate.get('percent')}%)")
         print(f"    Personas:   {comp.get('persona_distribution')}")

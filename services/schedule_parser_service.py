@@ -117,7 +117,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
 
 async def parse_schedule(
     raw_schedule: str,
-    restaurant_id: int,
+    organization_id: int,
     week_of: str,
     include_inactive_staff: bool = False
 ) -> Dict[str, Any]:
@@ -126,7 +126,7 @@ async def parse_schedule(
 
     Args:
         raw_schedule: Raw schedule data (CSV, tabs, whatever)
-        restaurant_id: Restaurant to fetch staff list for
+        organization_id: Restaurant to fetch staff list for
         week_of: Start date of the week (YYYY-MM-DD)
         include_inactive_staff: If True, match against active + inactive staff (for historical imports)
 
@@ -134,7 +134,7 @@ async def parse_schedule(
         Parsed schedule with shifts, unmapped names, and warnings
     """
     # Fetch staff list for matching
-    staff_list = get_staff_list(restaurant_id, include_inactive=include_inactive_staff)
+    staff_list = get_staff_list(organization_id, include_inactive=include_inactive_staff)
 
     if not staff_list:
         return {
@@ -223,12 +223,12 @@ Parse this schedule and match names to the staff list above."""
         }
 
 
-def get_staff_list(restaurant_id: int, include_inactive: bool = False) -> List[Dict]:
+def get_staff_list(organization_id: int, include_inactive: bool = False) -> List[Dict]:
     """
     Fetch staff for a restaurant.
     
     Args:
-        restaurant_id: Restaurant to fetch staff for
+        organization_id: Restaurant to fetch staff for
         include_inactive: If True, return all staff regardless of status.
                           Used for historical imports where old schedules
                           may contain names of departed employees.
@@ -236,7 +236,7 @@ def get_staff_list(restaurant_id: int, include_inactive: bool = False) -> List[D
     try:
         query = supabase.table("staff") \
             .select("staff_id, full_name, position, status") \
-            .eq("restaurant_id", restaurant_id)
+            .eq("organization_id", organization_id)
 
         if not include_inactive:
             query = query.eq("status", "Active")

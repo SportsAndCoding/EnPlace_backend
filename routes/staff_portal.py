@@ -10,12 +10,12 @@ import pytz
 from services.auth_service import verify_jwt_token as get_current_user
 from services.staff_portal_service import StaffPortalService
 
-def _get_today_for_restaurant(restaurant_id: int) -> date:
+def _get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     from database.supabase_client import get_supabase
     supabase = get_supabase()
     try:
-        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -202,7 +202,7 @@ SP_RULES_DEFAULTS = {
     "personalityAssessment":{"points": 10, "label": "Work Personality Profile"},
 }
 
-def get_sp_rule(rule_key: str, restaurant_id: str) -> dict:
+def get_sp_rule(rule_key: str, organization_id: str) -> dict:
     """
     Fetch earning rule from DB for this restaurant.
     Falls back to SP_RULES_DEFAULTS if no DB row exists or rule is disabled.
@@ -215,7 +215,7 @@ def get_sp_rule(rule_key: str, restaurant_id: str) -> dict:
         supabase = get_supabase()
         result = supabase.table("reward_earning_rules") \
             .select("points, is_enabled") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("rule_key", rule_key) \
             .limit(1) \
             .execute()
@@ -274,7 +274,7 @@ async def award_stability_points(
             detail=f"Invalid transaction type. Must be one of: {list(SP_RULES_DEFAULTS.keys())}"
         )
 
-    rule = get_sp_rule(request.transaction_type, current_user['restaurant_id'])
+    rule = get_sp_rule(request.transaction_type, current_user['organization_id'])
     if rule is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -286,7 +286,7 @@ async def award_stability_points(
     try:
         result = await service.award_points(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             points=points,
             transaction_type=request.transaction_type,
             description=description
@@ -316,7 +316,7 @@ async def redeem_stability_points(
     try:
         result = await service.redeem_points(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             item_id=request.item_id,
             item_name=request.item_name,
             cost=request.cost
@@ -355,7 +355,7 @@ async def create_callout(
     try:
         result = await service.create_callout(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             callout_date=request.callout_date,
             reason=request.reason,
             shift_id=request.shift_id,
@@ -386,7 +386,7 @@ async def get_my_callouts(
 
     try:
         callouts = await service.get_callouts(
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             start_date=start_date,
             end_date=end_date,
             staff_id=current_user['staff_id']
@@ -415,11 +415,11 @@ async def get_todays_callouts_for_manager(
         )
     
     service = StaffPortalService()
-    today = _get_today_for_restaurant(current_user['restaurant_id'])
+    today = _get_today_for_restaurant(current_user['organization_id'])
     
     try:
         callouts = await service.get_callouts(
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             start_date=today,
             end_date=today
         )
@@ -473,7 +473,7 @@ async def get_my_schedule(
 
     # Default to current week + next week
     if not start_date:
-        today = _get_today_for_restaurant(current_user['restaurant_id'])
+        today = _get_today_for_restaurant(current_user['organization_id'])
         start_date = today - timedelta(days=today.weekday())  # Monday
     if not end_date:
         end_date = start_date + timedelta(days=13)  # 2 weeks
@@ -481,7 +481,7 @@ async def get_my_schedule(
     try:
         shifts = await service.get_my_schedule(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             start_date=start_date,
             end_date=end_date
         )
@@ -515,7 +515,7 @@ async def volunteer_for_shift(
         result = await service.volunteer_for_shift(
             staff_id=current_user['staff_id'],
             shift_id=request.shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
 
         return {
@@ -542,7 +542,7 @@ async def get_my_open_shift_claims(current_user: dict = Depends(get_current_user
     try:
         claims = await service.get_my_open_shift_claims(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         return {
             "success": True,
@@ -570,7 +570,7 @@ async def create_swap_request(
     try:
         result = await service.create_swap_request(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             shift_id=request.shift_id,
             reason=request.reason,
             target_staff_id=request.target_staff_id
@@ -602,7 +602,7 @@ async def get_my_swap_requests(current_user: dict = Depends(get_current_user)):
     try:
         swaps = await service.get_my_swap_requests(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
 
         return {
@@ -630,7 +630,7 @@ async def get_shifts_by_date(
     try:
         result = supabase.table("sse_shifts") \
             .select("id, shift_date, scheduled_start, scheduled_end, position, shift_type, staff_id") \
-            .eq("restaurant_id", current_user['restaurant_id']) \
+            .eq("organization_id", current_user['organization_id']) \
             .eq("shift_date", date) \
             .execute()
         
@@ -674,7 +674,7 @@ async def get_available_swap_requests(current_user: dict = Depends(get_current_u
     try:
         swaps = await service.get_available_swap_requests(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
 
         return {
@@ -702,7 +702,7 @@ async def accept_swap_request(
         result = await service.accept_swap(
             swap_id=swap_id,
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
 
         return {
@@ -735,7 +735,7 @@ async def cancel_swap_request(
         await service.cancel_swap_request(
             swap_id=swap_id,
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
 
         return {
@@ -784,7 +784,7 @@ async def create_nudge(
     try:
         # Skip cooldown check for demo restaurants (allows repeated demos)
         demo_restaurants = [1, 11]  # Demo Bistro, Baseline Grill
-        is_demo = current_user.get('restaurant_id') in demo_restaurants
+        is_demo = current_user.get('organization_id') in demo_restaurants
         
         if not is_demo:
             week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
@@ -802,7 +802,7 @@ async def create_nudge(
         
         payload = {
             "staff_id": current_user['staff_id'],
-            "restaurant_id": current_user['restaurant_id'],
+            "organization_id": current_user['organization_id'],
             "module_key": request.module_key,
             "message": request.message,
             "status": "pending"
@@ -814,10 +814,10 @@ async def create_nudge(
         
         try:
             service = StaffPortalService()
-            nudge_rule = get_sp_rule("nudgeBoss", current_user['restaurant_id'])
+            nudge_rule = get_sp_rule("nudgeBoss", current_user['organization_id'])
             await service.award_points(
                 staff_id=current_user['staff_id'],
-                restaurant_id=current_user['restaurant_id'],
+                organization_id=current_user['organization_id'],
                 points=nudge_rule["points"],
                 transaction_type="nudgeBoss",
                 description=f"Requested {request.module_key} feature"
@@ -859,7 +859,7 @@ async def get_nudges_for_manager(
     try:
         query = supabase.table("nudges") \
             .select("*, staff:staff_id(full_name, position)") \
-            .eq("restaurant_id", current_user['restaurant_id']) \
+            .eq("organization_id", current_user['organization_id']) \
             .order("created_at", desc=True)
         
         if status_filter:
@@ -904,7 +904,7 @@ async def acknowledge_nudge(
                 "viewed_by": current_user['staff_id']
             }) \
             .eq("id", nudge_id) \
-            .eq("restaurant_id", current_user['restaurant_id']) \
+            .eq("organization_id", current_user['organization_id']) \
             .execute()
         
         return {
@@ -944,7 +944,7 @@ async def acknowledge_nudges_bulk(
                 "viewed_by": current_user['staff_id']
             }) \
             .in_("id", nudge_ids) \
-            .eq("restaurant_id", current_user['restaurant_id']) \
+            .eq("organization_id", current_user['organization_id']) \
             .execute()
         
         return {
@@ -1008,7 +1008,7 @@ async def submit_my_personality(
     try:
         profile = await service.save_personality_profile(
             staff_id=current_user['staff_id'],
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             scenario_rankings=submission.scenario_rankings,
             source="self_assessment"
         )
@@ -1090,7 +1090,7 @@ async def enter_staff_personality(
     try:
         profile = await service.save_personality_profile(
             staff_id=staff_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             scenario_rankings=submission.scenario_rankings,
             source="manager_entry"
         )
@@ -1124,7 +1124,7 @@ async def get_team_composition(current_user: dict = Depends(get_current_user)):
 
     try:
         composition = await service.get_team_composition(
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         return {
             "success": True,

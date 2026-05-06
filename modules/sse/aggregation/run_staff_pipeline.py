@@ -21,7 +21,7 @@ def run_staff_pipeline(
     swap_stats: Optional[Dict[str, Any]],
     attendance_row: Optional[Dict[str, Any]],
     stable_hire_profile: Optional[Dict[str, Any]],
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
 ) -> Dict[str, Any]:
     """
@@ -47,7 +47,7 @@ def run_staff_pipeline(
             swap_stats=swap_stats,
             attendance_row=attendance_row,
             stable_hire_profile=stable_hire_profile,
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             target_date=target_date,
         )
 
@@ -56,11 +56,11 @@ def run_staff_pipeline(
         if staff_id is None:
             logger.warning(
                 "Skipping SSE pipeline for restaurant %s on %s due to missing/invalid staff_id",
-                restaurant_id,
+                organization_id,
                 target_date,
             )
             return {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": None,
                 "target_date": target_date.isoformat(),
                 "status": "skipped_invalid_staff",
@@ -71,7 +71,7 @@ def run_staff_pipeline(
 
         # Phase 3: Write signals to Supabase
         write_result = update_staff_signals(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             staff_id=staff_id,
             target_date=signals["target_date"],
             signals=signals,
@@ -79,7 +79,7 @@ def run_staff_pipeline(
 
         # Final result
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "staff_id": staff_id,
             "target_date": target_date.isoformat(),
             "status": write_result.get("status", "unknown"),
@@ -89,14 +89,14 @@ def run_staff_pipeline(
     except Exception as e:
         logger.error(
             "Unexpected error in SSE staff pipeline for restaurant %s, staff %s, date %s: %s",
-            restaurant_id,
+            organization_id,
             staff_row.get("staff_id") if isinstance(staff_row, dict) else "unknown",
             target_date,
             str(e),
             exc_info=True,
         )
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "staff_id": staff_row.get("staff_id") if isinstance(staff_row, dict) else None,
             "target_date": target_date.isoformat(),
             "status": "error",

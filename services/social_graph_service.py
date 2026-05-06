@@ -16,7 +16,7 @@ from typing import Dict, List, Any, Optional
 from database.supabase_client import supabase
 
 
-def get_graph_snapshot(restaurant_id: int) -> Dict[str, Any]:
+def get_graph_snapshot(organization_id: int) -> Dict[str, Any]:
     """
     Build the full graph visualization payload from the latest metrics.
 
@@ -32,7 +32,7 @@ def get_graph_snapshot(restaurant_id: int) -> Dict[str, Any]:
     today = date.today().isoformat()
 
     # Get latest metrics (try today, fall back to most recent)
-    metrics = _get_latest_metrics(restaurant_id, today)
+    metrics = _get_latest_metrics(organization_id, today)
 
     if not metrics:
         return {
@@ -44,7 +44,7 @@ def get_graph_snapshot(restaurant_id: int) -> Dict[str, Any]:
 
     # Get staff names for display
     staff_ids = [m["staff_id"] for m in metrics]
-    staff_names = _get_staff_names(restaurant_id, staff_ids)
+    staff_names = _get_staff_names(organization_id, staff_ids)
 
     # Build nodes from metrics
     nodes = []
@@ -68,7 +68,7 @@ def get_graph_snapshot(restaurant_id: int) -> Dict[str, Any]:
     # Get edges
     edge_result = supabase.table("staff_graph_edges") \
         .select("staff_id_a, staff_id_b, weight, edge_type_weights") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .execute()
 
     # Edge type -> color mapping
@@ -122,7 +122,7 @@ def get_graph_snapshot(restaurant_id: int) -> Dict[str, Any]:
     }
 
 
-def get_retention_ranking(restaurant_id: int) -> Dict[str, Any]:
+def get_retention_ranking(organization_id: int) -> Dict[str, Any]:
     """
     Get staff sorted by retention priority.
 
@@ -134,13 +134,13 @@ def get_retention_ranking(restaurant_id: int) -> Dict[str, Any]:
         }
     """
     today = date.today().isoformat()
-    metrics = _get_latest_metrics(restaurant_id, today)
+    metrics = _get_latest_metrics(organization_id, today)
 
     if not metrics:
         return {"ranking": [], "summary": _empty_summary()}
 
     staff_ids = [m["staff_id"] for m in metrics]
-    staff_names = _get_staff_names(restaurant_id, staff_ids)
+    staff_names = _get_staff_names(organization_id, staff_ids)
 
     ranking = []
     tier_counts = {"critical": 0, "important": 0, "standard": 0, "low": 0}
@@ -177,7 +177,7 @@ def get_retention_ranking(restaurant_id: int) -> Dict[str, Any]:
 
 
 def get_cascade_analysis(
-    restaurant_id: int,
+    organization_id: int,
     staff_id: str,
 ) -> Optional[Dict[str, Any]]:
     """
@@ -192,7 +192,7 @@ def get_cascade_analysis(
     # Try today first, then most recent
     result = supabase.table("staff_cascade_analysis") \
         .select("*") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("target_staff_id", staff_id) \
         .order("analysis_date", desc=True) \
         .limit(1) \
@@ -204,13 +204,13 @@ def get_cascade_analysis(
     row = result.data[0]
 
     # Get staff name
-    names = _get_staff_names(restaurant_id, [staff_id])
+    names = _get_staff_names(organization_id, [staff_id])
     target_name = names.get(staff_id, staff_id[:8])
 
     # Get names for at-risk staff
     at_risk = row.get("at_risk_staff") or []
     at_risk_ids = [a.get("staff_id") for a in at_risk if a.get("staff_id")]
-    at_risk_names = _get_staff_names(restaurant_id, at_risk_ids) if at_risk_ids else {}
+    at_risk_names = _get_staff_names(organization_id, at_risk_ids) if at_risk_ids else {}
 
     for a in at_risk:
         if a.get("staff_id"):
@@ -236,7 +236,7 @@ def get_cascade_analysis(
 
 
 def get_graph_history(
-    restaurant_id: int,
+    organization_id: int,
     days: int = 30,
 ) -> Dict[str, Any]:
     """
@@ -249,7 +249,7 @@ def get_graph_history(
 
     result = supabase.table("staff_graph_metrics") \
         .select("calculated_date, priority_tier, retention_score, cascade_risk") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .gte("calculated_date", cutoff) \
         .order("calculated_date") \
         .execute()
@@ -309,7 +309,7 @@ def get_graph_history(
 # ------------------------------------------------------------------
 
 def _get_latest_metrics(
-    restaurant_id: int,
+    organization_id: int,
     today: str,
 ) -> List[Dict[str, Any]]:
     """
@@ -319,7 +319,7 @@ def _get_latest_metrics(
     # Try today
     result = supabase.table("staff_graph_metrics") \
         .select("*") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("calculated_date", today) \
         .order("retention_score", desc=True) \
         .execute()
@@ -330,7 +330,7 @@ def _get_latest_metrics(
     # Fall back to most recent
     result = supabase.table("staff_graph_metrics") \
         .select("*") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .order("calculated_date", desc=True) \
         .limit(1) \
         .execute()
@@ -342,7 +342,7 @@ def _get_latest_metrics(
 
     result = supabase.table("staff_graph_metrics") \
         .select("*") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("calculated_date", latest_date) \
         .order("retention_score", desc=True) \
         .execute()
@@ -351,7 +351,7 @@ def _get_latest_metrics(
 
 
 def _get_staff_names(
-    restaurant_id: int,
+    organization_id: int,
     staff_ids: List[str],
 ) -> Dict[str, str]:
     """Get staff_id -> full_name mapping."""
@@ -360,7 +360,7 @@ def _get_staff_names(
 
     result = supabase.table("staff") \
         .select("staff_id, full_name") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .in_("staff_id", staff_ids) \
         .execute()
 

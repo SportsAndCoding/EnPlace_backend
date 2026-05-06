@@ -5,12 +5,12 @@ from services.auth_service import verify_jwt_token as get_current_user
 from services.manager_logs_service import ManagerLogsService
 from models.manager_logs import ManagerLogCreate, ManagerLogResponse, ManagerLogCreateResponse
 
-def _get_today_for_restaurant(restaurant_id: int) -> date:
+def _get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     from database.supabase_client import get_supabase
     supabase = get_supabase()
     try:
-        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -38,7 +38,7 @@ async def create_manager_log(
         )
     
     # Verify restaurant access
-    if current_user['restaurant_id'] != log.restaurant_id:
+    if current_user['organization_id'] != log.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Access denied"
@@ -73,7 +73,7 @@ async def create_manager_log(
 
 @router.get("", response_model=List[ManagerLogResponse])
 async def get_manager_logs(
-    restaurant_id: int,
+    organization_id: int,
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     current_user: dict = Depends(get_current_user)
@@ -83,7 +83,7 @@ async def get_manager_logs(
     Defaults to last 7 days if no dates provided.
     """
     # Verify restaurant access
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Access denied"
@@ -91,7 +91,7 @@ async def get_manager_logs(
     
     # Default to last 7 days
     if not end_date:
-        end_date = _get_today_for_restaurant(restaurant_id)
+        end_date = _get_today_for_restaurant(organization_id)
     if not start_date:
         start_date = end_date - timedelta(days=7)
     
@@ -99,7 +99,7 @@ async def get_manager_logs(
     
     try:
         logs = await service.get_logs_by_restaurant(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             start_date=start_date,
             end_date=end_date
         )
@@ -123,7 +123,7 @@ async def get_today_log(
     service = ManagerLogsService()
     
     try:
-        log = await service.get_today_log(current_user['restaurant_id'])
+        log = await service.get_today_log(current_user['organization_id'])
         
         if log:
             return {

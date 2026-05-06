@@ -242,7 +242,7 @@ async def get_pending_commissions(current_staff: dict = Depends(verify_admin)):
     
     try:
         result = supabase.table("sales_commissions") \
-            .select("*, sales_deals(monthly_value, restaurant_id, restaurants(name))") \
+            .select("*, sales_deals(monthly_value, organization_id, restaurants(name))") \
             .eq("status", "pending_approval") \
             .order("created_at", desc=False) \
             .execute()

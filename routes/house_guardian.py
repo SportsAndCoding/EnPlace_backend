@@ -53,15 +53,15 @@ async def get_alerts(
     Optional filters:
     - status: active, investigating, resolved, dismissed
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     
-    if not restaurant_id:
+    if not organization_id:
         raise HTTPException(status_code=400, detail="Restaurant ID required")
     
     try:
         query = supabase.table("house_guardian_alerts") \
             .select("*") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .order("created_at", desc=True)
         
         if status:
@@ -86,13 +86,13 @@ async def get_alert(
     """
     Get a specific House Guardian alert by ID.
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     
     try:
         result = supabase.table("house_guardian_alerts") \
             .select("*") \
             .eq("id", alert_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .single() \
             .execute()
         
@@ -116,7 +116,7 @@ async def update_alert(
     """
     Update a House Guardian alert (acknowledge, investigate, resolve, dismiss).
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     staff_id = current_staff.get("staff_id")
     
     try:
@@ -124,7 +124,7 @@ async def update_alert(
         existing = supabase.table("house_guardian_alerts") \
             .select("id") \
             .eq("id", alert_id) \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .single() \
             .execute()
         
@@ -176,13 +176,13 @@ async def get_weekly_report(
     Subscribers get their actual report.
     Non-subscribers get network-wide social proof report.
     """
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
 
     try:
         # Check subscription status
-        restaurant_result = supabase.table("restaurants") \
+        restaurant_result = supabase.table("organizations") \
             .select("has_house_guardian") \
-            .eq("id", restaurant_id) \
+            .eq("id", organization_id) \
             .single() \
             .execute()
         
@@ -192,7 +192,7 @@ async def get_weekly_report(
             # Subscriber: return their actual report
             result = supabase.table("house_guardian_weekly_reports") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .order("week_end", desc=True) \
                 .limit(1) \
                 .execute()
@@ -214,7 +214,7 @@ async def get_weekly_report(
             return {
                 "success": True,
                 "is_network_report": True,
-                "report": _generate_network_report(restaurant_id)
+                "report": _generate_network_report(organization_id)
             }
 
     except Exception as e:

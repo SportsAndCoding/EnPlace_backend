@@ -35,7 +35,7 @@ BATCH_SIZE = 1000  # rows per insert for timeseries
 
 # Columns that should be integers (everything else numeric stays as float)
 INT_COLS = {
-    "restaurant_id", "headcount", "post_exits", "post_days", "sim_day",
+    "organization_id", "headcount", "post_exits", "post_days", "sim_day",
     "days_from_adoption", "l1_original_count", "l1_pre_exits",
     "l1_post_at_risk", "l1_post_exits", "l2_pre_eligible",
     "l2_pre_survived", "l2_post_eligible", "l2_post_survived",
@@ -108,7 +108,7 @@ def main():
 
     # Clear existing data
     print("  Clearing existing turnover_benchmarks...")
-    sb.table("turnover_benchmarks").delete().gte("restaurant_id", 0).execute()
+    sb.table("turnover_benchmarks").delete().gte("organization_id", 0).execute()
 
     count = upload_batch("turnover_benchmarks", meta_rows, sb)
     print(f"  Inserted {count} rows into turnover_benchmarks ✓")
@@ -123,7 +123,7 @@ def main():
 
     # Clear existing data
     print("  Clearing existing turnover_timeseries...")
-    sb.table("turnover_timeseries").delete().gte("restaurant_id", 0).execute()
+    sb.table("turnover_timeseries").delete().gte("organization_id", 0).execute()
 
     total = 0
     start = time.time()

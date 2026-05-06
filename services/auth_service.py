@@ -15,7 +15,7 @@ def create_jwt_token(staff_data: Dict[str, Any]) -> str:
         "full_name": staff_data["full_name"],
         "position": staff_data["position"],
         "portal_access": staff_data["portal_access"],
-        "restaurant_id": staff_data["restaurant_id"],
+        "organization_id": staff_data["organization_id"],
         "restaurant_name": staff_data.get("restaurant_name"),
         "can_edit_staff": staff_data.get("can_edit_staff", False),
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),

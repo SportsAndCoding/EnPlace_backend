@@ -6,8 +6,8 @@ today = date.today()
 week_ago = today - timedelta(days=7)
 
 # Get Demo Bistro data
-checkins = supabase.table('sse_daily_checkins').select('*').eq('restaurant_id', 1).gte('checkin_date', week_ago.isoformat()).lte('checkin_date', today.isoformat()).execute()
-logs = supabase.table('manager_daily_logs').select('*').eq('restaurant_id', 1).gte('log_date', week_ago.isoformat()).lte('log_date', today.isoformat()).execute()
+checkins = supabase.table('sse_daily_checkins').select('*').eq('organization_id', 1).gte('checkin_date', week_ago.isoformat()).lte('checkin_date', today.isoformat()).execute()
+logs = supabase.table('manager_daily_logs').select('*').eq('organization_id', 1).gte('log_date', week_ago.isoformat()).lte('log_date', today.isoformat()).execute()
 
 print(f'Checkins: {len(checkins.data)}')
 print(f'Manager logs: {len(logs.data)}')
@@ -32,7 +32,7 @@ today = date.today()
 week_ago = today - timedelta(days=7)
 
 # Get Demo Bistro data
-checkins = supabase.table('sse_daily_checkins').select('*').eq('restaurant_id', 1).gte('checkin_date', week_ago.isoformat()).lte('checkin_date', today.isoformat()).execute()
+checkins = supabase.table('sse_daily_checkins').select('*').eq('organization_id', 1).gte('checkin_date', week_ago.isoformat()).lte('checkin_date', today.isoformat()).execute()
 
 print(f'Checkins: {len(checkins.data)}')
 

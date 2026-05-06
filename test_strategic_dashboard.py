@@ -5,11 +5,11 @@ from services.dashboard_service import get_dashboard_data
 s = get_supabase()
 
 # Find an owner at any restaurant that has staff data
-owners = s.table("staff").select("staff_id, full_name, restaurant_id").eq("is_owner", True).execute()
+owners = s.table("staff").select("staff_id, full_name, organization_id").eq("is_owner", True).execute()
 # Pick one at a restaurant with actual staff (14, 15, or 16 have seeded data)
 owner = None
 for o in owners.data:
-    if o["restaurant_id"] in [14, 15, 16]:
+    if o["organization_id"] in [14, 15, 16]:
         owner = o
         break
 
@@ -22,13 +22,13 @@ if not owner:
     exit()
 
 staff_id = owner["staff_id"]
-restaurant_id = owner["restaurant_id"]
+organization_id = owner["organization_id"]
 name = owner["full_name"]
-print(f"Testing with owner: {name} ({staff_id}) at restaurant {restaurant_id}")
+print(f"Testing with owner: {name} ({staff_id}) at restaurant {organization_id}")
 
 print("\n=== Test A: Dashboard with strategic_alerts_only OFF ===")
 s.table("staff").update({"strategic_alerts_only": False}).eq("staff_id", staff_id).execute()
-data_off = get_dashboard_data(restaurant_id, staff_id=staff_id)
+data_off = get_dashboard_data(organization_id, staff_id=staff_id)
 items_off = data_off["action_board"]["items"]
 types_off = [item["type"] for item in items_off]
 print(f"  Total items: {len(items_off)}")
@@ -36,7 +36,7 @@ print(f"  Types: {types_off}")
 
 print("\n=== Test B: Dashboard with strategic_alerts_only ON ===")
 s.table("staff").update({"strategic_alerts_only": True}).eq("staff_id", staff_id).execute()
-data_on = get_dashboard_data(restaurant_id, staff_id=staff_id)
+data_on = get_dashboard_data(organization_id, staff_id=staff_id)
 items_on = data_on["action_board"]["items"]
 types_on = [item["type"] for item in items_on]
 print(f"  Total items: {len(items_on)}")

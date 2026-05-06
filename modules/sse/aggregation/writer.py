@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def update_staff_signals(
     *,
-    restaurant_id: int,
+    organization_id: int,
     staff_id: str,
     target_date: str,
     signals: dict,
@@ -20,7 +20,7 @@ def update_staff_signals(
     Uses upsert to handle both insert and update cases.
 
     Args:
-        restaurant_id: Restaurant identifier
+        organization_id: Restaurant identifier
         staff_id: Staff identifier (text)
         target_date: Date in 'YYYY-MM-DD' string format
         signals: Complete computed signals dictionary to store
@@ -30,7 +30,7 @@ def update_staff_signals(
     """
     if not staff_id or not staff_id.strip():
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "staff_id": staff_id,
             "target_date": target_date,
             "status": "skipped",
@@ -43,11 +43,11 @@ def update_staff_signals(
         response = (
             supabase.table("sse_staff_day_metrics")
             .upsert({
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "target_date": target_date,
                 "signals": signals,
-            }, on_conflict="restaurant_id,staff_id,target_date")
+            }, on_conflict="organization_id,staff_id,target_date")
             .execute()
         )
 
@@ -58,7 +58,7 @@ def update_staff_signals(
                 target_date,
             )
             return {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "target_date": target_date,
                 "status": "upserted",
@@ -70,7 +70,7 @@ def update_staff_signals(
                 target_date,
             )
             return {
-                "restaurant_id": restaurant_id,
+                "organization_id": organization_id,
                 "staff_id": staff_id,
                 "target_date": target_date,
                 "status": "unknown",
@@ -81,14 +81,14 @@ def update_staff_signals(
         logger.error(
             "Failed to upsert signals for staff %s (restaurant %s) on %s: %s",
             staff_id,
-            restaurant_id,
+            organization_id,
             target_date,
             str(e),
             exc_info=True,
         )
 
         return {
-            "restaurant_id": restaurant_id,
+            "organization_id": organization_id,
             "staff_id": staff_id,
             "target_date": target_date,
             "status": "error",

@@ -45,7 +45,7 @@ MOOD_SYNC_THRESHOLD = 0.8  # similarity must be >= this
 
 
 def generate_organic_pairwise_events(
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
 ) -> List[Dict[str, Any]]:
     """
@@ -57,7 +57,7 @@ def generate_organic_pairwise_events(
 
     Parameters
     ----------
-    restaurant_id : int
+    organization_id : int
     target_date : date
         The date to pull events for.
 
@@ -71,19 +71,19 @@ def generate_organic_pairwise_events(
     events: List[Dict[str, Any]] = []
 
     # 1. Shift co-occurrence
-    cowork_events = _generate_shift_cowork_events(restaurant_id, target_date, date_str)
+    cowork_events = _generate_shift_cowork_events(organization_id, target_date, date_str)
     events.extend(cowork_events)
 
     # 2. Shift swaps
-    swap_events = _generate_swap_events(restaurant_id, target_date, date_str)
+    swap_events = _generate_swap_events(organization_id, target_date, date_str)
     events.extend(swap_events)
 
     # 3. Open shift volunteers
-    osm_events = _generate_osm_events(restaurant_id, target_date, date_str)
+    osm_events = _generate_osm_events(organization_id, target_date, date_str)
     events.extend(osm_events)
 
     # 4. Mood sync from check-ins
-    mood_events = _generate_mood_sync_events(restaurant_id, target_date, date_str)
+    mood_events = _generate_mood_sync_events(organization_id, target_date, date_str)
     events.extend(mood_events)
 
     return events
@@ -94,7 +94,7 @@ def generate_organic_pairwise_events(
 # ------------------------------------------------------------------
 
 def _generate_shift_cowork_events(
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
     date_str: str,
 ) -> List[Dict[str, Any]]:
@@ -108,7 +108,7 @@ def _generate_shift_cowork_events(
     """
     result = supabase.table("sse_shifts") \
         .select("staff_id, scheduled_start, scheduled_end") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("shift_date", date_str) \
         .eq("status", "assigned") \
         .not_.is_("staff_id", "null") \
@@ -158,7 +158,7 @@ def _generate_shift_cowork_events(
 # ------------------------------------------------------------------
 
 def _generate_swap_events(
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
     date_str: str,
 ) -> List[Dict[str, Any]]:
@@ -170,7 +170,7 @@ def _generate_swap_events(
     """
     result = supabase.table("shift_swaps") \
         .select("requesting_staff_id, target_staff_id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "approved") \
         .gte("created_at", f"{date_str}T00:00:00") \
         .lt("created_at", f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00") \
@@ -201,7 +201,7 @@ def _generate_swap_events(
 # ------------------------------------------------------------------
 
 def _generate_osm_events(
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
     date_str: str,
 ) -> List[Dict[str, Any]]:
@@ -217,7 +217,7 @@ def _generate_osm_events(
     # Find accepted volunteers for shifts on this date
     vol_result = supabase.table("open_shift_volunteers") \
         .select("staff_id, open_shift_id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("status", "accepted") \
         .gte("created_at", f"{date_str}T00:00:00") \
         .lt("created_at", f"{(target_date + timedelta(days=1)).isoformat()}T00:00:00") \
@@ -234,7 +234,7 @@ def _generate_osm_events(
     # Get all staff working this date (from sse_shifts)
     shift_result = supabase.table("sse_shifts") \
         .select("staff_id") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("shift_date", date_str) \
         .eq("status", "assigned") \
         .not_.is_("staff_id", "null") \
@@ -266,7 +266,7 @@ def _generate_osm_events(
 # ------------------------------------------------------------------
 
 def _generate_mood_sync_events(
-    restaurant_id: int,
+    organization_id: int,
     target_date: date,
     date_str: str,
 ) -> List[Dict[str, Any]]:
@@ -281,7 +281,7 @@ def _generate_mood_sync_events(
     """
     result = supabase.table("sse_daily_checkins") \
         .select("staff_id, mood_emoji") \
-        .eq("restaurant_id", restaurant_id) \
+        .eq("organization_id", organization_id) \
         .eq("checkin_date", date_str) \
         .not_.is_("mood_emoji", "null") \
         .execute()

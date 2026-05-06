@@ -5,7 +5,7 @@ from datetime import date
 class CheckinCreate(BaseModel):
     """Request model for creating a daily check-in"""
     staff_id: str
-    restaurant_id: int
+    organization_id: int
     mood_emoji: int = Field(..., ge=1, le=5, description="Mood rating 1-5")
     felt_safe: Optional[bool] = None
     felt_fair: Optional[bool] = None
@@ -16,7 +16,7 @@ class CheckinResponse(BaseModel):
     """Response model for a check-in"""
     id: str
     staff_id: str
-    restaurant_id: int
+    organization_id: int
     checkin_date: date
     mood_emoji: int
     felt_safe: Optional[bool]

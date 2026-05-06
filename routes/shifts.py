@@ -10,12 +10,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def _get_today_for_restaurant(restaurant_id: int) -> date:
+def _get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     from database.supabase_client import get_supabase
     supabase = get_supabase()
     try:
-        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -42,7 +42,7 @@ async def create_shift(
         )
     
     # Verify restaurant access
-    if current_user['restaurant_id'] != shift.restaurant_id:
+    if current_user['organization_id'] != shift.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -61,7 +61,7 @@ async def create_shift(
             await _notify_open_shift_if_eligible(
                 shift_data=shift.dict(),
                 shift_id=result['id'],
-                restaurant_id=shift.restaurant_id
+                organization_id=shift.organization_id
             )
         except Exception as sms_err:
             logger.error(f"Open shift SMS notification failed: {sms_err}")
@@ -82,7 +82,7 @@ async def create_shift(
 
 @router.get("", response_model=List[ShiftResponse])
 async def get_shifts(
-    restaurant_id: int,
+    organization_id: int,
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     staff_id: Optional[str] = Query(default=None),
@@ -98,7 +98,7 @@ async def get_shifts(
     - is_published: Filter by published status
     """
     # Verify restaurant access
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -106,7 +106,7 @@ async def get_shifts(
     
     # Default to current week (Mon-Sun)
     if not start_date:
-        today = _get_today_for_restaurant(restaurant_id)
+        today = _get_today_for_restaurant(organization_id)
         start_date = today - timedelta(days=today.weekday())  # Monday
     if not end_date:
         end_date = start_date + timedelta(days=6)  # Sunday
@@ -115,7 +115,7 @@ async def get_shifts(
     
     try:
         shifts = await service.get_shifts_by_restaurant(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             start_date=start_date,
             end_date=end_date,
             staff_id=staff_id,
@@ -132,7 +132,7 @@ async def get_shifts(
 
 @router.get("/open")
 async def get_open_shifts(
-    restaurant_id: int,
+    organization_id: int,
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     current_user: dict = Depends(get_current_user)
@@ -142,7 +142,7 @@ async def get_open_shifts(
     Used for open shift marketplace.
     """
     # Verify restaurant access
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
@@ -150,7 +150,7 @@ async def get_open_shifts(
     
     # Default to next 14 days
     if not start_date:
-        start_date = _get_today_for_restaurant(restaurant_id)
+        start_date = _get_today_for_restaurant(organization_id)
     if not end_date:
         end_date = start_date + timedelta(days=14)
     
@@ -158,7 +158,7 @@ async def get_open_shifts(
     
     try:
         shifts = await service.get_open_shifts(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             start_date=start_date,
             end_date=end_date
         )
@@ -189,7 +189,7 @@ async def get_pending_open_shift_claims(
     service = ShiftsService()
     try:
         claims = await service.get_pending_open_shift_claims(
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         return {
             "success": True,
@@ -213,16 +213,16 @@ async def get_my_shifts(
     from database.supabase_client import get_supabase
     
     staff_id = current_staff.get("staff_id")
-    restaurant_id = current_staff.get("restaurant_id")
+    organization_id = current_staff.get("organization_id")
     
-    if not staff_id or not restaurant_id:
+    if not staff_id or not organization_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
         )
     
     # Default to 2 weeks from today
-    today = _get_today_for_restaurant(restaurant_id)
+    today = _get_today_for_restaurant(organization_id)
     if not start_date:
         start_date = today
     if not end_date:
@@ -234,7 +234,7 @@ async def get_my_shifts(
     result = supabase.table("sse_shifts")\
         .select("id, shift_date, scheduled_start, scheduled_end, position, status")\
         .eq("staff_id", staff_id)\
-        .eq("restaurant_id", restaurant_id)\
+        .eq("organization_id", organization_id)\
         .gte("shift_date", start_date.isoformat())\
         .lte("shift_date", end_date.isoformat())\
         .order("shift_date")\
@@ -249,7 +249,7 @@ async def get_my_shifts(
         # Get all shifts on those dates (excluding current staff)
         coworker_result = supabase.table("sse_shifts")\
             .select("shift_date, scheduled_start, scheduled_end, staff_id")\
-            .eq("restaurant_id", restaurant_id)\
+            .eq("organization_id", organization_id)\
             .in_("shift_date", shift_dates)\
             .neq("staff_id", staff_id)\
             .not_.is_("staff_id", "null")\
@@ -306,7 +306,7 @@ async def get_shift(
     try:
         shift = await service.get_shift_by_id(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not shift:
@@ -352,7 +352,7 @@ async def update_shift(
         # Verify shift exists and belongs to this restaurant
         existing = await service.get_shift_by_id(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -363,7 +363,7 @@ async def update_shift(
         
         result = await service.update_shift(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id'],
+            organization_id=current_user['organization_id'],
             update_data=shift.dict()
         )
         
@@ -404,7 +404,7 @@ async def delete_shift(
         # Verify shift exists
         existing = await service.get_shift_by_id(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         if not existing:
@@ -415,7 +415,7 @@ async def delete_shift(
         
         await service.delete_shift(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
     except HTTPException:
@@ -440,7 +440,7 @@ async def get_shift_volunteers(
     try:
         volunteers = await service.get_shift_volunteers(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         
         return {
@@ -468,7 +468,7 @@ async def update_open_shift(
     service = ShiftsService()
     result = await service.update_open_shift(
         shift_id=shift_id,
-        restaurant_id=current_user['restaurant_id'],
+        organization_id=current_user['organization_id'],
         update_data=update_data
     )
     
@@ -490,7 +490,7 @@ async def get_open_shift_volunteers(
     try:
         volunteers = await service.get_open_shift_volunteers(
             shift_id=shift_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         return {
             "success": True,
@@ -522,7 +522,7 @@ async def select_volunteer(
         result = await service.select_volunteer(
             shift_id=shift_id,
             staff_id=staff_id,
-            restaurant_id=current_user['restaurant_id']
+            organization_id=current_user['organization_id']
         )
         return {
             "success": True,
@@ -533,7 +533,7 @@ async def select_volunteer(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-async def _notify_open_shift_if_eligible(shift_data: dict, shift_id: int, restaurant_id: int):
+async def _notify_open_shift_if_eligible(shift_data: dict, shift_id: int, organization_id: int):
     """
     Send SMS to eligible staff if this is a same-day open shift.
     
@@ -552,7 +552,7 @@ async def _notify_open_shift_if_eligible(shift_data: dict, shift_id: int, restau
     
     # Get restaurant timezone
     supabase = get_supabase()
-    rest_result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+    rest_result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
     tz_name = rest_result.data.get("timezone", "America/New_York") if rest_result.data else "America/New_York"
     tz = pytz.timezone(tz_name)
     
@@ -581,7 +581,7 @@ async def _notify_open_shift_if_eligible(shift_data: dict, shift_id: int, restau
     # Find eligible staff: active, SMS enabled, not already scheduled at this time
     staff_result = supabase.table("staff")\
         .select("staff_id, full_name, phone, position")\
-        .eq("restaurant_id", restaurant_id)\
+        .eq("organization_id", organization_id)\
         .eq("status", "active")\
         .eq("sms_notifications_enabled", True)\
         .not_.is_("phone", "null")\

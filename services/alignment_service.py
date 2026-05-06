@@ -13,10 +13,10 @@ class AlignmentService:
     def __init__(self):
         self.supabase = get_supabase()
     
-    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+    def _get_today_for_restaurant(self, organization_id: int) -> date:
         """Get today's date in restaurant timezone."""
         try:
-            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            result = self.supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
             tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
         except:
             tz_name = "America/New_York"
@@ -25,7 +25,7 @@ class AlignmentService:
     
     async def get_alignment_data(
         self, 
-        restaurant_id: int, 
+        organization_id: int, 
         days: int = 7
     ) -> Dict[str, Any]:
         """
@@ -40,7 +40,7 @@ class AlignmentService:
         - Fairness index
         """
         # Current period
-        end_date = self._get_today_for_restaurant(restaurant_id)
+        end_date = self._get_today_for_restaurant(organization_id)
         start_date = end_date - timedelta(days=days)
         
         # Previous period (for trend comparison)
@@ -48,13 +48,13 @@ class AlignmentService:
         prev_start_date = prev_end_date - timedelta(days=days)
         
         # Get current period data
-        checkins = await self._get_checkins(restaurant_id, start_date, end_date)
-        manager_logs = await self._get_manager_logs(restaurant_id, start_date, end_date)
-        staff_by_role = await self._get_staff_by_role(restaurant_id)
+        checkins = await self._get_checkins(organization_id, start_date, end_date)
+        manager_logs = await self._get_manager_logs(organization_id, start_date, end_date)
+        staff_by_role = await self._get_staff_by_role(organization_id)
         
         # Get previous period data (for trends)
-        prev_checkins = await self._get_checkins(restaurant_id, prev_start_date, prev_end_date)
-        prev_manager_logs = await self._get_manager_logs(restaurant_id, prev_start_date, prev_end_date)
+        prev_checkins = await self._get_checkins(organization_id, prev_start_date, prev_end_date)
+        prev_manager_logs = await self._get_manager_logs(organization_id, prev_start_date, prev_end_date)
         
         # Calculate current scores
         emotional_score = self._calculate_emotional_alignment(checkins)
@@ -150,7 +150,7 @@ class AlignmentService:
     
     async def _get_checkins(
         self, 
-        restaurant_id: int, 
+        organization_id: int, 
         start_date: date, 
         end_date: date
     ) -> List[Dict]:
@@ -158,7 +158,7 @@ class AlignmentService:
         try:
             result = self.supabase.table("sse_daily_checkins") \
                 .select("*, staff:staff_id(full_name, position)") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("checkin_date", start_date.isoformat()) \
                 .lte("checkin_date", end_date.isoformat()) \
                 .execute()
@@ -169,7 +169,7 @@ class AlignmentService:
     
     async def _get_manager_logs(
         self, 
-        restaurant_id: int, 
+        organization_id: int, 
         start_date: date, 
         end_date: date
     ) -> List[Dict]:
@@ -177,7 +177,7 @@ class AlignmentService:
         try:
             result = self.supabase.table("manager_daily_logs") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .gte("log_date", start_date.isoformat()) \
                 .lte("log_date", end_date.isoformat()) \
                 .execute()
@@ -186,12 +186,12 @@ class AlignmentService:
             logger.error(f"Get manager logs error: {e}")
             return []
     
-    async def _get_staff_by_role(self, restaurant_id: int) -> Dict[str, List[str]]:
+    async def _get_staff_by_role(self, organization_id: int) -> Dict[str, List[str]]:
         """Get staff grouped by position"""
         try:
             result = self.supabase.table("staff") \
                 .select("staff_id, position") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .eq("status", "Active") \
                 .execute()
             
@@ -224,8 +224,8 @@ class AlignmentService:
             # Get all synthetic restaurant scores
             # We'll use the stability_score as a proxy for SMA (in production, 
             # you'd have actual SMA scores stored)
-            result = self.supabase.table("synthetic_restaurants") \
-                .select("restaurant_id, sma_score") \
+            result = self.supabase.table("synthetic_organizations") \
+                .select("organization_id, sma_score") \
                 .execute()
 
             restaurants = result.data or []

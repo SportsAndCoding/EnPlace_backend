@@ -6,12 +6,12 @@ from services.auth_service import verify_jwt_token as get_current_user
 from services.checkins_service import CheckinsService
 from models.checkins import CheckinCreate, CheckinResponse, CheckinCreateResponse
 
-def _get_today_for_restaurant(restaurant_id: int) -> date:
+def _get_today_for_restaurant(organization_id: int) -> date:
     """Get today's date in restaurant timezone."""
     from database.supabase_client import get_supabase
     supabase = get_supabase()
     try:
-        result = supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+        result = supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
         tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
     except:
         tz_name = "America/New_York"
@@ -39,7 +39,7 @@ async def create_checkin(
         )
     
     # Verify restaurant access
-    if current_user['restaurant_id'] != checkin.restaurant_id:
+    if current_user['organization_id'] != checkin.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Access denied"
@@ -71,7 +71,7 @@ async def create_checkin(
 
 @router.get("", response_model=List[CheckinResponse])
 async def get_checkins(
-    restaurant_id: int,
+    organization_id: int,
     start_date: date = Query(default=None),
     end_date: date = Query(default=None),
     current_user: dict = Depends(get_current_user)
@@ -81,7 +81,7 @@ async def get_checkins(
     Defaults to last 7 days if no dates provided.
     """
     # Verify restaurant access
-    if current_user['restaurant_id'] != restaurant_id:
+    if current_user['organization_id'] != organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="Access denied"
@@ -89,7 +89,7 @@ async def get_checkins(
     
     # Default to last 7 days
     if not end_date:
-        end_date = _get_today_for_restaurant(restaurant_id)
+        end_date = _get_today_for_restaurant(organization_id)
     if not start_date:
         start_date = end_date - timedelta(days=7)
     
@@ -97,7 +97,7 @@ async def get_checkins(
     
     try:
         checkins = await service.get_checkins_by_restaurant(
-            restaurant_id=restaurant_id,
+            organization_id=organization_id,
             start_date=start_date,
             end_date=end_date
         )
@@ -121,7 +121,7 @@ async def get_my_today_checkin(
     service = CheckinsService()
     
     try:
-        checkin = await service.get_today_checkin(current_user['staff_id'], current_user['restaurant_id'])
+        checkin = await service.get_today_checkin(current_user['staff_id'], current_user['organization_id'])
         
         if checkin:
             return {

@@ -4,7 +4,7 @@ from datetime import datetime
 
 class EscalationCreate(BaseModel):
     """Request model for creating an escalation event"""
-    restaurant_id: int
+    organization_id: int
     event_type: str  # 'burnout', 'fairness', 'retention', 'alignment'
     severity: str = "moderate"  # 'mild', 'moderate', 'serious', 'critical'
     severity_score: Optional[int] = Field(None, ge=0, le=100)
@@ -32,7 +32,7 @@ class HistoryEntryCreate(BaseModel):
 class EscalationResponse(BaseModel):
     """Response model for an escalation event"""
     id: str
-    restaurant_id: int
+    organization_id: int
     event_type: str
     severity: str
     severity_score: Optional[int]

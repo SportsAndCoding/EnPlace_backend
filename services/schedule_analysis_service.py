@@ -55,7 +55,7 @@ STABILITY_WEIGHTS = {
 
 async def analyze_schedule(
     shifts: List[Dict],
-    restaurant_id: int,
+    organization_id: int,
     week_of: str,
     manager_notes: str = ""
 ) -> Dict[str, Any]:
@@ -64,7 +64,7 @@ async def analyze_schedule(
     
     Args:
         shifts: List of normalized shifts from parser
-        restaurant_id: Restaurant ID
+        organization_id: Restaurant ID
         week_of: Start date of week (YYYY-MM-DD)
         manager_notes: Optional context from manager
     
@@ -72,9 +72,9 @@ async def analyze_schedule(
         Complete analysis matching SCHEDULE_DATA structure
     """
     # Fetch supporting data
-    work_profiles = get_work_profiles(restaurant_id)
-    staff_lookup = get_staff_lookup(restaurant_id)
-    historical_shifts = get_historical_shifts(restaurant_id, week_of, weeks_back=4)
+    work_profiles = get_work_profiles(organization_id)
+    staff_lookup = get_staff_lookup(organization_id)
+    historical_shifts = get_historical_shifts(organization_id, week_of, weeks_back=4)
     
     # Build profile lookup
     profile_lookup = {p["staff_id"]: p for p in work_profiles}
@@ -1116,12 +1116,12 @@ def generate_sse_events(
 # HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_work_profiles(restaurant_id: int) -> List[Dict]:
+def get_work_profiles(organization_id: int) -> List[Dict]:
     """Fetch all work profiles for restaurant."""
     try:
         result = supabase.table("staff_work_profile") \
             .select("*") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .execute()
         return result.data or []
     except Exception as e:
@@ -1129,12 +1129,12 @@ def get_work_profiles(restaurant_id: int) -> List[Dict]:
         return []
 
 
-def get_staff_lookup(restaurant_id: int) -> Dict[str, Dict]:
+def get_staff_lookup(organization_id: int) -> Dict[str, Dict]:
     """Get staff lookup dictionary."""
     try:
         result = supabase.table("staff") \
             .select("staff_id, full_name, position") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .eq("status", "Active") \
             .execute()
         return {s["staff_id"]: s for s in (result.data or [])}
@@ -1143,7 +1143,7 @@ def get_staff_lookup(restaurant_id: int) -> Dict[str, Dict]:
         return {}
 
 
-def get_historical_shifts(restaurant_id: int, week_of: str, weeks_back: int = 4) -> List[Dict]:
+def get_historical_shifts(organization_id: int, week_of: str, weeks_back: int = 4) -> List[Dict]:
     """Fetch historical shifts for trend analysis."""
     try:
         end_date = datetime.strptime(week_of, "%Y-%m-%d").date()
@@ -1151,7 +1151,7 @@ def get_historical_shifts(restaurant_id: int, week_of: str, weeks_back: int = 4)
         
         result = supabase.table("sse_shifts") \
             .select("staff_id, shift_date, scheduled_start, scheduled_end, shift_type, position") \
-            .eq("restaurant_id", restaurant_id) \
+            .eq("organization_id", organization_id) \
             .gte("shift_date", start_date.isoformat()) \
             .lt("shift_date", week_of) \
             .execute()

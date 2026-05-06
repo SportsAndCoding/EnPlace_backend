@@ -4,7 +4,7 @@ from datetime import datetime
 
 class CandidateCreate(BaseModel):
     """Request model for creating a candidate"""
-    restaurant_id: int
+    organization_id: int
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -31,7 +31,7 @@ class ScenarioRankings(BaseModel):
 class CandidateResponse(BaseModel):
     """Response model for a candidate"""
     id: str
-    restaurant_id: int
+    organization_id: int
     candidate_code: str
     name: str
     email: Optional[str]

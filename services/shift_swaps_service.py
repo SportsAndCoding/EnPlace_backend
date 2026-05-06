@@ -11,10 +11,10 @@ class ShiftSwapsService:
     def __init__(self):
         self.supabase = get_supabase()
     
-    def _get_today_for_restaurant(self, restaurant_id: int) -> date:
+    def _get_today_for_restaurant(self, organization_id: int) -> date:
         """Get today's date in restaurant timezone."""
         try:
-            result = self.supabase.table("restaurants").select("timezone").eq("id", restaurant_id).single().execute()
+            result = self.supabase.table("organizations").select("timezone").eq("id", organization_id).single().execute()
             tz_name = result.data.get("timezone", "America/New_York") if result.data else "America/New_York"
         except:
             tz_name = "America/New_York"
@@ -23,7 +23,7 @@ class ShiftSwapsService:
     
     async def get_swaps(
         self,
-        restaurant_id: int,
+        organization_id: int,
         status_filter: Optional[str] = None,
         include_past: bool = False
     ) -> List[Dict[str, Any]]:
@@ -32,7 +32,7 @@ class ShiftSwapsService:
             # Get swaps
             query = self.supabase.table("shift_swaps") \
                 .select("*") \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .order("created_at", desc=True)
             
             if status_filter:
@@ -53,7 +53,7 @@ class ShiftSwapsService:
             shifts_map = {s['id']: s for s in (shifts_result.data or [])}
             
             # Filter out past shifts if needed
-            today = self._get_today_for_restaurant(restaurant_id).isoformat()
+            today = self._get_today_for_restaurant(organization_id).isoformat()
             if not include_past:
                 swaps = [s for s in swaps if shifts_map.get(s['shift_id'], {}).get('shift_date', '9999') >= today]
             
@@ -118,13 +118,13 @@ class ShiftSwapsService:
             logger.error(f"Get swaps error: {e}")
             raise e
     
-    async def get_swap_by_id(self, swap_id: int, restaurant_id: int) -> Optional[Dict[str, Any]]:
+    async def get_swap_by_id(self, swap_id: int, organization_id: int) -> Optional[Dict[str, Any]]:
         """Get single swap by ID"""
         try:
             result = self.supabase.table("shift_swaps") \
                 .select("*") \
                 .eq("id", swap_id) \
-                .eq("restaurant_id", restaurant_id) \
+                .eq("organization_id", organization_id) \
                 .single() \
                 .execute()
             
@@ -135,13 +135,13 @@ class ShiftSwapsService:
     async def approve_swap(
         self,
         swap_id: int,
-        restaurant_id: int,
+        organization_id: int,
         decided_by: str
     ) -> Optional[Dict[str, Any]]:
         """Approve a swap and update the shift assignment"""
         try:
             # Get the swap
-            swap = await self.get_swap_by_id(swap_id, restaurant_id)
+            swap = await self.get_swap_by_id(swap_id, organization_id)
             if not swap:
                 return None
             if swap['status'] != 'accepted':
@@ -182,13 +182,13 @@ class ShiftSwapsService:
     async def reject_swap(
         self,
         swap_id: int,
-        restaurant_id: int,
+        organization_id: int,
         decided_by: str,
         notes: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Reject a swap request"""
         try:
-            swap = await self.get_swap_by_id(swap_id, restaurant_id)
+            swap = await self.get_swap_by_id(swap_id, organization_id)
             if not swap or swap['status'] != 'accepted':
                 return None
             

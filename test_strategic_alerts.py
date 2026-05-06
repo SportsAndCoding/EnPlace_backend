@@ -4,12 +4,12 @@ from database.supabase_client import get_supabase
 s = get_supabase()
 
 print("=== Step 1: Verify migration ===")
-owners = s.table("staff").select("staff_id, full_name, restaurant_id, is_owner, strategic_alerts_only").eq("is_owner", True).execute()
+owners = s.table("staff").select("staff_id, full_name, organization_id, is_owner, strategic_alerts_only").eq("is_owner", True).execute()
 if not owners.data:
     print("FAIL - No owners found")
     exit()
 for o in owners.data:
-    print(f"  {o['full_name']} (restaurant {o['restaurant_id']}): strategic_alerts_only = {o.get('strategic_alerts_only')}")
+    print(f"  {o['full_name']} (restaurant {o['organization_id']}): strategic_alerts_only = {o.get('strategic_alerts_only')}")
 
 print("\n=== Step 2: Enable strategic_alerts_only on first owner ===")
 owner = owners.data[0]
