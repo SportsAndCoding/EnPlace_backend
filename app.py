@@ -262,6 +262,8 @@ from routes.relay import router as relay_router
 app.include_router(relay_router)
 from routes.scout import router as scout_router
 app.include_router(scout_router)
+from routes.features import router as features_router
+app.include_router(features_router)
 
 
 @app.get("/")
